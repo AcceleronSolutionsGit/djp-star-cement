@@ -1,0 +1,31 @@
+{
+  "name": "star-cement-pjp-djp-engine",
+  "version": "1.0.0",
+  "description": "Star Cement PJP / DJP Automation - Rule Engine, Data Pipeline & API Platform",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "init-db": "node src/scripts/init-db.js",
+    "migrate-db": "node src/scripts/migrate-sqlite-to-mysql.js",
+    "import-all": "node src/scripts/run-all-imports.js",
+    "test-djp": "node src/scripts/test-djp-generator.js",
+    "test:pjp": "node src/scripts/test-canonical-pjp.js",
+    "reconcile:pjp": "node src/scripts/test-canonical-pjp.js",
+    "verify:reference": "node src/scripts/verify-reference-exact.js",
+    "verify:exports": "node src/scripts/test-api-exports.js",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "build:frontend": "npm run build --prefix frontend"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
+    "express": "^4.19.2",
+    "multer": "^2.2.0",
+    "mysql2": "^3.24.2",
+    "sqlite3": "^5.1.7",
+    "xlsx": "^0.18.5"
+  }
+}

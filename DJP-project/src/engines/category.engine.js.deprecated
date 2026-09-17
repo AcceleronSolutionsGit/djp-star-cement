@@ -1,0 +1,19 @@
+import { dbGet } from '../config/database.js';
+
+export async function determineDealerCategory(dealer) {
+  const code = dealer.sap_code || dealer.rssd_code || dealer.sfa_code;
+
+  // Query 6-month total sales for dealer
+  const row = await dbGet(
+    'SELECT SUM(quantity_mt) as total_sales FROM sales_history WHERE sap_code = ? OR rssd_code = ? OR linked_dealer_code = ?',
+    [code, code, code]
+  );
+
+  const sales = row ? row.total_sales || 0 : 0;
+
+  // Category boundaries based on 6-month volume
+  if (sales >= 500) return 'A'; // Top 40%
+  if (sales >= 200) return 'B'; // 40-60%
+  if (sales >= 50) return 'C';  // 20-40%
+  return 'D';                   // Bottom 20%
+}

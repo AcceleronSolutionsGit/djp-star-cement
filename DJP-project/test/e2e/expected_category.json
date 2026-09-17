@@ -1,0 +1,200 @@
+{
+ "1000001153": {
+  "name": "R P ENTERPRISE",
+  "doa": "03-Feb-21",
+  "tier": "2 \u00b7 Old (DOA <= 2025-06-01)",
+  "category": "Need to Grow"
+ },
+ "1000001141": {
+  "name": "SAHA & CO.",
+  "doa": "28-Apr-08",
+  "tier": "2 \u00b7 Old (DOA <= 2025-06-01)",
+  "category": "Growing"
+ },
+ "1000001144": {
+  "name": "GARG ENTERPRISES",
+  "doa": "04-May-19",
+  "tier": "2 \u00b7 Old (DOA <= 2025-06-01)",
+  "category": "De-growing"
+ },
+ "1000001140": {
+  "name": "RADHA HARDWARE",
+  "doa": "30-Jan-13",
+  "tier": "2 \u00b7 Old (DOA <= 2025-06-01)",
+  "category": "Zero Lifter"
+ },
+ "1000001146": {
+  "name": "HARI OM TRADERS (JALPAIGURI)",
+  "doa": "07-Aug-15",
+  "tier": "2 \u00b7 Old (DOA <= 2025-06-01)",
+  "category": "Churn"
+ },
+ "1000001150": {
+  "name": "PUNAM TRADING",
+  "doa": "15-Sep-25",
+  "tier": "3 \u00b7 Mid (DOA <= 2026-01-02)",
+  "category": "De-growing"
+ },
+ "1000001148": {
+  "name": "MAHESWARI CEMENT AGENCY - ALIPURDUAR",
+  "doa": "20-Nov-25",
+  "tier": "3 \u00b7 Mid (DOA <= 2026-01-02)",
+  "category": "Growing"
+ },
+ "1000001147": {
+  "name": "MAA BHABANI HARDWARE",
+  "doa": "10-Mar-26",
+  "tier": "4 \u00b7 New (DOA > 2026-01-02)",
+  "category": "De-growing"
+ },
+ "1000001154": {
+  "name": "SADHANA ENTERPRISE (MATHURABAGAN)",
+  "doa": "20-Jun-26",
+  "tier": "1 \u00b7 Brand-new (DOA >= 2026-06-16)",
+  "category": "Growing"
+ },
+ "1000002043": {
+  "name": "MD EMRAN ALI KHAN",
+  "doa": "05-Apr-26",
+  "tier": "4 \u00b7 New (DOA > 2026-01-02)",
+  "category": "Need to Grow"
+ },
+ "1000001600": {
+  "name": "KARIM ENTERPRISE",
+  "doa": "12-Aug-25",
+  "tier": "3 \u00b7 Mid (DOA <= 2026-01-02)",
+  "category": "Need to Grow"
+ },
+ "1000001609": {
+  "name": "MURARI MOHAN RETAIL",
+  "doa": "25-Aug-18",
+  "tier": "2 \u00b7 Old (DOA <= 2025-06-01)",
+  "category": "Growing"
+ },
+ "1000001587": {
+  "name": "ADIL HARDWARE",
+  "doa": "16-Apr-15",
+  "tier": "2 \u00b7 Old (DOA <= 2025-06-01)",
+  "category": "Churn"
+ },
+ "1000001590": {
+  "name": "ANSARI ENTERPRISE",
+  "doa": "10-Sep-19",
+  "tier": "2 \u00b7 Old (DOA <= 2025-06-01)",
+  "category": "De-growing"
+ },
+ "1000002033": {
+  "name": "MD YOUSUF ALI ENTERPRISE",
+  "doa": "28-Dec-25",
+  "tier": "3 \u00b7 Mid (DOA <= 2026-01-02)",
+  "category": "Zero Lifter"
+ },
+ "1000001615": {
+  "name": "ROY SUPPLIERS",
+  "doa": "03-Jan-26",
+  "tier": "4 \u00b7 New (DOA > 2026-01-02)",
+  "category": "Zero Lifter"
+ },
+ "1000002018": {
+  "name": "MAHAMMAD HARDWARE",
+  "doa": "14-Feb-26",
+  "tier": "4 \u00b7 New (DOA > 2026-01-02)",
+  "category": "Growing"
+ },
+ "1000001611": {
+  "name": "MD SAHAJAHAN",
+  "doa": "16-May-19",
+  "tier": "2 \u00b7 Old (DOA <= 2025-06-01)",
+  "category": "Growing"
+ },
+ "BHG030": {
+  "name": "GANESH ENTERPRIESES",
+  "doa": "New",
+  "tier": "0 \u00b7 Prospect (DOA='New')",
+  "category": "Prospective"
+ },
+ "NSRE50063": {
+  "name": "SOURABH ENTERPRISES",
+  "doa": "New",
+  "tier": "0 \u00b7 Prospect (DOA='New')",
+  "category": "Prospective"
+ },
+ "WBN114": {
+  "name": "NEW LOCKNATH BUILDERS",
+  "doa": "New",
+  "tier": "0 \u00b7 Prospect (DOA='New')",
+  "category": "Prospective"
+ },
+ "NSRE19295": {
+  "name": "MAA DURGA HARDWARE",
+  "doa": "New",
+  "tier": "0 \u00b7 Prospect (DOA='New')",
+  "category": "Prospective"
+ },
+ "WBS304": {
+  "name": "PAUL ENTERPRISE",
+  "doa": "New",
+  "tier": "0 \u00b7 Prospect (DOA='New')",
+  "category": "Prospective"
+ },
+ "WBJ055": {
+  "name": "MANORAMA BUILDERS",
+  "doa": "New",
+  "tier": "0 \u00b7 Prospect (DOA='New')",
+  "category": "Prospective"
+ },
+ "SDRE02232": {
+  "name": "KESHAB CHANDRA",
+  "doa": "New",
+  "tier": "0 \u00b7 Prospect (DOA='New')",
+  "category": "Prospective"
+ },
+ "9162839842": {
+  "name": "HADDI ENTERPRISES",
+  "doa": "New",
+  "tier": "0 \u00b7 Prospect (DOA='New')",
+  "category": "Prospective"
+ },
+ "BHM111": {
+  "name": "MD SHAHANAWAZ ALAM",
+  "doa": "New",
+  "tier": "0 \u00b7 Prospect (DOA='New')",
+  "category": "Prospective"
+ },
+ "NSRE07029": {
+  "name": "NAIYER TRADERS",
+  "doa": "New",
+  "tier": "0 \u00b7 Prospect (DOA='New')",
+  "category": "Prospective"
+ },
+ "BHJ041": {
+  "name": "JALALGARH TRADERS",
+  "doa": "New",
+  "tier": "0 \u00b7 Prospect (DOA='New')",
+  "category": "Prospective"
+ },
+ "BHS001": {
+  "name": "SAKUTLA CEMENT AGENCY",
+  "doa": "New",
+  "tier": "0 \u00b7 Prospect (DOA='New')",
+  "category": "Prospective"
+ },
+ "7091848061": {
+  "name": "M/S JANKI TRADERS",
+  "doa": "New",
+  "tier": "0 \u00b7 Prospect (DOA='New')",
+  "category": "Prospective"
+ },
+ "BHV025": {
+  "name": "VARUN HARDWARE",
+  "doa": "New",
+  "tier": "0 \u00b7 Prospect (DOA='New')",
+  "category": "Prospective"
+ },
+ "NSRE11166": {
+  "name": "DENZONG ENTERPRISE",
+  "doa": "New",
+  "tier": "0 \u00b7 Prospect (DOA='New')",
+  "category": "Prospective"
+ }
+}

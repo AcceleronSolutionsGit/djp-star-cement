@@ -1,0 +1,63 @@
+import { dbGet } from '../config/database.js';
+
+export async function allocateDailySlots(recommendations, periodMonth, cycleCode) {
+  // Fetch configured daily capacity
+  const capRule = await dbGet('SELECT rule_value FROM business_rules WHERE rule_key = "daily_visit_capacity"');
+  const maxDailyCapacity = parseInt(capRule ? capRule.rule_value : '8', 10);
+
+  const c1StartRule = await dbGet('SELECT rule_value FROM business_rules WHERE rule_key = "c1_start_day"');
+  const c1EndRule = await dbGet('SELECT rule_value FROM business_rules WHERE rule_key = "c1_end_day"');
+  const c2StartRule = await dbGet('SELECT rule_value FROM business_rules WHERE rule_key = "c2_start_day"');
+  const c2EndRule = await dbGet('SELECT rule_value FROM business_rules WHERE rule_key = "c2_end_day"');
+
+  const startDay = cycleCode === 'C1' ? parseInt(c1StartRule?.rule_value || '1', 10) : parseInt(c2StartRule?.rule_value || '16', 10);
+  const endDay = cycleCode === 'C1' ? parseInt(c1EndRule?.rule_value || '15', 10) : parseInt(c2EndRule?.rule_value || '31', 10);
+
+  // Generate date list for cycle
+  const [yearStr, monthStr] = periodMonth.split('-');
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10) - 1; // 0-indexed for JS Date
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const actualEndDay = Math.min(endDay, daysInMonth);
+
+  const dates = [];
+  for (let d = startDay; d <= actualEndDay; d++) {
+    const dayDate = new Date(year, month, d);
+    // Skip Sundays if needed or include all working days (Mon-Sat)
+    if (dayDate.getDay() !== 0) { // 0 is Sunday
+      const yyyy = dayDate.getFullYear();
+      const mm = String(dayDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(dayDate.getDate()).padStart(2, '0');
+      dates.push(`${yyyy}-${mm}-${dd}`);
+    }
+  }
+
+  // Sort recommendations descending by priority score
+  const sortedRecs = [...recommendations].sort((a, b) => b.priority_score - a.priority_score);
+
+  const allocatedPlan = [];
+  let dateIndex = 0;
+  let daySlots = {};
+  dates.forEach((dt) => (daySlots[dt] = []));
+
+  for (const item of sortedRecs) {
+    let assigned = false;
+    let attempts = 0;
+
+    while (!assigned && attempts < dates.length) {
+      const targetDate = dates[dateIndex];
+      if (daySlots[targetDate].length < maxDailyCapacity) {
+        daySlots[targetDate].push(item);
+        item.visit_date = targetDate;
+        item.visit_sequence = daySlots[targetDate].length;
+        allocatedPlan.push(item);
+        assigned = true;
+      }
+      dateIndex = (dateIndex + 1) % dates.length;
+      attempts++;
+    }
+  }
+
+  return allocatedPlan;
+}

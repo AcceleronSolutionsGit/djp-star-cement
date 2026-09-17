@@ -1,0 +1,1507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Field App Simulator — Star Cement PJP/DJP</title>
+<style>
+  /*
+    Two panes side by side: the officer's phone on the left, his manager's on the right.
+    Both talk to the real /api/app/... endpoints — there is no mock data anywhere in this
+    file. Whatever happens here happens in the database, and the admin panel will show it.
+  */
+  :root{
+    --ink:#101828; --muted:#667085; --line:#E4E7EC; --bg:#F2F4F7; --card:#fff;
+    --brand:#1F3864; --brand-soft:#EEF2F8;
+    --ok:#1E7B34; --ok-bg:#E7F4EA; --warn:#B25E09; --warn-bg:#FFF3E0;
+    --bad:#B42318; --bad-bg:#FDECEA; --info:#1F5FA9; --info-bg:#E8F1FB;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  a{color:inherit}
+
+  header.top{background:var(--brand);color:#fff;padding:12px 20px;display:flex;
+             align-items:center;gap:14px;flex-wrap:wrap}
+  header.top h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.2px}
+  header.top .sub{font-size:12.5px;opacity:.8}
+  header.top .spacer{flex:1}
+  header.top select,header.top input{font:inherit;font-size:13px;padding:5px 8px;border-radius:6px;
+      border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);color:#fff}
+  header.top select option{color:#000}
+  header.top label{font-size:12px;opacity:.85;display:flex;gap:6px;align-items:center}
+
+  .stage{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:18px;align-items:start}
+  @media (max-width:1100px){ .stage{grid-template-columns:1fr} }
+  /* A report is not a phone screen. When either pane switches to a reporting tab it
+     takes the whole stage, because a 14-column tracker inside a half-width column is
+     unreadable — which is exactly how it looked before. */
+  .stage.report{grid-template-columns:1fr}
+  .stage.report .phone[hidden]{display:none}
+  .stage.report .phone .body{max-height:none}
+
+  .phone{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;
+         box-shadow:0 1px 2px rgba(16,24,40,.06),0 8px 24px rgba(16,24,40,.06);
+         display:flex;flex-direction:column;min-height:560px}
+  .phone .bar{padding:11px 15px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line)}
+  .phone .bar .who{font-weight:650}
+  .phone .bar .role{font-size:11px;padding:2px 8px;border-radius:10px;background:var(--brand-soft);
+                    color:var(--brand);font-weight:650;letter-spacing:.3px}
+  .phone .bar .spacer{flex:1}
+  .phone .body{padding:14px 15px;flex:1;overflow:auto;max-height:calc(100vh - 210px)}
+  .phone.officer .bar{background:linear-gradient(180deg,#F7F9FC,#fff)}
+  .phone.approver .bar{background:linear-gradient(180deg,#FFF9F0,#fff)}
+
+  .muted{color:var(--muted)}
+  .small{font-size:12.5px}
+  .row{display:flex;align-items:center;gap:9px}
+  .spacer{flex:1}
+  .stack{display:flex;flex-direction:column;gap:10px}
+
+  button{font:inherit;font-size:13px;border-radius:8px;border:1px solid var(--line);
+         background:#fff;color:var(--ink);padding:7px 12px;cursor:pointer}
+  button:hover:not(:disabled){background:#F7F9FC}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+  button.ok{background:var(--ok);border-color:var(--ok);color:#fff}
+  button.warn{background:var(--warn);border-color:var(--warn);color:#fff}
+  button.ghost{background:transparent;border-color:transparent;color:var(--muted);padding:4px 7px}
+  button.tiny{font-size:12px;padding:3px 8px}
+
+  .card{border:1px solid var(--line);border-radius:11px;padding:11px 12px;background:#fff}
+  .card.click{cursor:pointer}
+  .card.click:hover{border-color:#C3CBD6;background:#FCFDFE}
+
+  .pill{display:inline-block;font-size:11px;font-weight:650;padding:2px 8px;border-radius:10px}
+  .st-DRAFT{background:var(--info-bg);color:var(--info)}
+  .st-SUBMITTED{background:var(--warn-bg);color:var(--warn)}
+  .st-RECTIFY{background:var(--bad-bg);color:var(--bad)}
+  .st-APPROVED{background:var(--ok-bg);color:var(--ok)}
+
+  .day{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:9px}
+  .day h4{margin:0;padding:7px 11px;background:#F7F9FC;font-size:12.5px;font-weight:650;
+          border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center}
+  .visit{display:flex;gap:9px;align-items:flex-start;padding:8px 11px;border-bottom:1px solid #F0F2F5}
+  .visit:last-child{border-bottom:0}
+  .visit .seq{width:20px;height:20px;border-radius:50%;background:var(--brand-soft);color:var(--brand);
+              font-size:11px;font-weight:700;display:grid;place-items:center;flex:0 0 auto;margin-top:1px}
+  .visit .name{font-weight:600;font-size:13px}
+  .visit .meta{font-size:11.5px;color:var(--muted)}
+  /* Always visible. These were revealed on hover, which meant that in a demo — and on
+     any touch screen — the officer's two main actions simply could not be found. */
+  .visit .acts{display:flex;gap:4px;opacity:.55;transition:opacity .12s}
+  .visit:hover .acts,.visit .acts:hover{opacity:1}
+
+  .visit.done{background:#F7FCF8}
+  .punched{font-size:10.5px;font-weight:650;padding:1px 6px;border-radius:8px;
+           background:var(--ok-bg);color:var(--ok)}
+
+  .cat{font-size:10.5px;font-weight:650;padding:1px 6px;border-radius:8px;background:#EFEFEF;color:#555}
+  .cat.Growing{background:var(--ok-bg);color:var(--ok)}
+  .cat\.De-growing{background:var(--bad-bg);color:var(--bad)}
+  .cat.Need{background:var(--warn-bg);color:var(--warn)}
+  .cat.Zero{background:var(--info-bg);color:var(--info)}
+  .cat.Prospective{background:#EDE7F6;color:#5E35B1}
+
+  .note{padding:9px 11px;border-radius:9px;font-size:12.5px;display:flex;gap:8px;align-items:flex-start}
+  .note.info{background:var(--info-bg);color:var(--info)}
+  .note.warn{background:var(--warn-bg);color:var(--warn)}
+  .note.bad{background:var(--bad-bg);color:var(--bad)}
+  .note.ok{background:var(--ok-bg);color:var(--ok)}
+
+  .empty{text-align:center;color:var(--muted);padding:34px 12px;font-size:13px}
+
+  dialog{border:0;border-radius:14px;padding:0;max-width:560px;width:92vw;
+         box-shadow:0 20px 60px rgba(16,24,40,.25)}
+  dialog::backdrop{background:rgba(16,24,40,.45)}
+  dialog .dh{padding:13px 16px;border-bottom:1px solid var(--line);font-weight:650;display:flex;gap:10px;align-items:center}
+  dialog .db{padding:14px 16px;max-height:60vh;overflow:auto}
+  dialog .df{padding:12px 16px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
+  dialog input,dialog select,dialog textarea{font:inherit;font-size:13px;width:100%;padding:7px 9px;
+      border:1px solid var(--line);border-radius:8px}
+  dialog label{font-size:12px;font-weight:600;color:var(--muted);display:block;margin:9px 0 4px}
+
+  .log{font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#0F1724;color:#C7D2E0;
+       border-radius:11px;padding:11px 13px;max-height:190px;overflow:auto;margin:0 18px 18px}
+  .log .m{color:#7DD3A0}.log .p{color:#F0B37E}.log .e{color:#F2777A}.log .u{color:#8AB4F8}
+  .log b{color:#fff;font-weight:600}
+
+  .tabs{display:flex;gap:2px;background:#F2F4F7;padding:2px;border-radius:8px}
+  .tab{font-size:12px;padding:4px 10px;border:0;background:transparent;color:var(--muted);
+       border-radius:6px;font-weight:600}
+  .tab.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(16,24,40,.08)}
+
+  /* adherence */
+  .kpi{display:flex;align-items:baseline;gap:10px;margin-bottom:3px}
+  .kpi b{font-size:30px;font-weight:700;letter-spacing:-.5px}
+  .meter{height:9px;border-radius:6px;background:#EDF0F4;overflow:hidden;margin:8px 0 3px}
+  .meter i{display:block;height:100%;border-radius:6px;background:var(--ok)}
+  .meter i.mid{background:var(--warn)} .meter i.low{background:var(--bad)}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:11px 0}
+  .grid4 div{border:1px solid var(--line);border-radius:9px;padding:7px 9px;text-align:center}
+  .grid4 b{display:block;font-size:17px}
+  .grid4 span{font-size:10.5px;color:var(--muted)}
+  .dl{display:flex;gap:9px;align-items:flex-start;padding:7px 10px;border-bottom:1px solid #F0F2F5}
+  .dl:last-child{border-bottom:0}
+  .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;margin-top:5px}
+  .dot.DONE{background:var(--ok)} .dot.PARTIAL{background:var(--warn)} .dot.PENDING{background:#C3CBD6}
+  /* counter tracker — the client's Target vs Adherence sheet, on a phone */
+  .tk{width:100%;border-collapse:collapse;font-size:12px}
+  .tk th{background:#F7F9FC;color:var(--muted);font-size:10.5px;font-weight:650;
+         text-align:right;padding:5px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .tk th.l,.tk td.l{text-align:left}
+  .tk td{padding:5px 6px;border-bottom:1px solid #F0F2F5;text-align:right;white-space:nowrap}
+  .tk tr:last-child td{border-bottom:0}
+  .tk tbody tr:hover{background:#FCFDFE}
+  .tk .role{background:var(--brand-soft);color:var(--brand);text-align:center;
+            font-size:10px;letter-spacing:.3px}
+  .tk tfoot td{font-weight:700;background:#F7F9FC;border-top:1px solid var(--line)}
+  .tk .neg{color:var(--ok)}
+  .tk .due{color:var(--bad);font-weight:650}
+  .tkwrap{overflow-x:auto}
+  .dimline{font-size:10.5px;color:var(--muted)}
+
+  .dayrow{display:grid;grid-template-columns:86px 1fr 54px 70px;gap:8px;align-items:center;
+          padding:5px 10px;border-bottom:1px solid #F0F2F5;font-size:12.5px}
+  .dayrow:last-child{border-bottom:0}
+  .dayrow.head{font-weight:650;color:var(--muted);font-size:11px;background:#F7F9FC;
+               border-bottom:1px solid var(--line)}
+  .dayrow.future{opacity:.45}
+  .spark{height:7px;border-radius:5px;background:#EDF0F4;overflow:hidden;position:relative}
+  .spark i{display:block;height:100%;background:var(--ok)}
+  .spark i.mid{background:var(--warn)} .spark i.low{background:var(--bad)}
+
+  .tm{display:flex;gap:9px;align-items:center;padding:8px 10px;border-bottom:1px solid #F0F2F5}
+  .tm:last-child{border-bottom:0}
+  .tm .bar2{flex:1;height:7px;border-radius:5px;background:#EDF0F4;overflow:hidden}
+  .tm .bar2 i{display:block;height:100%;background:var(--ok)}
+  .tm .bar2 i.mid{background:var(--warn)} .tm .bar2 i.low{background:var(--bad)}
+
+  .trail{font-size:12px;display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+  .trail span{padding:2px 7px;border-radius:8px;background:#F2F4F7;color:#475467}
+  .trail i{color:var(--muted);font-style:normal}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div>
+    <h1>Field App Simulator</h1>
+    <div class="sub">Officer edits &amp; L1 approval — driving the live API</div>
+  </div>
+  <div class="spacer"></div>
+  <label>Month
+    <select id="fMonth" style="min-width:230px"></select>
+  </label>
+  <label>Cycle
+    <select id="fCycle"><option value="C1">C1</option><option value="C2">C2</option></select>
+  </label>
+  <button id="btnRegen" class="tiny">Regenerate C2</button>
+  <button id="btnReload" class="tiny">Reload</button>
+</header>
+
+<div class="stage">
+  <!-- ── OFFICER ─────────────────────────────────────────────────────────── -->
+  <section class="phone officer">
+    <div class="bar">
+      <span class="role">OFFICER</span>
+      <select id="selOfficer" style="max-width:260px;font:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--line);border-radius:7px"></select>
+      <div class="spacer"></div>
+      <div class="tabs" id="offTabs">
+        <button class="tab on" data-tab="plan">Plan</button>
+        <button class="tab" data-tab="adherence">Adherence</button>
+      </div>
+      <button class="ghost tiny" id="btnOffBack" hidden>&larr; Plans</button>
+    </div>
+    <div class="body" id="officerBody"><div class="empty">Pick an officer to begin.</div></div>
+  </section>
+
+  <!-- ── APPROVER ────────────────────────────────────────────────────────── -->
+  <section class="phone approver">
+    <div class="bar">
+      <span class="role">L1 APPROVER</span>
+      <span class="who" id="apprName">—</span>
+      <div class="spacer"></div>
+      <div class="tabs" id="apprTabs">
+        <button class="tab on" data-tab="inbox">Inbox</button>
+        <button class="tab" data-tab="adherence">Team</button>
+      </div>
+      <button class="ghost tiny" id="btnApprBack" hidden>&larr; Inbox</button>
+    </div>
+    <div class="body" id="approverBody"><div class="empty">The officer's manager appears here.</div></div>
+  </section>
+</div>
+
+<pre class="log" id="log"></pre>
+
+<!-- add-visit dialog -->
+<dialog id="dlgAdd">
+  <div class="dh">Add a visit</div>
+  <div class="db">
+    <label>Day</label>
+    <select id="addDay"></select>
+    <label>Dealer <span class="muted" style="font-weight:400">— only dealers targeted to this officer this cycle</span></label>
+    <select id="addDealer" size="10" style="height:auto"></select>
+    <label>Purpose</label>
+    <input id="addPurpose" value="Routine Visit">
+    <div id="addErr"></div>
+  </div>
+  <div class="df">
+    <button onclick="dlgAdd.close()">Cancel</button>
+    <button class="primary" id="addGo">Add visit</button>
+  </div>
+</dialog>
+
+<!-- move-visit dialog -->
+<dialog id="dlgMove">
+  <div class="dh">Move this visit</div>
+  <div class="db">
+    <div id="moveWhat" class="small muted" style="margin-bottom:8px"></div>
+    <label>New day</label>
+    <select id="moveDay"></select>
+    <div id="moveErr"></div>
+  </div>
+  <div class="df">
+    <button onclick="dlgMove.close()">Cancel</button>
+    <button class="primary" id="moveGo">Move</button>
+  </div>
+</dialog>
+
+<!-- extra-visit dialog — a visit he made beyond the plan -->
+<dialog id="dlgExtra">
+  <div class="dh">Log a visit</div>
+  <div class="db">
+    <div class="small muted" style="margin-bottom:8px">Any counter of his, any day in the
+      cycle. A visit that is not on the plan is still recorded — it is reported as an
+      unplanned visit rather than counted as adherence to a plan that did not ask for it.</div>
+    <label>Day</label>
+    <select id="extraDay"></select>
+    <label>Counter <span class="muted" style="font-weight:400">— his targets this cycle</span></label>
+    <select id="extraDealer" size="10" style="height:auto"></select>
+    <label>Purpose</label>
+    <input id="extraPurpose" value="Routine Visit">
+    <div id="extraErr"></div>
+  </div>
+  <div class="df">
+    <button onclick="dlgExtra.close()">Cancel</button>
+    <button class="ok" id="extraGo">Log visit</button>
+  </div>
+</dialog>
+
+<!-- punch dialog — the officer recording that he actually went -->
+<dialog id="dlgPunch">
+  <div class="dh">Punch this visit</div>
+  <div class="db">
+    <div id="punchWhat" class="small muted" style="margin-bottom:8px"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><label>Check in</label><input id="punchIn" value="10:05"></div>
+      <div><label>Check out</label><input id="punchOut" value="10:39"></div>
+    </div>
+    <label>Visit status</label>
+    <select id="punchStatus">
+      <option>Productive</option>
+      <option>Non productive</option>
+    </select>
+    <label>Purpose of visit</label>
+    <input id="punchPurpose" value="Routine Visit">
+    <label>Remarks</label>
+    <input id="punchRemarks" placeholder="optional">
+    <div class="small muted" style="margin-top:9px">Written to the SFA visit log in the
+      same columns the SFA report upload writes, so adherence counts it identically.</div>
+    <div id="punchErr"></div>
+  </div>
+  <div class="df">
+    <button onclick="dlgPunch.close()">Cancel</button>
+    <button class="ok" id="punchGo">Punch visit</button>
+  </div>
+</dialog>
+
+<!-- regenerate dialog -->
+<dialog id="dlgRegen">
+  <div class="dh">Regenerate C2 from adherence</div>
+  <div class="db">
+    <div id="regenWhat"></div>
+    <div id="regenErr"></div>
+  </div>
+  <div class="df">
+    <button onclick="dlgRegen.close()">Close</button>
+    <button class="primary" id="regenGo">Regenerate C2</button>
+  </div>
+</dialog>
+
+<!-- decision dialog -->
+<dialog id="dlgDecide">
+  <div class="dh" id="decideTitle">Decision</div>
+  <div class="db">
+    <div id="decideWhat" class="small muted" style="margin-bottom:8px"></div>
+    <label>Remarks <span class="muted" style="font-weight:400">— the officer sees this</span></label>
+    <textarea id="decideRemarks" rows="3"></textarea>
+    <div id="decideErr"></div>
+  </div>
+  <div class="df">
+    <button onclick="dlgDecide.close()">Cancel</button>
+    <button class="primary" id="decideGo">Confirm</button>
+  </div>
+</dialog>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// Everything below calls the real API. No mock data.
+// ─────────────────────────────────────────────────────────────────────────────
+const API = '/api';
+const $  = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// Some dealer names arrive from the client's own spreadsheets already carrying HTML
+// entities — "SHIV SANKAR SANITARY &amp; HARDWARE STORES". Escaping that again prints
+// the entity on screen. Decode first, then escape, so the name reads as written.
+const DECODE = { '&amp;':'&', '&lt;':'<', '&gt;':'>', '&quot;':'"', '&#39;':"'", '&apos;':"'", '&nbsp;':' ' };
+const name = s => esc(String(s ?? '').replace(/&(amp|lt|gt|quot|#39|apos|nbsp);/g, m => DECODE[m] ?? m));
+
+const state = {
+  month: '', cycle: 'C1',
+  periods: [],             // [{month, plans, officers, cycles:{C1:{plans,visits}}, by_status}]
+  offTab: 'plan',          // officer pane: plan | adherence
+  apprTab: 'inbox',        // approver pane: inbox | adherence
+  officers: [],            // [{emp_code, emp_name, role}]
+  officer: null,
+  officerPlans: [],
+  officerPlan: null,       // open plan detail
+  approver: null,          // {emp_code, name, role}
+  inbox: [],
+  approverPlan: null,
+  dealers: []
+};
+
+// ── request log, so the demo can show what the app actually called ──────────
+function logLine(method, url, status, note) {
+  const cls = status >= 400 ? 'e' : (method === 'GET' ? 'u' : 'm');
+  const el = $('log');
+  el.innerHTML += `<div><span class="${cls}">${method.padEnd(6)}</span> ` +
+    `<b>${esc(url)}</b> <span class="p">${status}</span>` +
+    (note ? ` <span class="muted">${esc(note)}</span>` : '') + `</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+async function call(method, path, body) {
+  const url = API + path;
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  let res, text, data = null;
+  try {
+    res = await fetch(url, opts);
+    text = await res.text();
+    try { data = text ? JSON.parse(text) : null; } catch { data = { error: text.slice(0, 200) }; }
+  } catch (e) {
+    logLine(method, path, 0, e.message);
+    throw new Error('Could not reach the API — is the server running?');
+  }
+  logLine(method, path, res.status, data?.message || data?.error || '');
+  if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+  return data;
+}
+
+const statusPill = s => `<span class="pill st-${esc(s)}">${esc(s)}</span>`;
+const catClass = c => {
+  const s = String(c || '');
+  if (s.startsWith('De-')) return 'De-growing';
+  if (s.startsWith('Need')) return 'Need';
+  if (s.startsWith('Zero')) return 'Zero';
+  if (s.startsWith('Growing')) return 'Growing';
+  if (s.startsWith('Prospective')) return 'Prospective';
+  return '';
+};
+const dayLabel = iso => {
+  const d = new Date(iso + 'T00:00:00Z');
+  return isNaN(d) ? iso :
+    d.toLocaleDateString(undefined, { weekday:'short', day:'2-digit', month:'short', timeZone:'UTC' });
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Boot — ask which months actually have plans, then open one
+// ─────────────────────────────────────────────────────────────────────────────
+const monthLabel = m => {
+  const [y, mo] = String(m).split('-').map(Number);
+  if (!y || !mo) return String(m);
+  return new Date(Date.UTC(y, mo - 1, 1))
+    .toLocaleDateString(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' });
+};
+
+async function boot() {
+  $('fCycle').value = state.cycle = localStorage.getItem('sim_cycle') || 'C1';
+  await loadPeriods();
+}
+
+// Populate the month picker from what has actually been generated. A free-text
+// month box would happily accept a month nobody generated and show an empty
+// screen mid-demo; this can only offer months that exist, and says what is in
+// each one before you pick it.
+async function loadPeriods() {
+  const sel = $('fMonth');
+  try {
+    const r = await call('GET', '/app/admin/plan-periods');
+    state.periods = r.periods || [];
+  } catch (e) {
+    state.periods = [];
+    $('officerBody').innerHTML = `<div class="note bad">${esc(e.message)}</div>`;
+    return;
+  }
+
+  if (!state.periods.length) {
+    sel.innerHTML = `<option value="">— no plans generated yet —</option>`;
+    state.month = '';
+    $('officerBody').innerHTML =
+      `<div class="note warn">There are no plans in the database at all.
+       Run <b>Generate Plans</b> in the admin panel first, then press Reload.</div>`;
+    $('approverBody').innerHTML = `<div class="empty">—</div>`;
+    return;
+  }
+
+  sel.innerHTML = state.periods.map(p => {
+    const cycles = Object.keys(p.cycles || {}).sort()
+      .map(c => `${c} ${p.cycles[c].plans}`).join(' · ');
+    return `<option value="${esc(p.month)}">${esc(monthLabel(p.month))} — ${p.plans} plans` +
+           (cycles ? ` (${esc(cycles)})` : '') + `</option>`;
+  }).join('');
+
+  // Keep the month you were last on if it still exists; otherwise the newest one.
+  const remembered = localStorage.getItem('sim_month');
+  state.month = state.periods.some(p => p.month === remembered)
+    ? remembered : state.periods[0].month;
+  sel.value = state.month;
+  localStorage.setItem('sim_month', state.month);
+
+  syncCycleOptions();
+  await loadOfficers();
+}
+
+// Only offer cycles that exist in the chosen month, and label them with their
+// plan counts — so C2 is visibly empty rather than silently empty.
+function syncCycleOptions() {
+  const sel = $('fCycle');
+  const period = state.periods.find(p => p.month === state.month);
+  const cycles = period ? period.cycles || {} : {};
+  const names = ['C1', 'C2'];
+  sel.innerHTML = names.map(c => {
+    const n = cycles[c]?.plans || 0;
+    return `<option value="${c}"${n ? '' : ' disabled'}>${c}${n ? ` · ${n}` : ' · none'}</option>`;
+  }).join('');
+  if (!(cycles[state.cycle]?.plans)) {
+    const firstReal = names.find(c => cycles[c]?.plans);
+    if (firstReal) state.cycle = firstReal;
+  }
+  sel.value = state.cycle;
+  localStorage.setItem('sim_cycle', state.cycle);
+}
+
+async function loadOfficers() {
+  if (!state.month) return;                 // nothing generated yet — loadPeriods() said so
+  $('officerBody').innerHTML = `<div class="empty">Loading…</div>`;
+  let plans = [];
+  try {
+    const r = await call('GET', `/app/admin/plans?month=${state.month}&cycle=${state.cycle}`);
+    plans = r.plans || r || [];
+  } catch (e) {
+    $('officerBody').innerHTML = `<div class="note bad">${esc(e.message)}</div>`;
+    return;
+  }
+  const seen = new Map();
+  for (const p of plans) {
+    const code = p.employee?.emp_code || p.emp_code;
+    const name = p.employee?.emp_name || p.emp_name;
+    const role = p.employee?.role || p.emp_role || 'SO';
+    if (!code) continue;
+    if (!seen.has(code)) seen.set(code, { emp_code: code, emp_name: name, role, visits: 0, routed: false });
+    const o = seen.get(code);
+    o.visits += Number(p.counts?.visits || 0);
+    if (p.approver?.emp_code) o.routed = true;     // has an L1 — his plan can be approved
+  }
+
+  // Order for a demo, not alphabetically. A plan with no L1 approver cannot be
+  // submitted anywhere, and an officer with no visits has nothing to show, so both
+  // sink to the bottom — otherwise the page opens on whoever happens to sort first
+  // and the first thing the client sees is a dead end.
+  const rank = { SO: 0, ASM: 1, RSM: 2, ZH: 3 };
+  state.officers = [...seen.values()].sort((a, b) =>
+    (b.routed - a.routed) ||
+    ((rank[a.role] ?? 9) - (rank[b.role] ?? 9)) ||
+    (b.visits - a.visits) ||
+    String(a.emp_name).localeCompare(String(b.emp_name)));
+
+  const sel = $('selOfficer');
+  if (!state.officers.length) {
+    sel.innerHTML = '';
+    $('officerBody').innerHTML =
+      `<div class="note warn">No plans for ${esc(state.month)} ${esc(state.cycle)}.
+       Run <b>Generate Plans</b> for this month in the admin panel first.</div>`;
+    $('approverBody').innerHTML = `<div class="empty">—</div>`;
+    return;
+  }
+  sel.innerHTML = state.officers.map(o =>
+    `<option value="${esc(o.emp_code)}">${esc(o.emp_name)} · ${esc(o.role)} · ${o.visits} visits` +
+    (o.routed ? '' : ' · no approver') + `</option>`).join('');
+  const remembered = localStorage.getItem('sim_officer');
+  if (remembered && state.officers.some(o => o.emp_code === remembered)) sel.value = remembered;
+  await selectOfficer(sel.value);
+}
+
+async function selectOfficer(code) {
+  state.officer = state.officers.find(o => o.emp_code === code) || null;
+  state.officerPlan = null;
+  localStorage.setItem('sim_officer', code);
+  await renderOfficerPane();
+}
+
+/** Whichever officer tab is showing. */
+async function renderOfficerPane() {
+  if (!state.officer) return;
+  return state.offTab === 'adherence' ? renderMyAdherence() : renderOfficerPlans();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OFFICER — list view
+// ─────────────────────────────────────────────────────────────────────────────
+async function renderOfficerPlans() {
+  $('btnOffBack').hidden = true;
+  const el = $('officerBody');
+  el.innerHTML = `<div class="empty">Loading…</div>`;
+  try {
+    const r = await call('GET',
+      `/app/officers/${encodeURIComponent(state.officer.emp_code)}/plans?month=${state.month}&cycle=${state.cycle}`);
+    state.officerPlans = r.plans || [];
+  } catch (e) { el.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
+
+  if (!state.officerPlans.length) {
+    el.innerHTML = `<div class="empty">No plan for this officer in ${esc(state.month)} ${esc(state.cycle)}.</div>`;
+    return renderApprover(null);
+  }
+
+  el.innerHTML = `<div class="stack">` + state.officerPlans.map(p => `
+    <div class="card click" onclick="openPlan(${p.plan_id})">
+      <div class="row">
+        <div>
+          <div style="font-weight:650">${esc(p.period_month)} · ${esc(p.cycle_code)}</div>
+          <div class="small muted">${p.counts.visits} visits · ${p.counts.dealers} dealers · ${p.counts.working_days} days</div>
+        </div>
+        <div class="spacer"></div>
+        ${statusPill(p.status)}
+      </div>
+      <div class="small muted" style="margin-top:7px">
+        Approver: <b>${esc(p.approver?.name || '—')}</b> ${p.approver?.role ? '· ' + esc(p.approver.role) : ''}
+      </div>
+      ${p.rectification.count ? `<div class="note bad small" style="margin-top:8px">
+        Sent back once — ${esc(p.rectification.remarks || 'no remark')}</div>` : ''}
+    </div>`).join('') + `</div>`;
+
+  // The approver pane follows whichever plan is on screen.
+  await renderApprover(state.officerPlans[0]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OFFICER — detail view
+// ─────────────────────────────────────────────────────────────────────────────
+async function openPlan(planId) {
+  const el = $('officerBody');
+  el.innerHTML = `<div class="empty">Loading…</div>`;
+  try {
+    const r = await call('GET',
+      `/app/officers/${encodeURIComponent(state.officer.emp_code)}/plans/${planId}`);
+    state.officerPlan = r.plan;
+  } catch (e) { el.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
+  renderPlanDetail();
+  await renderApprover(state.officerPlan);
+}
+
+function renderPlanDetail() {
+  const p = state.officerPlan;
+  const a = p.actions;
+  $('btnOffBack').hidden = false;
+
+  const trail = (p.history || []).map(h => `<span>${esc(h.action_type)}</span>`).join('<i>→</i>');
+
+  $('officerBody').innerHTML = `
+    <div class="row" style="margin-bottom:11px">
+      <div>
+        <div style="font-weight:650;font-size:15px">${esc(p.period_month)} · ${esc(p.cycle_code)}</div>
+        <div class="small muted">${p.counts.visits} visits · ${p.counts.dealers} dealers · ${p.counts.working_days} days</div>
+      </div>
+      <div class="spacer"></div>${statusPill(p.status)}
+    </div>
+
+    ${p.status === 'RECTIFY' ? `<div class="note bad" style="margin-bottom:11px">
+        <div><b>Sent back by ${esc(p.rectification.requested_by || 'your manager')}</b><br>
+        ${esc(p.rectification.remarks || '')}</div></div>` : ''}
+    ${p.status === 'SUBMITTED' ? `<div class="note warn" style="margin-bottom:11px">
+        With ${esc(p.approver?.name || 'your manager')} for approval — locked until they act.</div>` : ''}
+    ${p.status === 'APPROVED' ? `<div class="note ok" style="margin-bottom:11px">
+        Approved. This plan is final.</div>` : ''}
+
+    <div class="row" style="margin-bottom:11px">
+      <button class="primary" ${a.can_edit ? '' : 'disabled'} onclick="openAdd()">+ Add to plan</button>
+      <button onclick="openExtraVisit()">+ Log a visit</button>
+      <div class="spacer"></div>
+      <button class="ok" ${a.can_submit ? '' : 'disabled'} onclick="submitPlan()">Submit for approval</button>
+    </div>
+
+    ${(p.days || []).map(d => `
+      <div class="day">
+        <h4>${esc(dayLabel(d.visit_date))}
+          <span class="muted" style="font-weight:400">${d.visit_count} visit${d.visit_count===1?'':'s'}</span></h4>
+        ${d.visits.map(v => `
+          <div class="visit${v.executed ? ' done' : ''}">
+            <div class="seq">${v.sequence ?? '•'}</div>
+            <div style="min-width:0;flex:1">
+              <div class="name">${esc(v.dealer.name)}
+                ${v.executed ? `<span class="punched">✓ visited ${esc((v.execution?.check_in_time||'').slice(0,5))}</span>` : ''}</div>
+              <div class="meta">${esc(v.dealer.sap_code || v.dealer.sfa_code || '')}
+                ${v.dealer.block ? '· ' + esc(v.dealer.block) : ''}
+                ${v.final_category ? `<span class="cat ${catClass(v.final_category)}">${esc(v.final_category)}</span>` : ''}
+                ${v.grade ? '· grade ' + esc(v.grade) : ''}
+                ${v.source === 'AGENT' ? '· <b>added by you</b>' : ''}</div>
+            </div>
+            <div class="acts">
+              ${v.executed ? '' : `<button class="tiny" onclick="openPunch('${d.visit_date}','${esc(v.dealer.sfa_code || v.dealer.sap_code || '')}','${esc(v.dealer.name)}','${esc(v.purpose_of_visit || '')}')">Punch</button>`}
+              <button class="tiny" ${a.can_edit?'':'disabled'} onclick="openMove(${v.detail_id},'${esc(v.dealer.name)}','${d.visit_date}')">Move</button>
+              <button class="tiny" ${a.can_edit?'':'disabled'} onclick="removeVisit(${v.detail_id})">Remove</button>
+            </div>
+          </div>`).join('')}
+      </div>`).join('') || `<div class="empty">No visits on this plan.</div>`}
+
+    ${trail ? `<div class="small muted" style="margin-top:12px">History</div>
+               <div class="trail" style="margin-top:5px">${trail}</div>` : ''}
+  `;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OFFICER — edits
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Every day the plan may hold a visit, with how full each one is.
+ * The API sends the whole cycle window; falling back to the days already in use keeps
+ * the page working against an older server.
+ */
+function planDays() {
+  const w = state.officerPlan.cycle_window;
+  if (w?.days?.length) return w.days;
+  return (state.officerPlan.days || []).map(d => ({ visit_date: d.visit_date, visit_count: d.visit_count, full: false }));
+}
+
+function dayOptions(exclude) {
+  return planDays().map(d => {
+    const label = dayLabel(d.visit_date) +
+      (d.visit_count ? ` — ${d.visit_count} visit${d.visit_count === 1 ? '' : 's'}` : ' — free') +
+      (d.full ? ' (full)' : '');
+    const off = d.full || d.visit_date === exclude;
+    return `<option value="${d.visit_date}"${off ? ' disabled' : ''}>${esc(label)}</option>`;
+  }).join('');
+}
+
+async function openAdd() {
+  const p = state.officerPlan;
+  $('addErr').innerHTML = '';
+  $('addDay').innerHTML = dayOptions(null);
+
+  $('addDealer').innerHTML = `<option disabled>Loading…</option>`;
+  dlgAdd.showModal();
+  try {
+    const r = await call('GET',
+      `/app/officers/${encodeURIComponent(state.officer.emp_code)}/dealers?month=${p.period_month}&cycle=${p.cycle_code}`);
+    state.dealers = r.dealers || [];
+  } catch (e) {
+    $('addDealer').innerHTML = '';
+    $('addErr').innerHTML = `<div class="note bad" style="margin-top:9px">${esc(e.message)}</div>`;
+    return;
+  }
+  $('addDealer').innerHTML = state.dealers.map(d =>
+    `<option value="${esc(d.sap_code)}" data-name="${esc(d.dealer_name)}">
+       ${esc(d.dealer_name)} — ${esc(d.final_category || '')}${d.already_planned ? ' · already on plan' : ''}
+     </option>`).join('') || `<option disabled>No dealers targeted to this officer</option>`;
+}
+
+$('addGo').onclick = async () => {
+  const p = state.officerPlan;
+  const opt = $('addDealer').selectedOptions[0];
+  if (!opt) return;
+  $('addErr').innerHTML = '';
+  try {
+    await call('POST',
+      `/app/officers/${encodeURIComponent(state.officer.emp_code)}/plans/${p.plan_id}/visits`,
+      { visitDate: $('addDay').value, dealerSapCode: opt.value,
+        dealerName: opt.dataset.name, purposeOfVisit: $('addPurpose').value });
+    dlgAdd.close();
+    await openPlan(p.plan_id);
+  } catch (e) {
+    $('addErr').innerHTML = `<div class="note bad" style="margin-top:9px">${esc(e.message)}</div>`;
+  }
+};
+
+function openMove(detailId, name, currentDay) {
+  $('moveErr').innerHTML = '';
+  $('moveWhat').textContent = `${name} — currently ${dayLabel(currentDay)}`;
+  // The current day is disabled: moving a visit to the day it is already on is not a
+  // move, and the API would reject it as a duplicate.
+  $('moveDay').innerHTML = dayOptions(currentDay);
+  $('moveGo').dataset.id = detailId;
+  dlgMove.showModal();
+}
+
+$('moveGo').onclick = async () => {
+  const p = state.officerPlan, id = $('moveGo').dataset.id;
+  $('moveErr').innerHTML = '';
+  try {
+    await call('PUT',
+      `/app/officers/${encodeURIComponent(state.officer.emp_code)}/plans/${p.plan_id}/visits/${id}`,
+      { visitDate: $('moveDay').value });
+    dlgMove.close();
+    await openPlan(p.plan_id);
+  } catch (e) {
+    $('moveErr').innerHTML = `<div class="note bad" style="margin-top:9px">${esc(e.message)}</div>`;
+  }
+};
+
+async function removeVisit(detailId) {
+  const p = state.officerPlan;
+  try {
+    await call('DELETE',
+      `/app/officers/${encodeURIComponent(state.officer.emp_code)}/plans/${p.plan_id}/visits/${detailId}`);
+    await openPlan(p.plan_id);
+  } catch (e) { alert(e.message); }
+}
+
+async function submitPlan() {
+  const p = state.officerPlan;
+  try {
+    await call('POST',
+      `/app/officers/${encodeURIComponent(state.officer.emp_code)}/plans/${p.plan_id}/submit`, {});
+    await openPlan(p.plan_id);
+  } catch (e) { alert(e.message); }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUNCH — the officer recording that he actually went
+//
+// Writes one row to the SFA visit log through /visits/punch, in the same columns the
+// SFA report upload writes. Nothing about it is special downstream: adherence counts
+// it like an uploaded visit, and so does the C2 regeneration.
+// ─────────────────────────────────────────────────────────────────────────────
+let punchCtx = null;
+
+/**
+ * A visit beyond the plan.
+ *
+ * Officers do visit a counter more often than the DJP asked, or visit one the plan
+ * never listed. Refusing to record that would push it off the books entirely, and the
+ * adherence engine already reports unplanned visits separately — so it is recorded and
+ * labelled, not hidden. The only thing still refused is the same counter twice on the
+ * same day, which the SFA system treats as one visit.
+ */
+async function openExtraVisit() {
+  $('extraErr').innerHTML = '';
+  $('extraDay').innerHTML = (state.officerPlan ? dayOptions(null) : '') ||
+    (state.adherenceDays || []).map(d => `<option value="${d}">${esc(dayLabel(d))}</option>`).join('');
+  $('extraDealer').innerHTML = `<option disabled>Loading…</option>`;
+  dlgExtra.showModal();
+  try {
+    const r = await call('GET',
+      `/app/officers/${encodeURIComponent(state.officer.emp_code)}/dealers` +
+      `?month=${state.month}&cycle=${state.cycle}`);
+    const list = r.dealers || [];
+    $('extraDealer').innerHTML = list.map(d => {
+      const code = d.sfa_code || d.sap_code;
+      return `<option value="${esc(code)}">${name(d.dealer_name)} · ${esc(code)}` +
+             `${d.final_category ? ' · ' + esc(d.final_category) : ''}` +
+             `${d.already_planned ? ' · on plan' : ''}</option>`;
+    }).join('') || `<option disabled>No counters targeted to him this cycle.</option>`;
+  } catch (e) {
+    $('extraDealer').innerHTML = `<option disabled>${esc(e.message)}</option>`;
+  }
+}
+
+$('extraGo').onclick = async () => {
+  const code = $('extraDealer').value;
+  const day  = $('extraDay').value;
+  if (!code || !day) return;
+  $('extraErr').innerHTML = '';
+  try {
+    const r = await call('POST',
+      `/app/officers/${encodeURIComponent(state.officer.emp_code)}/visits/punch`, {
+        visitDate: day, dealerCode: code,
+        checkInTime: $('punchIn').value || '10:05',
+        checkOutTime: $('punchOut').value || '10:39',
+        visitStatus: 'Productive',
+        purposeOfVisit: $('extraPurpose').value
+      });
+    dlgExtra.close();
+    if (r && r.planned === false) alert(r.message);
+    if (state.offTab === 'adherence') await renderMyAdherence();
+    else if (state.officerPlan) await openPlan(state.officerPlan.plan_id);
+  } catch (e) {
+    $('extraErr').innerHTML = `<div class="note bad" style="margin-top:9px">${esc(e.message)}</div>`;
+  }
+};
+
+
+function openPunch(date, code, name, purpose) {
+  punchCtx = { date, code, name };
+  $('punchErr').innerHTML = '';
+  $('punchWhat').innerHTML =
+    `<b>${esc(name)}</b> · ${esc(code)}<br>${esc(dayLabel(date))}`;
+  $('punchPurpose').value = purpose || 'Routine Visit';
+  $('punchRemarks').value = '';
+  $('punchStatus').value = 'Productive';
+  dlgPunch.showModal();
+}
+
+$('punchGo').onclick = async () => {
+  if (!punchCtx) return;
+  $('punchErr').innerHTML = '';
+  try {
+    const r = await call('POST',
+      `/app/officers/${encodeURIComponent(state.officer.emp_code)}/visits/punch`, {
+        visitDate: punchCtx.date,
+        dealerCode: punchCtx.code,
+        checkInTime: $('punchIn').value,
+        checkOutTime: $('punchOut').value,
+        visitStatus: $('punchStatus').value,
+        purposeOfVisit: $('punchPurpose').value,
+        remarks: $('punchRemarks').value
+      });
+    dlgPunch.close();
+    if (r && r.planned === false) {
+      alert(r.message);         // an unplanned visit is allowed, but say so
+    }
+    // Re-read whichever view is showing: the plan gets its tick, the adherence
+    // number moves. Both come from the server, not from anything cached here.
+    if (state.offTab === 'adherence') await renderMyAdherence();
+    else if (state.officerPlan) await openPlan(state.officerPlan.plan_id);
+  } catch (e) {
+    $('punchErr').innerHTML = `<div class="note bad" style="margin-top:9px">${esc(e.message)}</div>`;
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REGENERATE C2 — rebuild the second cycle from what was actually visited
+//
+// The same endpoint the admin panel uses. It reads C1 adherence from the SFA log
+// (punched visits included), throws away the existing C2, and rebuilds it with the
+// counters that were missed in C1 prioritised.
+// ─────────────────────────────────────────────────────────────────────────────
+$('btnRegen').onclick = () => {
+  $('regenErr').innerHTML = '';
+  $('regenWhat').innerHTML = `
+    <div class="small">This rebuilds <b>C2 for ${esc(state.month)}</b> from the SFA visit
+      log — every punch above counts.</div>
+    <div class="note warn" style="margin-top:10px">The existing C2 plans, targets and
+      DJP recommendations for this month are deleted and built again. C1 is untouched.
+      Counters missed in C1 are scheduled earlier in the new C2.</div>`;
+  $('regenGo').disabled = false;
+  dlgRegen.showModal();
+};
+
+$('regenGo').onclick = async () => {
+  $('regenGo').disabled = true;
+  $('regenErr').innerHTML = `<div class="small muted" style="margin-top:10px">Regenerating — this
+    runs the full DJP pipeline and can take a minute…</div>`;
+  try {
+    const r = await call('POST', '/generation/regenerate-c2', { periodMonth: state.month });
+    const a = r.adherenceSummary || {};
+    $('regenErr').innerHTML = `
+      <div class="note ok" style="margin-top:10px"><div>
+        <b>${esc(r.message || 'C2 regenerated.')}</b><br>
+        C1 planned ${a.plannedC1Visits ?? '—'} · completed ${a.completedC1Visits ?? '—'}
+        · missed ${a.missedC1Visits ?? a.missedCount ?? '—'}
+      </div></div>`;
+    state.cycle = 'C2';
+    localStorage.setItem('sim_cycle', 'C2');
+    await loadPeriods();          // the new C2 appears in the pickers
+  } catch (e) {
+    $('regenErr').innerHTML = `<div class="note bad" style="margin-top:10px">${esc(e.message)}</div>`;
+    $('regenGo').disabled = false;
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADHERENCE — the other half of the officer's app
+//
+// The plan answers "where am I supposed to go". This answers "did I go" — the same
+// engine the admin panel's adherence report uses, scoped to one person, so the number
+// on his phone is the number his manager sees. SFA visit logs are the evidence.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const meterClass = p => p >= 80 ? '' : (p >= 50 ? 'mid' : 'low');
+const dayShort = iso => {
+  const d = new Date(String(iso).slice(0, 10) + 'T00:00:00Z');
+  return isNaN(d) ? String(iso) :
+    d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', timeZone: 'UTC' });
+};
+
+/**
+ * What happens to the plan after the 15th.
+ *
+ * C1 is days 1-15, C2 is 16 to month end — and C2 is not simply "the rest of the
+ * month". It is rebuilt from what C1 achieved: counters missed in C1 are carried
+ * forward and scheduled earlier, counters already visited drop down the order. This
+ * panel says, counter by counter, which of those happened.
+ */
+const OUTCOME = {
+  CARRIED_FORWARD:      { t: 'Carried into C2',    cls: 'warn' },
+  MISSED_AND_DROPPED:   { t: 'Missed, not in C2',  cls: 'bad'  },
+  NEW_IN_C2:            { t: 'New in C2',          cls: 'info' },
+  VISITED_AND_REPEATED: { t: 'Visited, due again', cls: 'ok'   },
+  VISITED_AND_DONE:     { t: 'Visited, done',      cls: 'ok'   },
+  OTHER:                { t: '—',                  cls: ''     }
+};
+
+function handoverPanel(h) {
+  const s2 = h.summary;
+  const rows = h.counters.filter(c =>
+    ['CARRIED_FORWARD', 'MISSED_AND_DROPPED', 'NEW_IN_C2'].includes(c.outcome));
+
+  return `
+    <div class="card" style="margin-top:11px;padding:0">
+      <div style="padding:9px 11px;border-bottom:1px solid var(--line);font-weight:650;font-size:13px">
+        After the 15th — what changes in the plan
+        <span class="muted small" style="font-weight:400">· C1 ${esc(h.windows.C1)}
+          · C2 ${esc(h.windows.C2)}</span>
+      </div>
+
+      <div style="padding:11px">
+        <div class="note ${h.c2_exists ? 'info' : 'warn'}">${esc(h.explains)}</div>
+        <div class="grid4" style="margin-bottom:0">
+          <div><b>${s2.c1_counters}</b><span>counters in C1</span></div>
+          <div><b>${s2.c1_visited}</b><span>visited in C1</span></div>
+          <div><b>${s2.c1_missed}</b><span>missed in C1</span></div>
+          <div><b>${s2.carried_forward}</b><span>carried into C2</span></div>
+        </div>
+        <div class="small muted">
+          ${h.c2_exists
+            ? `${s2.carried_in_first_half_of_c2} of the ${s2.carried_forward} carried counters
+               are scheduled on or before ${esc(h.summary.c2_median_first_day || '—')} —
+               the earlier half of C2. ${s2.new_in_c2} counter(s) appear in C2 that were not
+               in C1 at all, and ${s2.missed_and_dropped} missed counter(s) did not come back.`
+            : `Press <b>Regenerate C2</b> above to rebuild the second half of the month from
+               these figures. The ${s2.c1_missed} missed counters are what would carry forward.`}
+        </div>
+      </div>
+
+      ${rows.length ? `
+      <div class="tkwrap">
+        <table class="tk">
+          <thead><tr>
+            <th class="l">Counter</th><th class="l">Officer</th>
+            <th>C1 plan</th><th class="l">C1 days</th><th class="l">Visited?</th>
+            <th>C2 plan</th><th class="l">C2 first day</th><th class="l">Outcome</th>
+          </tr></thead>
+          <tbody>${rows.map(c => {
+            const o = OUTCOME[c.outcome] || OUTCOME.OTHER;
+            return `<tr>
+              <td class="l"><div style="font-weight:600">${name(c.dealer_name)}</div>
+                <div class="dimline">${esc(c.customer_code || '')}</div></td>
+              <td class="l">${esc(c.emp_name || c.emp_code)}
+                <span class="dimline">${esc(c.role)}</span></td>
+              <td>${c.c1_planned || '—'}</td>
+              <td class="l dimline">${c.c1_dates.map(dayShort).join(', ') || '—'}</td>
+              <td class="l">${c.c1_planned ? (c.c1_visited
+                  ? '<span class="punched">✓ yes</span>'
+                  : '<span class="due">no</span>') : '—'}</td>
+              <td>${c.c2_planned || '—'}</td>
+              <td class="l">${c.c2_first_day ? dayShort(c.c2_first_day) : '—'}</td>
+              <td class="l"><span class="pill st-${o.cls === 'ok' ? 'APPROVED'
+                : o.cls === 'bad' ? 'RECTIFY' : o.cls === 'warn' ? 'SUBMITTED' : 'DRAFT'}">${o.t}</span></td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table>
+      </div>` : `<div class="empty">Nothing carried, dropped or newly added.</div>`}
+    </div>`;
+}
+
+/**
+ * The counter tracker — the client's "Target vs Adhe SO_ASM_RSM_ZM" sheet.
+ *
+ * One row per counter, four role blocks, five figures each. Their two formulas, which
+ * the server applies and this only displays:
+ *
+ *   Adherence % = adhered / IF(MTD planned < 1, planned, MTD planned)
+ *   Pending     = MTD planned - adhered          (negative = ahead of schedule)
+ */
+const pctCell = p => `<b class="${p >= 80 ? '' : (p >= 50 ? '' : '')}">${p}%</b>`;
+const pendCell = p => p > 0
+  ? `<span class="due">${p}</span>`
+  : (p < 0 ? `<span class="neg">${p}</span>` : '0');
+
+function trackerTable(t, roles) {
+  const shown = roles.filter(r => t.totals[r] && t.totals[r].planned > 0);
+  const cols = shown.length ? shown : ['SO'];
+
+  const head = `
+    <tr>
+      <th class="l" rowspan="2">Counter</th>
+      ${cols.map(r => `<th class="role" colspan="5">${r}</th>`).join('')}
+    </tr>
+    <tr>
+      ${cols.map(() => `
+        <th title="No. of visits Planned in (DJP)">Plan</th>
+        <th title="MTD No. of visits Planned in (DJP)">MTD</th>
+        <th title="No. of visits Adhered">Adh</th>
+        <th title="Adherence %">%</th>
+        <th title="Pending to visit as per DJP">Pend</th>`).join('')}
+    </tr>`;
+
+  const body = t.counters.map(c => `
+    <tr>
+      <td class="l">
+        <div style="font-weight:600">${name(c.dealer_name)}</div>
+        <div class="dimline">${esc(c.customer_code || c.sfa_code || '')}
+          ${c.category ? '· ' + esc(c.category) : ''}${c.grade ? ' ' + esc(c.grade) : ''}
+          ${c.counter_strategy ? '· ' + esc(c.counter_strategy) : ''}</div>
+        <div class="dimline">${[c.zone, c.region, c.area, c.block, c.cust_type]
+          .filter(Boolean).map(esc).join(' · ')}</div>
+        <div class="dimline">SO ${esc(c.so_name || '—')} · ASM ${esc(c.asm_name || '—')}
+          · RSM ${esc(c.rsm_name || '—')} · ZSH ${esc(c.zsh_name || '—')}</div>
+      </td>
+      ${cols.map(r => {
+        const b = c.by_role[r];
+        return `<td>${b.planned}</td><td>${b.mtd_planned}</td><td>${b.adhered}</td>
+                <td>${pctCell(b.adherence_pct)}</td><td>${pendCell(b.pending)}</td>`;
+      }).join('')}
+    </tr>`).join('');
+
+  const foot = `
+    <tr>
+      <td class="l">All ${t.count} counters</td>
+      ${cols.map(r => {
+        const b = t.totals[r];
+        return `<td>${b.planned}</td><td>${b.mtd_planned}</td><td>${b.adhered}</td>
+                <td>${pctCell(b.adherence_pct)}</td><td>${pendCell(b.pending)}</td>`;
+      }).join('')}
+    </tr>`;
+
+  return `
+    <div class="card" style="margin-top:11px;padding:0">
+      <div style="padding:9px 11px;border-bottom:1px solid var(--line);font-weight:650;font-size:13px">
+        Counter tracker
+        <span class="muted small" style="font-weight:400">· Target vs Adhered, as on
+          ${esc(t.as_on_date)} (${Math.round((t.elapsed_fraction || 0) * 100)}% of the cycle elapsed)</span>
+      </div>
+      <div class="tkwrap">
+        <table class="tk">
+          <thead>${head}</thead>
+          <tbody>${body || `<tr><td class="l">No counters.</td></tr>`}</tbody>
+          <tfoot>${foot}</tfoot>
+        </table>
+      </div>
+      <div class="small muted" style="padding:8px 11px;border-top:1px solid var(--line)">
+        <b>Plan</b> full cycle · <b>MTD</b> plan prorated to today · <b>Adh</b> from the SFA log
+        · <b>%</b> = Adh ÷ MTD, falling back to Plan while MTD &lt; 1
+        · <b>Pend</b> = MTD − Adh, <span class="neg">negative means ahead of schedule</span>.
+        Sorted by who is furthest behind.
+      </div>
+    </div>`;
+}
+
+/**
+ * The day-by-day table, with the running percentage.
+ *
+ * The big number above it is the client's prorated MTD figure. This is a different
+ * question — of the visits DUE by each date, how many had been made by then — so the
+ * two will not match, and the caption says so rather than leaving it to be discovered.
+ */
+function dailyTable(d) {
+  const rows = d.days.map(r => `
+    <div class="dayrow${r.is_future ? ' future' : ''}">
+      <div>${esc(dayLabel(r.date))}</div>
+      <div class="spark" title="${r.cum_adhered} of ${r.cum_planned} due by this day">
+        <i class="${meterClass(r.cum_pct)}" style="width:${Math.min(100, r.cum_pct)}%"></i></div>
+      <div style="text-align:right;font-weight:650">${r.is_future ? '' : r.cum_pct + '%'}</div>
+      <div style="text-align:right" class="muted">
+        ${r.planned ? r.same_day + '/' + r.planned : '—'}${r.unplanned ? ' +' + r.unplanned : ''}</div>
+    </div>`).join('');
+
+  return `
+    <div class="card" style="margin-top:11px;padding:0">
+      <div style="padding:9px 11px;border-bottom:1px solid var(--line);font-weight:650;font-size:13px">
+        Day by day
+        <span class="muted small" style="font-weight:400">· running total to
+          ${esc(d.as_on_date)}: <b>${d.totals.cum_pct}%</b>
+          (${d.totals.cum_adhered} of ${d.totals.cum_planned} due)</span>
+      </div>
+      <div class="dayrow head">
+        <div>Day</div><div>Cumulative</div><div style="text-align:right">%</div>
+        <div style="text-align:right">done/due</div>
+      </div>
+      ${rows}
+      <div class="small muted" style="padding:8px 11px;border-top:1px solid var(--line)">
+        Cumulative % is visits made by that date ÷ visits due by that date, capped per
+        counter — exact to the day, so it will differ from the prorated MTD figure above.
+        <b>+n</b> marks unplanned visits logged that day.
+      </div>
+    </div>`;
+}
+
+async function renderMyAdherence() {
+  $('btnOffBack').hidden = true;
+  const el = $('officerBody');
+  el.innerHTML = `<div class="empty">Loading…</div>`;
+
+  let a;
+  try {
+    a = await call('GET',
+      `/app/officers/${encodeURIComponent(state.officer.emp_code)}/adherence` +
+      `?month=${state.month}&cycle=${state.cycle}`);
+  } catch (e) { el.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
+
+  if (!a.has_plan) {
+    el.innerHTML = `<div class="empty">No plan for ${esc(state.month)} ${esc(state.cycle)},
+      so there is nothing to measure against.</div>`;
+    return;
+  }
+
+  const t = a.totals, pc = a.adherence.capped_pct;
+  state.adherenceDays = (a.dealers || []).flatMap(d => d.planned_dates)
+    .filter(Boolean).sort().filter((v, i, arr) => arr.indexOf(v) === i);
+
+  // His own day-by-day run, from the admin endpoint narrowed to him.
+  let daily = null, tracker = null;
+  try {
+    daily = await call('GET', `/app/admin/adherence/daily?month=${state.month}` +
+      `&cycle=${state.cycle}&empCode=${encodeURIComponent(state.officer.emp_code)}`);
+  } catch (e) { /* the headline still stands without it */ }
+  try {
+    tracker = await call('GET', `/app/admin/adherence/counters?month=${state.month}` +
+      `&cycle=${state.cycle}&empCode=${encodeURIComponent(state.officer.emp_code)}`);
+  } catch (e) { /* ditto */ }
+  let handover = null;
+  try {
+    handover = await call('GET', `/app/admin/cycle-handover?month=${state.month}` +
+      `&empCode=${encodeURIComponent(state.officer.emp_code)}`);
+  } catch (e) { /* ditto */ }
+  const done    = a.dealers.filter(d => d.state === 'DONE').length;
+  const partial = a.dealers.filter(d => d.state === 'PARTIAL').length;
+  const pending = a.dealers.filter(d => d.state === 'PENDING').length;
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="kpi"><b>${pc}%</b>
+        <span class="muted small">adherence as on ${esc(a.as_on_date || '—')}</span></div>
+      <div class="meter"><i class="${meterClass(pc)}" style="width:${Math.min(100, pc)}%"></i></div>
+      <div class="small muted">${t.adhered} of ${t.mtd_due} visits due so far
+        · ${Math.round((a.elapsed_fraction || 0) * 100)}% of the cycle elapsed
+        ${a.adherence.over_visited ? '· <b>over-visited</b>' : ''}</div>
+      <div class="row" style="margin:10px 0 0">
+        <button onclick="openExtraVisit()">+ Log a visit beyond the plan</button>
+        <div class="spacer"></div>
+      </div>
+      <div class="grid4">
+        <div><b>${t.dealers_on_plan}</b><span>on plan</span></div>
+        <div><b>${t.dealers_visited}</b><span>visited</span></div>
+        <div><b>${t.dealers_missed}</b><span>missed</span></div>
+        <div><b>${t.pending}</b><span>visits left</span></div>
+      </div>
+      <div class="small muted">Counted from the SFA visit log, the same way the admin
+        report counts it: due = planned × elapsed fraction of the cycle.</div>
+    </div>
+
+    <div class="card" style="margin-top:11px;padding:0">
+      <div style="padding:9px 11px;border-bottom:1px solid var(--line);font-weight:650;font-size:13px">
+        His counters
+        <span class="muted small" style="font-weight:400">
+          · ${pending} not started · ${partial} part done · ${done} done</span>
+      </div>
+      ${a.dealers.map(d => `
+        <div class="dl">
+          <span class="dot ${esc(d.state)}"></span>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:13px">${name(d.dealer_name)}</div>
+            <div class="small muted">
+              planned ${d.planned}${d.planned_dates.length ? ' · ' + d.planned_dates.map(dayShort).join(', ') : ''}
+              ${d.visit_dates.length ? ` · <span style="color:var(--ok)">visited ${d.visit_dates.map(dayShort).join(', ')}</span>` : ''}
+            </div>
+          </div>
+          <div style="text-align:right;white-space:nowrap">
+            <div class="small muted">${d.adhered}/${d.planned}</div>
+            ${d.state === 'DONE' || !d.planned_dates.length ? '' :
+              `<button class="tiny" style="margin-top:3px"
+                 onclick="openPunch('${d.planned_dates[d.visit_dates.length] || d.planned_dates[0]}','${esc(d.sap_code)}','${esc(d.dealer_name)}','Routine Visit')">Punch</button>`}
+          </div>
+        </div>`).join('') ||
+        `<div class="empty">No counters on this plan.</div>`}
+    </div>
+
+    ${daily ? dailyTable(daily) : ''}
+    ${handover ? handoverPanel(handover) : ''}
+    ${tracker ? trackerTable(tracker, [state.officer.role || 'SO']) : ''}`;
+}
+
+async function renderTeamAdherence() {
+  const el = $('approverBody');
+  $('btnApprBack').hidden = true;
+  const appr = state.approver;
+  if (!appr?.emp_code) {
+    el.innerHTML = `<div class="note warn">No L1 approver for this officer, so there is no
+      team to report on.</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="empty">Loading…</div>`;
+
+  let r;
+  try {
+    r = await call('GET',
+      `/app/approvers/${encodeURIComponent(appr.emp_code)}/team-adherence` +
+      `?month=${state.month}&cycle=${state.cycle}`);
+  } catch (e) { el.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
+
+  if (!r.team.length) {
+    el.innerHTML = `<div class="empty">Nobody reports to ${esc(appr.name)} for
+      ${esc(state.month)} ${esc(state.cycle)}.</div>`;
+    return;
+  }
+
+  let daily = null, tracker = null;
+  try {
+    daily = await call('GET',
+      `/app/approvers/${encodeURIComponent(appr.emp_code)}/adherence/daily` +
+      `?month=${state.month}&cycle=${state.cycle}`);
+  } catch (e) { /* the team list still stands without it */ }
+  try {
+    tracker = await call('GET',
+      `/app/approvers/${encodeURIComponent(appr.emp_code)}/adherence/counters` +
+      `?month=${state.month}&cycle=${state.cycle}`);
+  } catch (e) { /* ditto */ }
+  let handover = null;
+  try {
+    handover = await call('GET', `/app/admin/cycle-handover?month=${state.month}`);
+  } catch (e) { /* ditto */ }
+
+  const tp = r.totals.capped_pct;
+  el.innerHTML = `
+    <div class="card">
+      <div class="kpi"><b>${tp}%</b>
+        <span class="muted small">team adherence as on ${esc(r.as_on_date || '—')}</span></div>
+      <div class="meter"><i class="${meterClass(tp)}" style="width:${Math.min(100, tp)}%"></i></div>
+      <div class="small muted">${r.totals.adhered} of ${r.totals.mtd_due} visits due
+        across ${r.team_size} ${r.team_size === 1 ? 'person' : 'people'}</div>
+    </div>
+
+    <div class="card" style="margin-top:11px;padding:0">
+      <div style="padding:9px 11px;border-bottom:1px solid var(--line);font-weight:650;font-size:13px">
+        Weakest first
+      </div>
+      ${r.team.map(m => `
+        <div class="tm">
+          <div style="width:132px;min-width:0">
+            <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;
+                        white-space:nowrap">${esc(m.emp_name)}</div>
+            <div class="small muted">${esc(m.role)} · ${esc(m.emp_code)}</div>
+          </div>
+          <div class="bar2"><i class="${meterClass(m.capped_pct)}"
+               style="width:${Math.min(100, m.capped_pct)}%"></i></div>
+          <div style="width:96px;text-align:right">
+            <div style="font-weight:650;font-size:13px">${m.capped_pct}%</div>
+            <div class="small muted">${m.adhered}/${m.mtd_due} · ${m.dealers_missed} missed</div>
+          </div>
+        </div>`).join('')}
+    </div>
+
+    ${daily ? dailyTable(daily) : ''}
+    ${handover ? handoverPanel(handover) : ''}
+    ${tracker ? trackerTable(tracker, ['SO', 'ASM', 'RSM', 'ZH']) : ''}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// APPROVER
+// ─────────────────────────────────────────────────────────────────────────────
+async function renderApprover(planSummary) {
+  const el = $('approverBody');
+  const appr = planSummary?.approver || state.approver;
+  if (appr?.emp_code) {
+    state.approver = appr;
+    $('apprName').innerHTML = `${esc(appr.name)} <span class="muted small">· ${esc(appr.role || '')}</span>`;
+  }
+  if (state.apprTab === 'adherence') return renderTeamAdherence();
+  if (!appr?.emp_code) {
+    $('apprName').textContent = '—';
+    el.innerHTML = `<div class="note warn">This officer has no L1 approver in the Dealer/SO mapping,
+      so his plan cannot reach anyone's inbox.</div>`;
+    return;
+  }
+  state.approver = appr;
+  $('apprName').innerHTML = `${esc(appr.name)} <span class="muted small">· ${esc(appr.role || '')}</span>`;
+  $('btnApprBack').hidden = true;
+
+  el.innerHTML = `<div class="empty">Loading inbox…</div>`;
+  try {
+    const r = await call('GET',
+      `/app/approvers/${encodeURIComponent(appr.emp_code)}/inbox?month=${state.month}`);
+    state.inbox = r.plans || [];
+  } catch (e) { el.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
+
+  if (!state.inbox.length) {
+    el.innerHTML = `<div class="empty">Nothing waiting.<br>
+      <span class="small">A plan appears here the moment the officer submits it.</span></div>`;
+    return;
+  }
+  el.innerHTML = `<div class="small muted" style="margin-bottom:9px">
+      ${state.inbox.length} plan${state.inbox.length===1?'':'s'} awaiting your decision</div>
+    <div class="stack">` + state.inbox.map(p => `
+    <div class="card click" onclick="openForApproval(${p.plan_id})">
+      <div class="row">
+        <div>
+          <div style="font-weight:650">${esc(p.employee.emp_name)}</div>
+          <div class="small muted">${esc(p.employee.role)} · ${p.counts.visits} visits · ${p.counts.dealers} dealers</div>
+        </div>
+        <div class="spacer"></div>${statusPill(p.status)}
+      </div>
+      ${p.rectification.count ? `<div class="small" style="margin-top:7px;color:var(--warn)">
+         Already sent back once — Approve is the only remaining action.</div>` : ''}
+    </div>`).join('') + `</div>`;
+}
+
+async function openForApproval(planId) {
+  const el = $('approverBody');
+  el.innerHTML = `<div class="empty">Loading…</div>`;
+  try {
+    const r = await call('GET',
+      `/app/approvers/${encodeURIComponent(state.approver.emp_code)}/plans/${planId}`);
+    state.approverPlan = r.plan;
+  } catch (e) { el.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
+
+  const p = state.approverPlan, a = p.actions;
+  $('btnApprBack').hidden = false;
+  const mix = Object.entries(p.category_mix || {})
+    .sort((x,y)=>y[1]-x[1])
+    .map(([k,v]) => `<span class="cat ${catClass(k)}">${esc(k)} ${v}</span>`).join(' ');
+
+  el.innerHTML = `
+    <div class="row" style="margin-bottom:11px">
+      <div>
+        <div style="font-weight:650;font-size:15px">${esc(p.employee.emp_name)}</div>
+        <div class="small muted">${esc(p.employee.role)} · ${esc(p.period_month)} ${esc(p.cycle_code)}
+          · ${p.counts.visits} visits over ${p.counts.working_days} days</div>
+      </div>
+      <div class="spacer"></div>${statusPill(p.status)}
+    </div>
+
+    ${mix ? `<div style="margin-bottom:11px">${mix}</div>` : ''}
+
+    ${a.rectify_blocked_reason ? `<div class="note warn" style="margin-bottom:11px">
+        ${esc(a.rectify_blocked_reason)}</div>` : ''}
+
+    <div class="row" style="margin-bottom:12px">
+      <button class="warn" ${a.can_rectify ? '' : 'disabled'} onclick="decide('RECTIFY')">Send back</button>
+      <div class="spacer"></div>
+      <button class="ok" ${a.can_approve ? '' : 'disabled'} onclick="decide('APPROVE')">Approve</button>
+    </div>
+
+    ${(p.days || []).map(d => `
+      <div class="day">
+        <h4>${esc(dayLabel(d.visit_date))}
+          <span class="muted" style="font-weight:400">${d.visit_count}</span></h4>
+        ${d.visits.map(v => `
+          <div class="visit">
+            <div class="seq">${v.sequence ?? '•'}</div>
+            <div style="min-width:0;flex:1">
+              <div class="name">${name(v.dealer.name)}</div>
+              <div class="meta">${esc(v.dealer.sap_code || '')}
+                ${v.final_category ? `<span class="cat ${catClass(v.final_category)}">${esc(v.final_category)}</span>` : ''}
+                ${v.source === 'AGENT' ? '· <b>added by the officer</b>' : ''}</div>
+            </div>
+          </div>`).join('')}
+      </div>`).join('')}
+  `;
+}
+
+function decide(action) {
+  $('decideErr').innerHTML = '';
+  $('decideTitle').textContent = action === 'APPROVE' ? 'Approve this plan' : 'Send back for rectification';
+  $('decideWhat').textContent = `${state.approverPlan.employee.emp_name} — ${state.approverPlan.counts.visits} visits`;
+  $('decideRemarks').value = action === 'APPROVE' ? 'Approved.' : '';
+  $('decideGo').dataset.action = action;
+  $('decideGo').className = action === 'APPROVE' ? 'ok' : 'warn';
+  $('decideGo').textContent = action === 'APPROVE' ? 'Approve' : 'Send back';
+  dlgDecide.showModal();
+}
+
+$('decideGo').onclick = async () => {
+  const p = state.approverPlan, action = $('decideGo').dataset.action;
+  $('decideErr').innerHTML = '';
+  try {
+    await call('POST',
+      `/app/approvers/${encodeURIComponent(state.approver.emp_code)}/plans/${p.plan_id}/decision`,
+      { action, remarks: $('decideRemarks').value });
+    dlgDecide.close();
+    // Both sides move together — that is the point of the demo.
+    await renderApprover({ approver: state.approver });
+    if (state.officerPlan && state.officerPlan.plan_id === p.plan_id) await openPlan(p.plan_id);
+    else await renderOfficerPlans();
+  } catch (e) {
+    $('decideErr').innerHTML = `<div class="note bad" style="margin-top:9px">${esc(e.message)}</div>`;
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+$('selOfficer').onchange = e => selectOfficer(e.target.value);
+// Tabs. The officer's pane and his manager's each switch independently, so the demo
+// can show one man's diary next to his team's numbers.
+/**
+ * Reporting tabs take the whole stage; the phone panes are for the app itself.
+ * Only one report is open at a time — two 14-column trackers side by side is the
+ * problem this is solving, not a feature.
+ */
+function applyLayout() {
+  const officerReport  = state.offTab === 'adherence';
+  const approverReport = state.apprTab === 'adherence';
+  const report = officerReport || approverReport;
+  document.querySelector('.stage').classList.toggle('report', report);
+  document.querySelector('.phone.officer').hidden  = report && !officerReport;
+  document.querySelector('.phone.approver').hidden = report && !approverReport;
+}
+
+for (const b of document.querySelectorAll('#offTabs .tab')) {
+  b.onclick = () => {
+    state.offTab = b.dataset.tab;
+    if (state.offTab === 'adherence') state.apprTab = 'inbox';   // one report at a time
+    for (const x of document.querySelectorAll('#offTabs .tab')) x.classList.toggle('on', x === b);
+    for (const x of document.querySelectorAll('#apprTabs .tab'))
+      x.classList.toggle('on', x.dataset.tab === state.apprTab);
+    applyLayout();
+    renderOfficerPane();
+    if (state.offTab !== 'adherence') renderApprover({ approver: state.approver });
+  };
+}
+for (const b of document.querySelectorAll('#apprTabs .tab')) {
+  b.onclick = () => {
+    state.apprTab = b.dataset.tab;
+    if (state.apprTab === 'adherence') state.offTab = 'plan';
+    for (const x of document.querySelectorAll('#apprTabs .tab')) x.classList.toggle('on', x === b);
+    for (const x of document.querySelectorAll('#offTabs .tab'))
+      x.classList.toggle('on', x.dataset.tab === state.offTab);
+    applyLayout();
+    renderApprover({ approver: state.approver });
+    if (state.apprTab !== 'adherence') renderOfficerPane();
+  };
+}
+
+$('btnOffBack').onclick  = () => renderOfficerPane();
+$('btnApprBack').onclick = () => renderApprover({ approver: state.approver });
+// Reload re-reads the month list too — after a Generate Plans run in the admin
+// panel, the new month appears in the picker without a page refresh.
+$('btnReload').onclick   = () => loadPeriods();
+$('fMonth').onchange = e => {
+  state.month = e.target.value;
+  localStorage.setItem('sim_month', state.month);
+  state.officerPlan = null;
+  syncCycleOptions();
+  loadOfficers();
+};
+$('fCycle').onchange = e => {
+  state.cycle = e.target.value;
+  localStorage.setItem('sim_cycle', state.cycle);
+  state.officerPlan = null;
+  loadOfficers();
+};
+
+boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+
+════════════════════════════════════════════════════════════════════════════
+  "I changed the value in Dealer Performance and nothing changed"
+════════════════════════════════════════════════════════════════════════════
+
+── A.  Re-uploading with an edited figure ──────────────────────────────
+     upload 1 — June in the sheet.................... 1200
+     upload 1 — what the engine reads................ 1200
+     upload 1 — rows in dealer_performance_history... 1
+
+     upload 2 — June edited in the sheet to.......... 500
+     upload 2 — what the engine reads................ 500
+     upload 2 — rows in dealer_performance_history... 1
+       the rows themselves........................... [{"qty":500,"batch":"BATCH-2"}]
+  ✓ the second upload REPLACES the first — one row, not two
+       the old behaviour summed them to.............. 1700
+  ✓ the engine reads the corrected figure, not the sum of both
+       indexes on dealer_performance_history......... sqlite_autoindex_dealer_performance_history_1
+  ✓ the unique key the upsert needs is present
+
+── B.  Editing only ONE of the two June columns ────────────────────────
+     both June columns at 1200 → engine reads........ 1200
+
+     "Jun'26 SALE" left at........................... 1200
+     "Jun-26 SALE" edited down to.................... 500
+     what the engine reads........................... 500
+       the old behaviour kept the larger and read.... 1200
+  ✓ the edited column is honoured — the later column wins
+       warnings returned............................. 1
+       "BANKA BEHARI PAUL: 2026-06 appears twice with different values — "Jun'26 SALE" = 1200, "Jun-26 SALE" = 500. Using 500 (the later column). If you edited one of these, edit the other to match."
+  ✓ and the disagreement is REPORTED, not swallowed
+
+     editing the OTHER one instead — "Jun'26 SALE" to 500
+     "Jun-26 SALE" left at........................... 1200
+     what the engine reads........................... 1200
+  ✓ editing only the earlier column leaves the later one in charge
+
+     editing BOTH columns to......................... 500
+     what the engine reads........................... 500
+  ✓ only editing BOTH columns moves the number
+
+── C.  And uploading alone never changes what the screen shows ─────────
+       target rows after six uploads................. 0
+  ✓ dealer_visit_targets is not touched by an upload
+
+     The Master sheet, the plans and the categories all read dealer_visit_targets.
+     That table is only written by Generate Plans. Uploading a corrected file and
+     refreshing the screen shows the previous figures because nothing recalculated.
+
+────────────────────────────────────────────────────────────────────────────
+8 passed, 0 failed

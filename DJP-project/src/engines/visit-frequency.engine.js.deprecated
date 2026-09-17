@@ -1,0 +1,42 @@
+export const APPROVED_VISIT_MATRIX = {
+  SO: {
+    'Zero Lifter': { A: 1, B: 2, C: 3, D: 2 },
+    'Prospective': { A: 1, B: 2, C: 3, D: 2 },
+    'De-growing':  { A: 2, B: 2, C: 3, D: 2 },
+    'Growing':     { A: 2, B: 2, C: 3, D: 2 },
+    'Need to Grow':{ A: 2, B: 2, C: 3, D: 2 },
+  },
+  ASM: {
+    'Zero Lifter': { A: 3, B: 2, C: 1, D: 0.5 },
+    'Prospective': { A: 3, B: 2, C: 1, D: 0.5 },
+    'De-growing':  { A: 3, B: 2, C: 1, D: 0.5 },
+    'Growing':     { A: 2, B: 2, C: 1, D: 0.5 },
+    'Need to Grow':{ A: 3, B: 2, C: 1, D: 0.5 },
+  },
+  RSM: {
+    'Zero Lifter': { A: 2, B: 0.5, C: 0.5, D: 0 },
+    'Prospective': { A: 2, B: 1,   C: 0.5, D: 0 },
+    'De-growing':  { A: 2, B: 1,   C: 0.5, D: 0 },
+    'Growing':     { A: 1, B: 1,   C: 0.5, D: 0 },
+    'Need to Grow':{ A: 3, B: 1,   C: 0.5, D: 0 },
+  },
+  ZH: {
+    'Zero Lifter': { A: 1, B: 0, C: 0, D: 0 },
+    'Prospective': { A: 1, B: 0, C: 0, D: 0 },
+    'De-growing':  { A: 1, B: 0, C: 0, D: 0 },
+    'Growing':     { A: 1, B: 0, C: 0, D: 0 },
+    'Need to Grow':{ A: 1, B: 0, C: 0, D: 0 },
+  }
+};
+
+export function getRoleVisitFrequencies(status, category) {
+  const normStatus = APPROVED_VISIT_MATRIX.SO[status] ? status : 'Growing';
+  const normCat = ['A', 'B', 'C', 'D'].includes(category) ? category : 'C';
+
+  return {
+    so_visits: APPROVED_VISIT_MATRIX.SO[normStatus][normCat],
+    asm_visits: APPROVED_VISIT_MATRIX.ASM[normStatus][normCat],
+    rsm_visits: APPROVED_VISIT_MATRIX.RSM[normStatus][normCat],
+    zh_visits: APPROVED_VISIT_MATRIX.ZH[normStatus][normCat]
+  };
+}

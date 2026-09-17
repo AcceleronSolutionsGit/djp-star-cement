@@ -1,0 +1,457 @@
+{
+  "generatedAt": "2026-09-14T07:08:44.912Z",
+  "checks": {
+    "dealerPerformance": {
+      "totalRows": 464,
+      "distinctDealers": 58,
+      "periods": [
+        {
+          "p": "6M_AVG",
+          "n": 58,
+          "dealers": 58
+        },
+        {
+          "p": "2026-05",
+          "n": 58,
+          "dealers": 58
+        },
+        {
+          "p": "2026-04",
+          "n": 58,
+          "dealers": 58
+        },
+        {
+          "p": "2026-03",
+          "n": 58,
+          "dealers": 58
+        },
+        {
+          "p": "2026-02",
+          "n": 58,
+          "dealers": 58
+        },
+        {
+          "p": "2026-01",
+          "n": 58,
+          "dealers": 58
+        },
+        {
+          "p": "2025-12",
+          "n": 58,
+          "dealers": 58
+        },
+        {
+          "p": "2025-05",
+          "n": 58,
+          "dealers": 58
+        }
+      ],
+      "duplicatePairs": 0,
+      "surplusRows": 0,
+      "worstOffenders": [],
+      "indexes": [
+        {
+          "INDEX_NAME": "idx_dph_sap_period",
+          "NON_UNIQUE": 1,
+          "cols": "sap_code,period_year_month"
+        },
+        {
+          "INDEX_NAME": "idx_dph_unique",
+          "NON_UNIQUE": 0,
+          "cols": "sap_code,period_year_month"
+        },
+        {
+          "INDEX_NAME": "PRIMARY",
+          "NON_UNIQUE": 0,
+          "cols": "id"
+        }
+      ],
+      "hasUniqueKey": true
+    },
+    "schema": {
+      "generation_runs": true,
+      "generation_runs_started_at": true,
+      "visit_execution_logs_batch_code": true,
+      "c2_regenerations": false,
+      "c2_regeneration_lines": false,
+      "approval_matrix": true,
+      "dealer_visit_targets_phase2": {
+        "counter_share": true,
+        "need_to_grow": true,
+        "area_potential": true,
+        "area_potential_rank": true,
+        "area_potential_percentile": true,
+        "area_volume": true,
+        "area_volume_rank": true,
+        "area_volume_percentile": true,
+        "potential_rank": true,
+        "doa": true
+      }
+    },
+    "rowCounts": {
+      "master_dealers": 61,
+      "master_dealer_so_mapping": 58,
+      "master_employees": 7,
+      "sales_history": 1962,
+      "dealer_performance_history": 464,
+      "visit_execution_logs": 0,
+      "dealer_visit_targets": 0,
+      "djp_recommendations": 0,
+      "sales_plans": 0,
+      "sales_plan_details": 0,
+      "upload_batches": 5
+    },
+    "uploads": [
+      {
+        "batch_code": "BAT-202609-904",
+        "file_type": "PROSPECT_DEALERS",
+        "file_name": "TEST_05_Prospect_Dealers.xlsx",
+        "status": "VALIDATED",
+        "total_rows": 3,
+        "valid_rows": 3,
+        "invalid_rows": 0,
+        "uploaded_at": "2026-09-14 12:38:30"
+      },
+      {
+        "batch_code": "BAT-202609-401",
+        "file_type": "SALES_HISTORY",
+        "file_name": "TEST_04_Sales_History_RSAR.xlsx",
+        "status": "VALIDATED",
+        "total_rows": 1962,
+        "valid_rows": 1962,
+        "invalid_rows": 0,
+        "uploaded_at": "2026-09-14 12:38:25"
+      },
+      {
+        "batch_code": "BAT-202609-468",
+        "file_type": "SBG",
+        "file_name": "TEST_03_SBG_Master.xlsx",
+        "status": "VALIDATED",
+        "total_rows": 58,
+        "valid_rows": 58,
+        "invalid_rows": 0,
+        "uploaded_at": "2026-09-14 12:38:19"
+      },
+      {
+        "batch_code": "BAT-202609-562",
+        "file_type": "DEALER_PERFORMANCE",
+        "file_name": "TEST_02_Dealer_Performance.xlsx",
+        "status": "VALIDATED",
+        "total_rows": 58,
+        "valid_rows": 58,
+        "invalid_rows": 0,
+        "uploaded_at": "2026-09-14 12:38:14"
+      },
+      {
+        "batch_code": "BAT-202609-508",
+        "file_type": "DEALER_MAPPING",
+        "file_name": "TEST_01_Dealer_Mapping.xlsx",
+        "status": "VALIDATED",
+        "total_rows": 58,
+        "valid_rows": 58,
+        "invalid_rows": 0,
+        "uploaded_at": "2026-09-14 12:37:58"
+      }
+    ],
+    "generations": [
+      {
+        "generation_code": "GEN-202606-BOTH-1789369431326",
+        "report_month": "2026-06",
+        "cycle_code": "C1+C2",
+        "status": "PARTIAL",
+        "pjp_dealer_count": 61,
+        "djp_scheduled_count": 384,
+        "started_at": "2026-09-14 12:33:51",
+        "completed_at": "2026-09-14 12:33:55"
+      },
+      {
+        "generation_code": "GEN-202606-BOTH-1789369428479",
+        "report_month": "2026-06",
+        "cycle_code": "C1+C2",
+        "status": "RUNNING",
+        "pjp_dealer_count": 0,
+        "djp_scheduled_count": 0,
+        "started_at": "2026-09-14 12:33:48",
+        "completed_at": null
+      },
+      {
+        "generation_code": "GEN-202606-BOTH-1789368863834",
+        "report_month": "2026-06",
+        "cycle_code": "C1+C2",
+        "status": "PARTIAL",
+        "pjp_dealer_count": 61,
+        "djp_scheduled_count": 384,
+        "started_at": "2026-09-14 12:24:23",
+        "completed_at": "2026-09-14 12:24:28"
+      },
+      {
+        "generation_code": "GEN-202606-BOTH-1789368659872",
+        "report_month": "2026-06",
+        "cycle_code": "C1+C2",
+        "status": "PARTIAL",
+        "pjp_dealer_count": 61,
+        "djp_scheduled_count": 384,
+        "started_at": "2026-09-14 12:20:59",
+        "completed_at": "2026-09-14 12:21:03"
+      },
+      {
+        "generation_code": "GEN-202606-BOTH-1789368299236",
+        "report_month": "2026-06",
+        "cycle_code": "C1+C2",
+        "status": "PARTIAL",
+        "pjp_dealer_count": 61,
+        "djp_scheduled_count": 384,
+        "started_at": "2026-09-14 12:14:59",
+        "completed_at": "2026-09-14 12:15:02"
+      },
+      {
+        "generation_code": "GEN-202607-BOTH-1789364937560",
+        "report_month": "2026-07",
+        "cycle_code": "C1+C2",
+        "status": "COMPLETED",
+        "pjp_dealer_count": 24,
+        "djp_scheduled_count": 198,
+        "started_at": "2026-09-14 11:18:57",
+        "completed_at": "2026-09-14 11:19:00"
+      },
+      {
+        "generation_code": "GEN-202607-C2REGEN-1789363582316",
+        "report_month": "2026-07",
+        "cycle_code": "C2",
+        "status": "COMPLETED",
+        "pjp_dealer_count": 24,
+        "djp_scheduled_count": 99,
+        "started_at": "2026-09-14 10:56:22",
+        "completed_at": "2026-09-14 10:56:23"
+      },
+      {
+        "generation_code": "GEN-202607-C2REGEN-1789363575675",
+        "report_month": "2026-07",
+        "cycle_code": "C2",
+        "status": "COMPLETED",
+        "pjp_dealer_count": 24,
+        "djp_scheduled_count": 99,
+        "started_at": "2026-09-14 10:56:15",
+        "completed_at": "2026-09-14 10:56:16"
+      },
+      {
+        "generation_code": "GEN-202607-BOTH-1789363299033",
+        "report_month": "2026-07",
+        "cycle_code": "C1+C2",
+        "status": "COMPLETED",
+        "pjp_dealer_count": 24,
+        "djp_scheduled_count": 198,
+        "started_at": "2026-09-14 10:51:39",
+        "completed_at": "2026-09-14 10:51:40"
+      },
+      {
+        "generation_code": "GEN-202607-BOTH-1789362470728",
+        "report_month": "2026-07",
+        "cycle_code": "C1+C2",
+        "status": "COMPLETED",
+        "pjp_dealer_count": 24,
+        "djp_scheduled_count": 198,
+        "started_at": "2026-09-14 10:37:50",
+        "completed_at": "2026-09-14 10:37:52"
+      }
+    ],
+    "targets": [],
+    "categoryMix": [],
+    "namedDealers": [
+      {
+        "sap": "1000000013",
+        "master": {
+          "sap_code": "1000000013",
+          "dealer_name": "BANKA BEHARI PAUL",
+          "dm_area": "AGARTALA",
+          "sbg_potential": 680,
+          "doa": "2012-05-09"
+        },
+        "dealerPerformance": [
+          {
+            "p": "6M_AVG",
+            "copies": 1,
+            "summed": 108.63,
+            "largest": 108.63
+          },
+          {
+            "p": "2026-05",
+            "copies": 1,
+            "summed": 140,
+            "largest": 140
+          },
+          {
+            "p": "2026-04",
+            "copies": 1,
+            "summed": 70,
+            "largest": 70
+          },
+          {
+            "p": "2026-03",
+            "copies": 1,
+            "summed": 110.44,
+            "largest": 110.44
+          },
+          {
+            "p": "2026-02",
+            "copies": 1,
+            "summed": 110.44,
+            "largest": 110.44
+          },
+          {
+            "p": "2026-01",
+            "copies": 1,
+            "summed": 110.44,
+            "largest": 110.44
+          },
+          {
+            "p": "2025-12",
+            "copies": 1,
+            "summed": 110.44,
+            "largest": 110.44
+          },
+          {
+            "p": "2025-05",
+            "copies": 1,
+            "summed": 164.25,
+            "largest": 164.25
+          }
+        ],
+        "targets": []
+      },
+      {
+        "sap": "1000000021",
+        "master": {
+          "sap_code": "1000000021",
+          "dealer_name": "AJOY BHATTACHARJEE",
+          "dm_area": "AGARTALA",
+          "sbg_potential": 351,
+          "doa": "2013-05-04"
+        },
+        "dealerPerformance": [
+          {
+            "p": "6M_AVG",
+            "copies": 1,
+            "summed": 31.67,
+            "largest": 31.67
+          },
+          {
+            "p": "2026-05",
+            "copies": 1,
+            "summed": 50,
+            "largest": 50
+          },
+          {
+            "p": "2026-04",
+            "copies": 1,
+            "summed": 7.5,
+            "largest": 7.5
+          },
+          {
+            "p": "2026-03",
+            "copies": 1,
+            "summed": 33.13,
+            "largest": 33.13
+          },
+          {
+            "p": "2026-02",
+            "copies": 1,
+            "summed": 33.13,
+            "largest": 33.13
+          },
+          {
+            "p": "2026-01",
+            "copies": 1,
+            "summed": 33.13,
+            "largest": 33.13
+          },
+          {
+            "p": "2025-12",
+            "copies": 1,
+            "summed": 33.13,
+            "largest": 33.13
+          },
+          {
+            "p": "2025-05",
+            "copies": 1,
+            "summed": 5,
+            "largest": 5
+          }
+        ],
+        "targets": []
+      },
+      {
+        "sap": "1000000022",
+        "master": {
+          "sap_code": "1000000022",
+          "dealer_name": "ANJAN DEBNATH",
+          "dm_area": "AGARTALA",
+          "sbg_potential": 3116,
+          "doa": "2013-05-04"
+        },
+        "dealerPerformance": [
+          {
+            "p": "6M_AVG",
+            "copies": 1,
+            "summed": 500,
+            "largest": 500
+          },
+          {
+            "p": "2026-05",
+            "copies": 1,
+            "summed": 0,
+            "largest": 0
+          },
+          {
+            "p": "2026-04",
+            "copies": 1,
+            "summed": 1440.6,
+            "largest": 1440.6
+          },
+          {
+            "p": "2026-03",
+            "copies": 1,
+            "summed": 1922.7,
+            "largest": 1922.7
+          },
+          {
+            "p": "2026-02",
+            "copies": 1,
+            "summed": 1922.7,
+            "largest": 1922.7
+          },
+          {
+            "p": "2026-01",
+            "copies": 1,
+            "summed": 1922.7,
+            "largest": 1922.7
+          },
+          {
+            "p": "2025-12",
+            "copies": 1,
+            "summed": 1922.7,
+            "largest": 1922.7
+          },
+          {
+            "p": "2025-05",
+            "copies": 1,
+            "summed": 1811.5,
+            "largest": 1811.5
+          }
+        ],
+        "targets": []
+      }
+    ],
+    "freshness": {
+      "latestUpload": "2026-09-14 12:38:30",
+      "latestGeneration": "2026-09-14 12:33:51"
+    }
+  },
+  "problems": [
+    "freshness: the newest upload is NEWER than the last Generate Plans — the screen is showing figures from before that upload"
+  ],
+  "notes": [
+    "schema: c2_regenerations missing — C2 Review will have no history (plans still generate)"
+  ],
+  "database": "star_one_djp"
+}

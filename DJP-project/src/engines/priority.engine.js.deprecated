@@ -1,0 +1,27 @@
+import { dbAll } from '../config/database.js';
+
+export async function calculatePriority(dealer, status) {
+  const rules = await dbAll('SELECT rule_key, rule_value FROM business_rules WHERE rule_key LIKE "priority_weight_%"');
+  const weightMap = {};
+  for (const r of rules) {
+    weightMap[r.rule_key] = parseFloat(r.rule_value) || 50;
+  }
+
+  let baseWeight = 60;
+  if (status === 'De-growing') baseWeight = weightMap['priority_weight_degrowing'] || 95;
+  else if (status === 'Zero Lifter') baseWeight = weightMap['priority_weight_zero_lifter'] || 90;
+  else if (status === 'Need to grow') baseWeight = weightMap['priority_weight_need_to_grow'] || 85;
+  else if (status === 'Churn') baseWeight = weightMap['priority_weight_churn'] || 80;
+  else if (status === 'Growing') baseWeight = weightMap['priority_weight_growing'] || 60;
+
+  // Add bonus score for high counter potential
+  const potentialBonus = Math.min((dealer.counter_potential || 0) * 0.05, 20);
+  
+  // Strategy bonus (RETAIN/GROW counters get priority)
+  let strategyBonus = 0;
+  if (dealer.counter_strategy === 'RETAIN') strategyBonus = 10;
+  if (dealer.counter_strategy === 'GROW') strategyBonus = 15;
+
+  const totalPriority = baseWeight + potentialBonus + strategyBonus;
+  return Math.round(totalPriority * 100) / 100;
+}

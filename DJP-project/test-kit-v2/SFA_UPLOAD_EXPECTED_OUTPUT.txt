@@ -1,0 +1,114 @@
+
+════════════════════════════════════════════════════════════════════════════
+  UPLOADING THE SFA REPORT — the response, step by step
+════════════════════════════════════════════════════════════════════════════
+[PlanRouting] 2 plan(s) have no L1 approver in the Dealer / SO Mapping — they will not appear in anyone's approval inbox: 11002401(SO), 11002402(SO)
+[PlanRouting] 2 plan(s) have no L1 approver in the Dealer / SO Mapping — they will not appear in anyone's approval inbox: 11002401(SO), 11002402(SO)
+
+── before the upload ───────────────────────────────────────────────────
+     C1 plans / visits............................. 10 / 94
+     C2 plans / visits............................. 10 / 92
+     visit_execution_logs rows..................... 0
+
+── 1. the import runs ──────────────────────────────────────────────────
+     importer returned............................. {"totalEmps":0,"totalVisits":9}
+     extractCounts → validRows..................... 9
+       rows now in visit_execution_logs............ 9
+  ✓ the visit rows landed in visit_execution_logs
+       re-uploading the same file.................. 9 → 9 rows (not 18)
+  ✓ a previous SFA upload is wiped first, not appended to
+
+── 2. the response the upload endpoint sends ───────────────────────────
+     {
+       "message": "File ingested successfully. C2 plans are being regenerated based on SFA adherence data.",
+       "batchCode": "BATCH-SFA-DEMO",
+       "fileName": "TEST_06_SFA_Report.xlsx",
+       "uploadType": "SFA_REPORT",
+       "batchStatus": "COMPLETED",
+       "rowsProcessed": 9,
+       "counts": {
+         "validRows": 9,
+         "invalidRows": 0,
+         "duplicateRows": 0,
+         "totalRows": 9
+       },
+       "warnings": [],
+       "errors": [],
+       "sfaFeedbackTriggered": true,
+       "c2RegenerationPeriod": "2026-07"
+     }
+  ✓ uploadType is detected as SFA_REPORT
+  ✓ batchStatus is COMPLETED
+  ✓ rowsProcessed equals the visits in the file
+  ✓ the response says C2 is being regenerated
+  ✓ it names the period it will regenerate
+       employees inserted by the importer.......... 0
+       employees visible in the response........... (absent — extractCounts only reads totalVisits)
+  ✓ FINDING — the employee count is imported but never reported
+
+── 3. the C2 regeneration it triggers (async — the upload does not wait) 
+[PlanRouting] 2 plan(s) have no L1 approver in the Dealer / SO Mapping — they will not appear in anyone's approval inbox: 11002401(SO), 11002402(SO)
+  ✓ the regeneration succeeds
+     {
+       "message": "C2 regenerated for 2026-07 from SFA adherence. 42 missed C1 dealers prioritised. 10 officer plan(s) generated across 4 roles.",
+       "periodMonth": "2026-07",
+       "cycleCode": "C2",
+       "generationCode": "GEN-202607-C2REGEN-1789363680120",
+       "regenerationId": 1,
+       "adherenceSummary": {
+         "plannedC1Visits": 94,
+         "uniqueDealerPairs": 50,
+         "completedC1Visits": 8,
+         "missedC1Visits": 42,
+         "adherencePct": 10,
+         "dealerLevelPct": 16
+       },
+       "c2GenerationResult": {
+         "totalDealerTargets": 24,
+         "totalVisitsRequired": 109.5,
+         "totalDjpSlots": 96,
+         "unallocatedCount": 0,
+         "capacityViolated": false,
+         "validationErrors": []
+       },
+       "officerPlans": {
+         "cycleCode": "C2",
+         "totalPlans": 10,
+         "totalVisits": 92,
+     C2 plans / visits after....................... 10 / 92
+       C1 plans / visits........................... 10 / 94
+  ✓ C1 is untouched
+       status...................................... COMPLETED
+       visits before → after....................... 92 → 92
+       adherence stored............................ 8/94 = 10%
+  ✓ a C2 Review entry is recorded
+
+── 4. the adherence report the screen then shows ───────────────────────
+  ✓ the adherence endpoint answers
+     dealers on plan / visited / missed............ 50 / 8 / 42
+     planned visits / MTD due...................... 94 / 94
+     adhered / capped.............................. 9 / 9
+     pending....................................... 85
+     adherence capped / raw........................ 9.6% / 9.6%
+       adhered vs capped........................... 9 vs 9
+  ✓ a dealer visited twice shows capped below uncapped
+
+── summary — what you should see on screen ─────────────────────────────
+
+     Toast / upload panel
+       "File ingested successfully. C2 plans are being regenerated
+        based on SFA adherence data."
+       9 rows processed · batch COMPLETED
+
+     Uploads list
+       a new SFA_REPORT batch, status COMPLETED, 9 valid rows
+
+     Officer Plans → Adherence  (month 2026-07, cycle C1, as-on 2026-07-15)
+       94 planned · 9 adhered · 9.6% capped
+
+     Officer Plans → C2 Review
+       a new regeneration row; C2 rebuilt to 92 visits
+       C1 untouched at 94 visits
+
+────────────────────────────────────────────────────────────────────────────
+13 passed, 0 failed

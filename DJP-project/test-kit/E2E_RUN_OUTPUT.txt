@@ -1,0 +1,231 @@
+
+══════════════════════════════════════════════════════════════════════════
+  STAGE 1 — UPLOAD: the six input files
+══════════════════════════════════════════════════════════════════════════
+     master_dealers (18 mapped + 15 prospects)... 33
+     master_dealer_so_mapping rows............... 18
+     master_employees (all four roles)........... 8
+     sales_history rows (RSAR only).............. 120
+     dealer_performance_history rows (DP only)... 144
+  ✓ Dealer Mapping produced 18 dealers
+  ✓ Prospects are loaded as PROSPECTIVE, not as dealers
+       employees by role......................... {"ASM":2,"RSM":2,"SO":3,"ZH":1}
+  ✓ every one of the four roles is in master_employees
+  ✓ RSAR and Dealer Performance stayed in separate tables
+       dealers carrying an SBG potential......... 18
+  ✓ SBG supplied potential and block; absent SBG is NULL not zero
+
+══════════════════════════════════════════════════════════════════════════
+  STAGE 2+3 — PJP AND DJP: run the real generator for C1
+══════════════════════════════════════════════════════════════════════════
+  ✓ the DJP generator ran without throwing
+     dealer targets produced..................... 33
+     visits required (float sum)................. 157.00
+     DJP day-slots allocated..................... 85
+     unallocated (capacity exhausted)............ 0
+     capacity violated........................... false
+
+── PJP output — the dealer-level table (this is column U) ──────────────
+       dealer_visit_targets rows (C1)............ 33
+  ✓ every active dealer got a visit target row
+       Final Category distribution............... {"Prospective":15,"Zero Lifter":2,"Growing":5,"De-growing":6,"Churn":4,"Need to Grow":1}
+  ✓ each dealer carries a Final Category (column U)
+       Grade distribution........................ {"A":16,"C":6,"D":10,"B":1}
+  ✓ each dealer carries an area grade
+       ASM code cells holding a name instead..... 0
+  ✓ the hierarchy CODES are stored, not names
+       SO visits / ASM / RSM / ZH................ 52.0 / 56.0 / 33.0 / 16.0
+  ✓ visit frequencies were assigned for more than one role
+
+── DJP output — visits placed on working days ──────────────────────────
+       ASM....................................... 20 visit(s) across 2 officer(s), 11 day(s)
+       RSM....................................... 9 visit(s) across 2 officer(s), 6 day(s)
+       SO........................................ 52 visit(s) across 16 officer(s), 12 day(s)
+       ZH........................................ 4 visit(s) across 1 officer(s), 4 day(s)
+  ✓ DJP scheduled visits for the SO role
+       officer-days above capacity............... 0
+  ✓ no working day exceeds the daily capacity of 8
+       distinct working days used................ 12
+  ✓ no visit was scheduled on a Sunday
+  ✓ every scheduled visit falls inside the C1 window (days 1-15)
+
+══════════════════════════════════════════════════════════════════════════
+  STAGE 4 — OFFICER PLANS: generated in the same run as the DJP
+══════════════════════════════════════════════════════════════════════════
+[PlanRouting] 13 plan(s) have no L1 approver in the Dealer / SO Mapping — they will not appear in anyone's approval inbox: 11002401(SO), 11002402(SO), 11002403(SO), 11002404(SO), 11002405(SO), 11002406(SO), 11002407(SO), 11002408(SO), 11002409(SO), 11002410(SO)
+     officer plans created....................... 21
+     visits inside those plans................... 81
+     by role..................................... {"SO":{"employees":16,"plansCreated":16,"noTargets":0,"failed":0,"visitsScheduled":52},"ASM":{"employees":2,"plansCreated":2,"noTargets":0,"failed":0,"visitsScheduled":17},"RSM":{"employees":2,"plansCreated":2,"noTargets":0,"failed":0,"visitsScheduled":8},"ZH":{"employees":1,"plansCreated":1,"noTargets":0,"failed":0,"visitsScheduled":4}}
+  ✓ plans were generated for at least the SO role
+
+── every plan, with the L1 it routed to ────────────────────────────────
+     ASM  11001393   DEBABRATA GHOSH               7 visit(s)  →  L1 RSM RITWICK CHATTERJEE
+     ASM  11002336   SANTANU BAZAL                10 visit(s)  →  L1 RSM PRAKRITI RANJAN SIKDAR
+     RSM  11001813   RITWICK CHATTERJEE            3 visit(s)  →  L1 ZH GIRIDHARI MUKHERJEE
+     RSM  1101157    PRAKRITI RANJAN SIKDAR        5 visit(s)  →  L1 ZH GIRIDHARI MUKHERJEE
+     SO   11001774   DEBABRATA CHAKRABORTY- FKT   11 visit(s)  →  L1 ASM DEBABRATA GHOSH
+     SO   11001975   ARINDAM PAUL                  4 visit(s)  →  L1 ASM DEBABRATA GHOSH
+     SO   11002168   SUBHASISH KARMAKAR           16 visit(s)  →  L1 ASM SANTANU BAZAL
+     SO   11002401   DIPANKAR MAHATO               1 visit(s)  →  L1 ASM (none)
+     SO   11002402   TAPAS PAL                     1 visit(s)  →  L1 ASM (none)
+     SO   11002403   VACANT                        1 visit(s)  →  L1 ASM (none)
+     SO   11002404   AVINASH KUMAR SINGH           1 visit(s)  →  L1 ASM (none)
+     SO   11002405   AVISHEK KUMAR BARMAN          1 visit(s)  →  L1 ASM (none)
+     SO   11002406   BISWAJIT CHAKRABORTY          1 visit(s)  →  L1 ASM (none)
+     SO   11002407   AKIF HUSSAIN                  4 visit(s)  →  L1 ASM (none)
+     SO   11002408   SANGAM KUMAR                  1 visit(s)  →  L1 ASM (none)
+     SO   11002409   IBRAHIM SULEMAN               1 visit(s)  →  L1 ASM (none)
+     SO   11002410   ANAND MOHAN                   1 visit(s)  →  L1 ASM (none)
+     SO   11002411   DEEPAK KUMAR                  4 visit(s)  →  L1 ASM (none)
+     SO   11002412   AMIT KUMAR-KNE                3 visit(s)  →  L1 ASM (none)
+     SO   11002413   ASHUTOSH PARASAR              1 visit(s)  →  L1 ASM (none)
+     ZH   11002257   GIRIDHARI MUKHERJEE           4 visit(s)  →  L1 ADMIN (none)
+       distinct roles on plans................... ["ASM","RSM","SO","ZH"]
+  ✓ emp_role is persisted — no plan silently defaults to SO
+       plans showing a code in place of a name... 0
+  ✓ the employee NAME is shown, never the bare code
+       mapped SOs with no L1..................... 0
+  ✓ every officer PRESENT IN THE DEALER/SO MAPPING routed to a named L1
+       SOs that exist only in the Prospect file.. 13
+       ...of which have no L1 and cannot be approved 13
+  ✓ FINDING — prospect-only officers get a plan that reaches no inbox
+       same dealer twice in one officer-day...... 0
+  ✓ a dealer cannot be booked twice on the same day
+       SO 11001774 L1............................ DEBABRATA GHOSH (11001393) — mapping says DEBABRATA GHOSH (11001393)
+  ✓ the L1 of an SO is his ASM, from the Dealer/SO mapping
+  ✓ no officer is scheduled more than 8 visits on one day
+
+══════════════════════════════════════════════════════════════════════════
+  STAGE 5 — WORKFLOW: edit → submit → rectify (once) → resubmit → approve
+══════════════════════════════════════════════════════════════════════════
+     demo plan................................... #1 — SO 11001774 (DEBABRATA CHAKRABORTY- FKT), L1 11001393
+       plans visible to him...................... 1
+  ✓ the officer can list his own plans
+  ✓ another officer cannot read his plan
+       adding.................................... RADHA HARDWARE on 2026-09-01
+       visits before → after..................... 11 → 12
+  ✓ he can add a visit while the plan is DRAFT
+       status.................................... SUBMITTED
+  ✓ submitting moves it to SUBMITTED
+  ✓ once submitted he can no longer edit it
+       L1 11001393 inbox......................... 1 plan(s)
+  ✓ the plan appears in his L1 inbox and nobody else's
+       status / count / remark................... RECTIFY / 1 / "Add the two missed counters."
+  ✓ L1 can send it back for rectification
+  ✓ the officer can edit again while it is in RECTIFY
+  ✓ he resubmits
+       second RECTIFY returned................... 409 — Plan 1 has already been sent back for rectification once. The only remaining action is Approve.
+  ✓ a SECOND rectification is refused — the rule is once only
+  ✓ someone who is not the L1 cannot approve
+       status / approved_by...................... APPROVED / 11001393
+  ✓ the L1 approves and the plan locks
+  ✓ an approved plan cannot be approved twice
+       trail..................................... SUBMITTED → RECTIFY → RESUBMITTED → APPROVED
+  ✓ every transition is in the audit trail, in order
+
+══════════════════════════════════════════════════════════════════════════
+  STAGE 6+7 — SFA FEEDBACK AND ADHERENCE (the 15th-of-month upload)
+══════════════════════════════════════════════════════════════════════════
+     SFA visit rows loaded....................... 19
+     distinct officers in the feedback........... 4
+
+── adherence as on the 15th — the client method ────────────────────────
+     planned visit instances..................... 81
+     MTD due (prorata to the 15th)............... 81.0
+     adhered (uncapped).......................... 14
+     adhered (capped at planned)................. 13
+     pending (MTD due − adhered)................. 67.0
+     adherence % capped / raw.................... 16.0% / 17.3%
+     SFA rows resolved / unresolved.............. 17 / 0
+     visits made that were never planned......... 3
+  ✓ the adherence engine returned a report
+  ✓ capped and uncapped are both reported, and capped never exceeds planned
+  ✓ every SFA customer code resolved to a dealer
+       elapsed fraction of C1 on the 15th........ 1
+       elapsed fraction on the 8th............... 0.5333
+  ✓ MTD prorata is applied, not a raw full-cycle comparison
+       roles in the report....................... ["SO","ASM","RSM","ZH"]
+     SO   planned  52  adhered  12  pending   40.0  21.2%
+     ASM  planned  17  adhered   2  pending   15.0  11.8%
+     RSM  planned   8  adhered   0  pending    8.0  0.0%
+     ZH   planned   4  adhered   0  pending    4.0  0.0%
+  ✓ adherence is reported per ROLE, not SO-only
+       per-employee rows......................... 21
+       per-dealer rows........................... 51
+  ✓ adherence is reported per DEALER as well as per EMPLOYEE
+
+── the officers with the worst adherence — what the admin screen shows first 
+     RSM  11001813   RITWICK CHATTERJEE        planned   3  adhered   0  pending    3.0  0%
+     ZH   11002257   GIRIDHARI MUKHERJEE       planned   4  adhered   0  pending    4.0  0%
+     ASM  11002336   SANTANU BAZAL             planned  10  adhered   0  pending   10.0  0%
+     SO   11002401   DIPANKAR MAHATO           planned   1  adhered   0  pending    1.0  0%
+     SO   11002402   TAPAS PAL                 planned   1  adhered   0  pending    1.0  0%
+     SO   11002403   VACANT                    planned   1  adhered   0  pending    1.0  0%
+       officers who over-performed (negative pending) 0
+  ✓ pending = MTD planned − adhered, negatives allowed
+       dealer rows with more than one logged visit 3
+  ✓ visits are COUNTED, not treated as a yes/no flag
+       visits resolved via an SFA code rather than SAP 1
+  ✓ SFA customer codes resolved through master_dealers.sfa_code
+       completed / missed dealer records......... 10 / 41
+       byEmployee map size....................... 21
+     missed: 1000001141 SAHA & CO.                      officer 11001393
+     missed: 1000001147 MAA BHABANI HARDWARE            officer 11001393
+     missed: 1000001150 PUNAM TRADING                   officer 11001393
+     missed: 1000001144 GARG ENTERPRISES                officer 11001393
+     missed: 1000001147 MAA BHABANI HARDWARE            officer 11001774
+  ✓ the C1 wrapper still gives the C2 rebuild what it needs
+
+══════════════════════════════════════════════════════════════════════════
+  STAGE 8 — C2 REGENERATION: missed dealers lead the new cycle
+══════════════════════════════════════════════════════════════════════════
+[PlanRouting] 13 plan(s) have no L1 approver in the Dealer / SO Mapping — they will not appear in anyone's approval inbox: 11002401(SO), 11002402(SO), 11002403(SO), 11002404(SO), 11002405(SO), 11002406(SO), 11002407(SO), 11002408(SO), 11002409(SO), 11002410(SO)
+     original C2 — plans / visits................ 21 / 80
+[PlanRouting] 13 plan(s) have no L1 approver in the Dealer / SO Mapping — they will not appear in anyone's approval inbox: 11002401(SO), 11002402(SO), 11002403(SO), 11002404(SO), 11002405(SO), 11002406(SO), 11002407(SO), 11002408(SO), 11002409(SO), 11002410(SO)
+       message................................... C2 regenerated for 2026-09 from SFA adherence. 41 missed C1 dealers prioritised. 21 officer plan(s) generated across 4 roles.
+  ✓ the regeneration endpoint succeeded
+     regenerated C2 — plans / visits............. 21 / 80
+       C1 plans still present.................... 21
+  ✓ C1 was left untouched — it is the record adherence was measured against
+       C2 runs recorded.......................... 1
+  ✓ the regeneration is recorded in the run history
+       status.................................... COMPLETED
+       visits before → after..................... 80 → 80
+       adherence stored on the record............ 10/81 = 16%
+       snapshot lines BEFORE / AFTER............. 80 / 80
+  ✓ a BEFORE and an AFTER snapshot were both captured
+       history rows.............................. 1
+       distinct dealers before / after........... 29 / 29
+       officer-dealer assignments before / after. 50 / 50
+       added / dropped........................... 0 / 0
+       moved earlier / later..................... 7 / 10
+       visit-count changes....................... 0
+       missed-in-C1 dealers now on C2............ 28 of 28
+       ...across officer visits.................. 48
+
+── the first changes the reviewer would see ────────────────────────────
+     MOVED_EARLIER  11001393   GARG ENTERPRISES            was 2026-09-23 now 2026-09-18   [missed in C1]
+     MOVED_EARLIER  11001975   PUNAM TRADING               was 2026-09-18,2026-09-19 now 2026-09-16,2026-09-17   [missed in C1]
+     MOVED_EARLIER  11002168   MD YOUSUF ALI ENTERPRISE    was 2026-09-23,2026-09-24 now 2026-09-16,2026-09-17   [missed in C1]
+     MOVED_EARLIER  11002168   ANSARI ENTERPRISE           was 2026-09-25,2026-09-28,2026-09-29 now 2026-09-16,2026-09-17,2026-09-30   [missed in C1]
+     MOVED_EARLIER  11002336   ANSARI ENTERPRISE           was 2026-09-22 now 2026-09-21   [missed in C1]
+     MOVED_EARLIER  11002336   MD EMRAN ALI KHAN           was 2026-09-23,2026-09-24,2026-09-25 now 2026-09-22,2026-09-23,2026-09-24   [missed in C1]
+     MOVED_EARLIER  11002336   MAHAMMAD HARDWARE           was 2026-09-28 now 2026-09-25   [missed in C1]
+     MOVED_LATER    11001393   RADHA HARDWARE              was 2026-09-18 now 2026-09-19   [missed in C1]
+  ✓ the review screen returns a readable diff
+       missed dealers carried into the rebuild... 28
+       11001393: first missed-dealer visit / first other 2026-09-16 / 2026-09-21
+       11001774: first missed-dealer visit / first other 2026-09-16 / 2026-09-21
+  ✓ dealers missed in C1 are scheduled EARLIER in the new C2
+       admin sees C2 plans....................... 21
+[SFA_ADHERENCE] 2026-09 C1 as on 2026-09-15 — planned 81, MTD due 81.0, adhered 14 (capped 13), 16.0% capped / 17.3% raw
+       adherence endpoint — capped / raw......... 16% / 17.3%
+       ...dealers on plan / visited / missed..... 51 / 10 / 41
+       ...MTD due / adhered / pending............ 81 / 14 / 67
+  ✓ the admin list and adherence report both answer
+
+══════════════════════════════════════════════════════════════════════════
+  RESULT
+══════════════════════════════════════════════════════════════════════════
+  54 passed, 0 failed
+

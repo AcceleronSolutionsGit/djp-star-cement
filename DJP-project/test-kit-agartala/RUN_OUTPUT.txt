@@ -1,0 +1,109 @@
+
+══════════════════════════════════════════════════════════════════════════════
+  AGARTALA DEMO KIT — engine vs the client master M.xlsx
+══════════════════════════════════════════════════════════════════════════════
+
+── what was loaded ─────────────────────────────────────────────────────
+     dealers (all of AGARTALA)..................... 58
+     prospects..................................... 3
+     employees across SO / ASM / RSM / ZH.......... 7
+     RSAR sub-dealer rows.......................... 1962
+     Dealer Performance rows....................... 406
+     planning month................................ 2026-06  (anchor 2026-06-01 — identical to M.xlsx B2)
+
+── what the engine produced ────────────────────────────────────────────
+     dealer targets................................ 61
+     visits required............................... 180.5
+     DJP day-slots................................. 204
+     unallocated................................... 0
+
+── THE THREE NAMED DEALERS ─────────────────────────────────────────────
+
+     1000000013  BANKA BEHARI PAUL
+       block AMC (SADAR) · potential 680 · DOA 2012-05-09
+       O 140   R 70   Q 164.25   S 108.63
+       M.xlsx says  : De-growing    grade C   need-to-grow No
+       engine gives : De-growing    grade D   need-to-grow No
+       visits       : SO 2  ASM 0.5  RSM 0  ZH 0
+
+     1000000021  AJOY BHATTACHARJEE
+       block DUKLI · potential 351 · DOA 2013-05-04
+       O 50   R 7.5   Q 5   S 31.67
+       M.xlsx says  : Growing       grade D   need-to-grow No
+       engine gives : Growing       grade D   need-to-grow No
+       visits       : SO 2  ASM 0.5  RSM 0  ZH 0
+
+     1000000022  ANJAN DEBNATH
+       block AMC (SADAR) · potential 3116 · DOA 2013-05-04
+       O 2005.85   R 1440.6   Q 1811.5   S 1856.21
+       M.xlsx says  : Growing       grade A   need-to-grow No
+       engine gives : Growing       grade A   need-to-grow No
+       visits       : SO 2  ASM 2  RSM 1  ZH 1
+
+  ✓ BANKA BEHARI PAUL → De-growing
+  ✓ AJOY BHATTACHARJEE → Growing
+  ✓ ANJAN DEBNATH → Growing
+
+── every AGARTALA dealer against M.xlsx column U ───────────────────────
+     dealers compared.............................. 58
+     matching M.xlsx............................... 56
+     differing..................................... 2
+     ✗ 1000000044  MADAN GOPAL TRADERS (AGART  M.xlsx Need to Grow  engine De-growing   (O 177 R 184.5 Q 225.40000000000003 S 206.58 DOA 2016-04-12)
+     ✗ 1000000826  PARTHA DAS - AGT            M.xlsx Need to Grow  engine De-growing   (O 19 R 25.1 Q 20 S 42.77 DOA 2021-09-23)
+  ✓ 56 of 58 classify exactly as the client master does
+       MADAN GOPAL TRADERS (AGART.................. M.xlsx Need to Grow (AK Yes, percentile 70.5%) → engine De-growing
+       PARTHA DAS - AGT............................ M.xlsx Need to Grow (AK Yes, percentile 66.8%) → engine De-growing
+  ✓ and EVERY difference is the same single cause — the need-to-grow flag
+  ✓ no dealer differs on a growth comparison — O, R, Q and S all agree
+
+── area aggregation — the one place the two models differ ──────────────
+     area potential — engine....................... 30546.04
+     area potential — M.xlsx....................... 54835.54
+     difference.................................... 24289.5  (80% higher in M.xlsx)
+       sum of the 58 dealers' potential............ 28586.04
+       + the 3 prospects (they are counters too)... 1960
+       = engine area potential..................... 30546.04
+       M.xlsx area total (58 dealers + 329 sub-dealers) 54835.54
+  ✓ EXPLAINED — M.xlsx counts sub-dealers as area counters, the engine does not
+       BANKA BEHARI PAUL........................... M.xlsx No · engine No
+       AJOY BHATTACHARJEE.......................... M.xlsx No · engine No
+       ANJAN DEBNATH............................... M.xlsx No · engine No
+  ✓ the named dealers keep their need-to-grow answer despite that
+     dealers whose GRADE differs from M.xlsx....... 27 of 58
+       (grade is a percentile of area volume — see above) 
+
+── RSAR stays sub-dealer sales, never the dealer's own ─────────────────
+       target rows with a 15xxxxx sub-dealer code.. 0
+  ✓ no sub-dealer became a dealer target row
+  ✓ each dealer's current sales equal its OWN May'26, not its sub-dealers'
+       sub-dealers beneath him..................... 59
+       their May-26 total.......................... 1972.35
+       his own May-26 (drives the category)........ 2005.85
+       engine current_sales........................ 2005.85
+  ✓ ANJAN DEBNATH — sub-dealer roll-up is recorded but does not classify him
+
+── officer plans and the approval chain ────────────────────────────────
+     ASM  11003201   BIKRAM KUMAR HALDER        38 visit(s)  →  L1 RSM GHALIB FAHAD AYUBI
+     RSM  11003301   GHALIB FAHAD AYUBI          7 visit(s)  →  L1 ZH BRIJESH SINGH
+     SO   11003101   SUBRATA DEB                26 visit(s)  →  L1 ASM BIKRAM KUMAR HALDER
+     SO   11003102   PARTHA SARKAR              70 visit(s)  →  L1 ASM BIKRAM KUMAR HALDER
+     SO   11003103   RAJIB CHAKRABORTY          10 visit(s)  →  L1 ASM BIKRAM KUMAR HALDER
+     SO   11003104   MANAS BHOWMIK              24 visit(s)  →  L1 ASM BIKRAM KUMAR HALDER
+     ZH   11003401   BRIJESH SINGH               2 visit(s)  →  L1 ADMIN (none)
+       roles....................................... ["ASM","RSM","SO","ZH"]
+  ✓ all four roles have plans
+  ✓ every plan shows a name and routes to a named L1
+
+── the 15th — SFA feedback and the C2 rebuild ──────────────────────────
+     SFA visit rows................................ 9
+  ✓ the adherence report answers
+     dealers on plan / visited / missed............ 104 / 8 / 96
+     adherence capped / raw........................ 5.1% / 5.1%
+  ✓ the C2 regeneration succeeds
+     regeneration message.......................... C2 regenerated for 2026-06 from SFA adherence. 96 missed C1 dealers prioritised. 7 officer plan(s) generated across 4 roles.
+       missed dealers carried into C2.............. 57
+       1000000021 among them....................... yes
+  ✓ AJOY BHATTACHARJEE was not visited, so he leads the new C2
+
+──────────────────────────────────────────────────────────────────────────────
+16 passed, 0 failed

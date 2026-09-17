@@ -1,0 +1,62 @@
+import { dbAll } from '../config/database.js';
+
+export async function classifyDealer(dealer) {
+  // Query 6-month sales history
+  const code = dealer.sap_code || dealer.rssd_code || dealer.sfa_code;
+  
+  if (dealer.dealer_type === 'PROSPECTIVE') {
+    return {
+      status: 'Need to grow',
+      reason: 'Prospective counter with potential'
+    };
+  }
+
+  const sales = await dbAll(
+    `SELECT period_year_month, SUM(quantity_mt) as quantity_mt 
+     FROM sales_history 
+     WHERE sap_code = ? OR rssd_code = ? OR linked_dealer_code = ? 
+     GROUP BY period_year_month 
+     ORDER BY period_year_month DESC LIMIT 13`,
+    [code, code, code]
+  );
+
+  if (!sales || sales.length === 0) {
+    return {
+      status: 'Zero Lifter',
+      reason: 'No historical sales record found'
+    };
+  }
+
+  const last6Sales = sales.slice(0, 6);
+  const totalL6M = last6Sales.reduce((acc, r) => acc + (r.quantity_mt || 0), 0);
+
+  if (totalL6M === 0) {
+    return {
+      status: 'Churn',
+      reason: 'No lifting for 6 consecutive months'
+    };
+  }
+
+  const currentMonthSales = sales[0] ? sales[0].quantity_mt : 0;
+  const prevMonthSales = sales[1] ? sales[1].quantity_mt : 0;
+  const lysmSales = sales[12] ? sales[12].quantity_mt : prevMonthSales;
+
+  if (currentMonthSales === 0 && totalL6M > 0) {
+    return {
+      status: 'De-growing',
+      reason: `Current lifting is 0 MT compared to historical 6-month lifting (${totalL6M} MT)`
+    };
+  }
+
+  if (currentMonthSales < lysmSales) {
+    return {
+      status: 'De-growing',
+      reason: `Current lifting (${currentMonthSales} MT) lower than comparative period (${lysmSales} MT)`
+    };
+  }
+
+  return {
+    status: 'Growing',
+    reason: `Current lifting (${currentMonthSales} MT) higher than comparative period (${lysmSales} MT)`
+  };
+}
