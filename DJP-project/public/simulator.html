@@ -145,6 +145,53 @@
   .dl:last-child{border-bottom:0}
   .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;margin-top:5px}
   .dot.DONE{background:var(--ok)} .dot.PARTIAL{background:var(--warn)} .dot.PENDING{background:#C3CBD6}
+  /* ── charts ───────────────────────────────────────────────────────────────
+     Palette from the validated reference instance. The funnel is an ORDINAL blue
+     ramp (one hue, monotone lightness, >=0.06 gaps, light end clears 2:1 on the
+     surface); the two-series columns use categorical slots 1 and 2; the status mix
+     uses the reserved status palette, which always ships with a label beside it. */
+  .viz{--surface-1:#fcfcfb;--ink:#101828;--ink2:#667085;--grid:#E7EAEF;
+       --s1:#2a78d6;--s2:#eb6834;
+       --f1:#86b6ef;--f2:#5598e7;--f3:#2a78d6;--f4:#1c5cab;--f5:#104281;
+       --good:#0ca30c;--warning:#fab219;--serious:#ec835a;--critical:#d03b3b}
+  /* A viewBox stretched to the full pane scales the TEXT too — at 1330px the 11px
+     labels rendered at 19px. Cap at the viewBox width so the chart never scales up;
+     it still scales down on a narrow screen. */
+  .viz svg{display:block;width:100%;max-width:760px;height:auto;overflow:visible}
+  .viz text{font:11px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;fill:var(--ink2)}
+  .viz text.val{fill:var(--ink);font-weight:650}
+  .viz .gridline{stroke:var(--grid);stroke-width:1}
+  .viz .axis{stroke:#D6DAE1;stroke-width:1}
+  .viz .hit{fill:transparent;cursor:crosshair}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin-top:6px}
+  .legend i{width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:5px;
+            vertical-align:-1px}
+  .viztip{position:fixed;z-index:99;pointer-events:none;background:#101828;color:#fff;
+          font-size:11.5px;line-height:1.45;padding:6px 9px;border-radius:7px;
+          box-shadow:0 6px 20px rgba(16,24,40,.28);opacity:0;transition:opacity .08s;max-width:260px}
+  .viztip b{color:#fff}
+  .viztip .k{color:#A9B4C4}
+
+  .node.click{cursor:pointer}
+  .node.click:hover{background:#F7F9FC}
+  .vrow{display:grid;grid-template-columns:118px 1fr 120px 96px;gap:10px;align-items:center;
+        padding:6px 10px;border-bottom:1px solid #F0F2F5;font-size:12.5px}
+  .vrow:last-child{border-bottom:0}
+  .vrow.ok{background:#F7FCF8}
+  .vst{font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:9px;text-align:center}
+  .vst.ADHERED{background:var(--ok-bg);color:var(--ok)}
+  .vst.ADHERED_LATE,.vst.ADHERED_EARLY{background:var(--warn-bg);color:var(--warn)}
+  .vst.MISSED{background:var(--bad-bg);color:var(--bad)}
+  .vst.EXTRA{background:#EDE7F6;color:#5E35B1}
+
+  .lvl{border:1px solid var(--line);border-radius:10px;margin-bottom:10px;overflow:hidden}
+  .lvl h4{margin:0;padding:7px 11px;background:#F7F9FC;font-size:12.5px;font-weight:650;
+          border-bottom:1px solid var(--line)}
+  .node{padding:6px 11px;border-bottom:1px solid #F0F2F5}
+  .node:last-child{border-bottom:0}
+  .node.kid{padding-left:32px;background:#FCFDFE}
+  .node.kid2{padding-left:56px}
+
   /* counter tracker — the client's Target vs Adherence sheet, on a phone */
   .tk{width:100%;border-collapse:collapse;font-size:12px}
   .tk th{background:#F7F9FC;color:var(--muted);font-size:10.5px;font-weight:650;
@@ -168,8 +215,11 @@
                border-bottom:1px solid var(--line)}
   .dayrow.future{opacity:.45}
   .spark{height:7px;border-radius:5px;background:#EDF0F4;overflow:hidden;position:relative}
-  .spark i{display:block;height:100%;background:var(--ok)}
-  .spark i.mid{background:var(--warn)} .spark i.low{background:var(--bad)}
+  /* One hue, matching the line chart above it. These bars encode magnitude, and the
+     percentage is printed beside every one — colouring them green/amber/red added a
+     second, arbitrary encoding that contradicted the chart and cried alarm at a
+     100% first day that was one visit out of one due. */
+  .spark i{display:block;height:100%;background:#2a78d6}
 
   .tm{display:flex;gap:9px;align-items:center;padding:8px 10px;border-bottom:1px solid #F0F2F5}
   .tm:last-child{border-bottom:0}
@@ -196,6 +246,7 @@
   <label>Cycle
     <select id="fCycle"><option value="C1">C1</option><option value="C2">C2</option></select>
   </label>
+  <button id="btnHier" class="tiny">Hierarchy report</button>
   <button id="btnRegen" class="tiny">Regenerate C2</button>
   <button id="btnReload" class="tiny">Reload</button>
 </header>
@@ -232,6 +283,17 @@
   </section>
 </div>
 
+<section class="phone" id="hierPane" hidden style="margin:0 18px 18px">
+  <div class="bar">
+    <span class="role">HIERARCHY</span>
+    <select id="selHier" style="max-width:340px;font:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--line);border-radius:7px"></select>
+    <div class="spacer"></div>
+    <button class="ghost tiny" id="btnHierClose">Close</button>
+  </div>
+  <div class="body" id="hierBody" style="max-height:none"><div class="empty">Pick someone.</div></div>
+</section>
+
+<div class="viztip" id="viztip"></div>
 <pre class="log" id="log"></pre>
 
 <!-- add-visit dialog -->
@@ -265,6 +327,14 @@
     <button onclick="dlgMove.close()">Cancel</button>
     <button class="primary" id="moveGo">Move</button>
   </div>
+</dialog>
+
+<!-- officer drill-down — his diary, visit by visit -->
+<dialog id="dlgDrill" style="max-width:1000px">
+  <div class="dh"><span id="drillWho">Officer</span>
+    <div class="spacer" style="flex:1"></div>
+    <button class="tiny" onclick="dlgDrill.close()">Close</button></div>
+  <div class="db" id="drillBody" style="max-height:72vh"></div>
 </dialog>
 
 <!-- extra-visit dialog — a visit he made beyond the plan -->
@@ -936,6 +1006,426 @@ const dayShort = iso => {
     d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', timeZone: 'UTC' });
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CHARTS — plain inline SVG, no library.
+//
+// Colour is assigned by the job it does, from the validated reference palette:
+//   funnel stages     an ORDINAL blue ramp (one hue, light → dark)
+//   planned vs done   categorical slots 1 and 2
+//   visit outcome     the reserved status palette, always beside its own label
+// Every chart carries a hover read-out, a legend once there is more than one
+// series, and a table underneath it or direct labels — never colour alone.
+// ─────────────────────────────────────────────────────────────────────────────
+const TIP = () => $('viztip');
+function tipShow(ev, html) {
+  const t = TIP();
+  t.innerHTML = html;
+  t.style.opacity = '1';
+  const pad = 14, w = t.offsetWidth, h = t.offsetHeight;
+  let x = ev.clientX + pad, y = ev.clientY - h - pad / 2;
+  if (x + w > innerWidth - 8) x = ev.clientX - w - pad;
+  if (y < 8) y = ev.clientY + pad;
+  t.style.left = x + 'px';
+  t.style.top = y + 'px';
+}
+function tipHide() { TIP().style.opacity = '0'; }
+// Handlers are attached after the HTML lands, by data attributes, so the markup
+// stays a plain string and nothing is eval'd from data.
+function wireTips(root) {
+  for (const el of root.querySelectorAll('[data-tip]')) {
+    el.onmousemove = ev => tipShow(ev, el.getAttribute('data-tip'));
+    el.onmouseleave = tipHide;
+  }
+}
+
+const FUNNEL_STEPS = ['var(--f1)', 'var(--f2)', 'var(--f3)', 'var(--f4)', 'var(--f5)'];
+
+/** The execution funnel: a stage per row, width proportional to the top stage. */
+function svgFunnel(stages) {
+  // padR reserves a gutter for the outside value AND the conversion column, so a
+  // near-full bar cannot collide its own label with "170.2% of prev.".
+  const W = 760, rowH = 46, padL = 214, padR = 152;
+  const clip = (t, n) => (String(t).length > n ? String(t).slice(0, n - 1) + '…' : String(t));
+  const H = stages.length * rowH + 8;
+  const top = Math.max(...stages.map(s => s.value), 1);
+  const plot = W - padL - padR;
+
+  const rows = stages.map((s, i) => {
+    const w = Math.max(3, (s.value / top) * plot);
+    const y = i * rowH + 6;
+    // White reads on the darker steps only; on the two lightest the value sits outside
+    // in ink. Contrast decides this, not whether the bar happens to be wide.
+    const inside = w > 76 && i >= 2;
+    const tip = `<b>${esc(s.stage)}</b><br><span class="k">${esc(s.note)}</span><br>` +
+                `<b>${fmt(s.value)}</b> · ${s.of_previous_pct}% of the stage above`;
+    return `
+      <g data-tip="${esc(tip)}">
+        <rect class="hit" x="0" y="${y - 3}" width="${W}" height="${rowH - 2}"></rect>
+        <text x="${padL - 12}" y="${y + 19}" text-anchor="end" class="val">${esc(s.stage)}</text>
+        <text x="${padL - 12}" y="${y + 32}" text-anchor="end"
+              style="font-size:10px">${esc(clip(s.note, 34))}</text>
+        <rect x="${padL}" y="${y}" width="${w}" height="26" rx="4"
+              fill="${FUNNEL_STEPS[i % FUNNEL_STEPS.length]}"></rect>
+        ${inside
+          ? `<text x="${padL + 10}" y="${y + 18}" style="fill:#fff;font-weight:700">${fmt(s.value)}</text>`
+          : `<text x="${padL + w + 8}" y="${y + 18}" class="val">${fmt(s.value)}</text>`}
+        <text x="${W - 8}" y="${y + 18}" text-anchor="end">${s.of_previous_pct}% of prev.</text>
+      </g>`;
+  }).join('');
+
+  return `<div class="viz"><svg viewBox="0 0 ${W} ${H}" role="img"
+    aria-label="Execution funnel from counters targeted to counters covered">${rows}</svg></div>`;
+}
+
+/** Cumulative adherence over the cycle. One series, so no legend — the title names it. */
+function svgTrend(days) {
+  const shown = days.filter(d => !d.is_future);
+  if (shown.length < 2) return '';
+  const W = 760, H = 190, padL = 38, padR = 12, padT = 12, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const maxY = Math.max(20, Math.ceil(Math.max(...shown.map(d => d.cum_pct)) / 20) * 20);
+  const x = i => padL + (shown.length === 1 ? plotW / 2 : (i / (shown.length - 1)) * plotW);
+  const y = v => padT + plotH - (v / maxY) * plotH;
+
+  const ticks = [0, maxY / 2, maxY].map(v =>
+    `<line class="gridline" x1="${padL}" y1="${y(v)}" x2="${W - padR}" y2="${y(v)}"></line>
+     <text x="${padL - 8}" y="${y(v) + 4}" text-anchor="end">${Math.round(v)}%</text>`).join('');
+
+  const line = shown.map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(d.cum_pct).toFixed(1)}`).join(' ');
+  const area = `${line} L${x(shown.length - 1).toFixed(1)},${y(0)} L${x(0).toFixed(1)},${y(0)} Z`;
+
+  const dots = shown.map((d, i) => `
+    <g data-tip="${esc(`<b>${dayShort(d.date)}</b><br><b>${d.cum_pct}%</b> cumulative<br>` +
+        `<span class="k">${d.cum_adhered} of ${d.cum_planned} due by this day</span><br>` +
+        `<span class="k">that day: ${d.same_day} of ${d.planned} planned${d.unplanned ? ` · +${d.unplanned} unplanned` : ''}</span>`)}">
+      <rect class="hit" x="${(x(i) - plotW / (shown.length * 2)).toFixed(1)}" y="${padT}"
+            width="${(plotW / shown.length).toFixed(1)}" height="${plotH}"></rect>
+      <circle cx="${x(i).toFixed(1)}" cy="${y(d.cum_pct).toFixed(1)}" r="4.5"
+              fill="var(--s1)" stroke="var(--surface-1)" stroke-width="2"></circle>
+    </g>`).join('');
+
+  // Label the ends only — a number on every point is noise.
+  const last = shown[shown.length - 1];
+  const labels = `
+    <text x="${x(shown.length - 1)}" y="${y(last.cum_pct) - 12}" text-anchor="end"
+          class="val">${last.cum_pct}%</text>`;
+
+  const xlab = shown.map((d, i) =>
+    (i === 0 || i === shown.length - 1 || i === Math.floor(shown.length / 2))
+      ? `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${dayShort(d.date)}</text>` : '').join('');
+
+  return `<div class="viz"><svg viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="Cumulative adherence through the cycle">
+    ${ticks}
+    <path d="${area}" fill="var(--s1)" opacity=".10"></path>
+    <path d="${line}" fill="none" stroke="var(--s1)" stroke-width="2"
+          stroke-linejoin="round" stroke-linecap="round"></path>
+    ${dots}${labels}
+    <line class="axis" x1="${padL}" y1="${y(0)}" x2="${W - padR}" y2="${y(0)}"></line>
+    ${xlab}
+  </svg></div>`;
+}
+
+/** Planned against done, per day. Two series, so a legend — same unit, one axis. */
+function svgDayColumns(days) {
+  const shown = days.filter(d => !d.is_future);
+  if (!shown.length) return '';
+  const W = 760, H = 170, padL = 30, padR = 10, padT = 12, padB = 24;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const maxY = Math.max(1, ...shown.map(d => d.planned));
+  const slot = plotW / shown.length;
+  const barW = Math.max(3, Math.min(16, slot / 2 - 3));   // 2px gap between the pair
+  const y = v => padT + plotH - (v / maxY) * plotH;
+
+  const cols = shown.map((d, i) => {
+    const cx = padL + i * slot + slot / 2;
+    const tip = `<b>${dayShort(d.date)}</b><br>${d.planned} planned<br>` +
+                `${d.same_day} visited that day${d.unplanned ? `<br><span class="k">+${d.unplanned} unplanned</span>` : ''}`;
+    return `
+      <g data-tip="${esc(tip)}">
+        <rect class="hit" x="${cx - slot / 2}" y="${padT}" width="${slot}" height="${plotH}"></rect>
+        <rect x="${cx - barW - 1}" y="${y(d.planned)}" width="${barW}"
+              height="${Math.max(0, y(0) - y(d.planned))}" rx="3" fill="var(--s1)"></rect>
+        <rect x="${cx + 1}" y="${y(d.same_day)}" width="${barW}"
+              height="${Math.max(0, y(0) - y(d.same_day))}" rx="3" fill="var(--s2)"></rect>
+      </g>`;
+  }).join('');
+
+  const xlab = shown.map((d, i) => (i % 2 === 0)
+    ? `<text x="${padL + i * slot + slot / 2}" y="${H - 6}" text-anchor="middle">${d.date.slice(8)}</text>`
+    : '').join('');
+
+  return `<div class="viz"><svg viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="Visits planned and visits made on the day, per day">
+    <line class="gridline" x1="${padL}" y1="${y(maxY)}" x2="${W - padR}" y2="${y(maxY)}"></line>
+    <text x="${padL - 6}" y="${y(maxY) + 4}" text-anchor="end">${maxY}</text>
+    ${cols}
+    <line class="axis" x1="${padL}" y1="${y(0)}" x2="${W - padR}" y2="${y(0)}"></line>
+    ${xlab}
+  </svg>
+  <div class="legend">
+    <span><i style="background:var(--s1)"></i>Planned that day</span>
+    <span><i style="background:var(--s2)"></i>Visited that day</span>
+  </div></div>`;
+}
+
+/** How a plan ended up: one stacked bar, status colours, every segment labelled. */
+function svgStatusMix(t) {
+  const parts = [
+    { k: 'On the planned day', v: t.adhered_same_day,  c: 'var(--good)' },
+    { k: 'On another day',     v: t.adhered_other_day, c: 'var(--warning)' },
+    { k: 'Missed',             v: t.missed,            c: 'var(--critical)' },
+    { k: 'Not on the plan',    v: t.extra_visits,      c: 'var(--serious)' }
+  ].filter(p => p.v > 0);
+  const total = parts.reduce((s2, p) => s2 + p.v, 0) || 1;
+
+  const W = 760, H = 34;
+  let x = 0;
+  const segs = parts.map(p => {
+    const w = (p.v / total) * W;
+    const seg = `<g data-tip="${esc(`<b>${p.k}</b><br>${p.v} of ${total} · ${Math.round((p.v / total) * 1000) / 10}%`)}">
+        <rect x="${x + 1}" y="0" width="${Math.max(1, w - 2)}" height="${H}" rx="4" fill="${p.c}"></rect>
+        ${w > 46 ? `<text x="${x + w / 2}" y="${H / 2 + 4}" text-anchor="middle"
+              style="fill:#fff;font-weight:700">${p.v}</text>` : ''}
+      </g>`;
+    x += w;
+    return seg;
+  }).join('');
+
+  return `<div class="viz"><svg viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="How the planned visits ended up">${segs}</svg>
+    <div class="legend">${parts.map(p =>
+      `<span><i style="background:${p.c}"></i>${esc(p.k)} — <b>${p.v}</b></span>`).join('')}</div>
+  </div>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HIERARCHY REPORT — the funnel, and everyone below the person looking
+//
+// ZH sees RSM, ASM and SO. RSM sees ASM and SO. ASM sees SO. An SO sees himself.
+// The scope comes from the server, derived from the Dealer / SO Mapping hierarchy —
+// this page only renders what it is given, so it cannot widen anyone's view.
+// ─────────────────────────────────────────────────────────────────────────────
+const fmt = n => (Math.round(n * 100) / 100).toLocaleString();
+
+function personLine(p, cls = '') {
+  const pct = p.total ? p.total.adherence_pct : p.adherence_pct;
+  const own = p.total || p;
+  return `<div class="node click ${cls}" onclick="openOfficer('${esc(p.emp_code)}')"
+               title="Open ${esc(p.emp_name)}'s visits">
+    <div class="row">
+      <div style="min-width:0;flex:1">
+        <div style="font-weight:600;font-size:13px">${esc(p.emp_name)}
+          <span class="muted small">${esc(p.role)} · ${esc(p.emp_code)}</span></div>
+        <div class="dimline">${own.counters} counters · ${own.planned} planned ·
+          ${fmt(own.mtd_due)} due · ${own.adhered} done ·
+          ${own.pending > 0 ? `<span class="due">${fmt(own.pending)} pending</span>`
+                            : `<span class="neg">${fmt(own.pending)}</span>`}
+          · covered ${own.coverage_pct}%</div>
+      </div>
+      <div class="bar2" style="width:120px;height:7px;border-radius:5px;background:#EDF0F4;overflow:hidden">
+        <i style="display:block;height:100%;width:${Math.min(100, pct)}%;
+           background:var(--${pct >= 80 ? 'ok' : pct >= 50 ? 'warn' : 'bad'})"></i></div>
+      <div style="width:56px;text-align:right;font-weight:650">${pct}%</div>
+    </div>
+  </div>`;
+}
+
+function treeLines(nodes, depth = 0) {
+  return nodes.map(n =>
+    personLine(n, depth === 1 ? 'kid' : depth >= 2 ? 'kid2' : '') +
+    treeLines(n.reports || [], depth + 1)
+  ).join('');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OFFICER DRILL-DOWN — click a name, see his diary
+//
+// Every visit the plan asked for, with whether it happened. The server matches each
+// planned slot to at most one logged visit, so a counter planned twice and visited
+// once reads as one adhered and one missed rather than two of either.
+// ─────────────────────────────────────────────────────────────────────────────
+const VST = { ADHERED: '✓ on the day', ADHERED_LATE: '✓ late',
+              ADHERED_EARLY: '✓ early', MISSED: '✗ missed', EXTRA: '+ extra' };
+
+async function openOfficer(empCode) {
+  const viewer = $('selHier').value || empCode;
+  $('drillWho').textContent = 'Loading…';
+  $('drillBody').innerHTML = `<div class="empty">Loading…</div>`;
+  dlgDrill.showModal();
+
+  let d;
+  try {
+    d = await call('GET',
+      `/app/hierarchy/${encodeURIComponent(viewer)}/officer/${encodeURIComponent(empCode)}/visits` +
+      `?month=${state.month}&cycle=${state.cycle}`);
+  } catch (e) {
+    $('drillWho').textContent = 'Not available';
+    $('drillBody').innerHTML = `<div class="note bad">${esc(e.message)}</div>`;
+    return;
+  }
+
+  const t = d.totals;
+  $('drillWho').innerHTML = `${esc(d.officer.emp_name)}
+    <span class="muted small" style="font-weight:400">${esc(d.officer.role)} ·
+    ${esc(d.officer.emp_code)} · ${esc(d.period.month)} ${esc(d.period.cycle)}</span>`;
+
+  $('drillBody').innerHTML = `
+    <div class="grid4" style="margin-top:0">
+      <div><b>${t.planned_visits}</b><span>visits planned</span></div>
+      <div><b style="color:var(--ok)">${t.adhered}</b><span>adhered</span></div>
+      <div><b style="color:var(--bad)">${t.missed}</b><span>missed</span></div>
+      <div><b>${t.adherence_pct}%</b><span>of planned visits</span></div>
+    </div>
+    ${svgStatusMix(t)}
+    <div class="small muted" style="margin:8px 0 12px">
+      ${t.counters_visited} of ${t.counters} counters touched. Each planned visit is
+      matched to at most one logged visit, so a counter planned twice and visited once
+      reads as one adhered and one missed.
+    </div>
+
+    ${d.days.map(day => `
+      <div class="day">
+        <h4>${esc(dayLabel(day.visit_date))}
+          <span class="muted" style="font-weight:400">${day.adhered} of ${day.planned} done</span></h4>
+        ${day.visits.map(v => `
+          <div class="vrow ${v.adhered ? 'ok' : ''}">
+            <div class="vst ${esc(v.status)}">${VST[v.status] || esc(v.status)}</div>
+            <div style="min-width:0">
+              <div style="font-weight:600">${name(v.dealer_name)}</div>
+              <div class="dimline">${esc(v.customer_code)}
+                ${v.source === 'AGENT' ? '· added by him' : ''}
+                ${v.purpose_of_visit ? '· ' + esc(String(v.purpose_of_visit).slice(0, 48)) : ''}</div>
+            </div>
+            <div class="small muted">
+              ${v.visited_date
+                ? `visited ${esc(dayShort(v.visited_date))}${v.days_late ? ` (${v.days_late > 0 ? '+' : ''}${v.days_late}d)` : ''}`
+                : '—'}</div>
+            <div class="small muted" style="text-align:right">
+              ${v.check_in_time ? esc(String(v.check_in_time).slice(0, 5)) : ''}
+              ${v.duration ? '<br>' + esc(v.duration) : ''}</div>
+          </div>`).join('')}
+      </div>`).join('') || `<div class="empty">No visits planned for this cycle.</div>`}
+
+    ${d.extra_visits.length ? `
+      <div class="day">
+        <h4>Visits not on the plan
+          <span class="muted" style="font-weight:400">${d.extra_visits.length}</span></h4>
+        ${d.extra_visits.map(v => `
+          <div class="vrow">
+            <div class="vst EXTRA">${VST.EXTRA}</div>
+            <div><div style="font-weight:600">${name(v.dealer_name)}</div>
+              <div class="dimline">${esc(v.customer_code)}</div></div>
+            <div class="small muted">visited ${esc(dayShort(v.visited_date))}</div>
+            <div class="small muted" style="text-align:right">
+              ${v.check_in_time ? esc(String(v.check_in_time).slice(0, 5)) : ''}</div>
+          </div>`).join('')}
+      </div>` : ''}
+
+    <div class="small muted" style="margin-top:10px">${esc(d.method)}</div>`;
+  wireTips($('drillBody'));
+}
+
+async function loadHierPeople() {
+  const sel = $('selHier');
+  try {
+    const r = await call('GET', `/app/admin/plans?month=${state.month}&cycle=${state.cycle}`);
+    const seen = new Map();
+    for (const p of r.plans || []) {
+      const e = p.employee || {};
+      if (e.emp_code && !seen.has(e.emp_code)) seen.set(e.emp_code, e);
+    }
+    const rank = { ZH: 0, RSM: 1, ASM: 2, SO: 3 };
+    const people = [...seen.values()].sort((a, b) =>
+      (rank[a.role] ?? 9) - (rank[b.role] ?? 9) ||
+      String(a.emp_name).localeCompare(String(b.emp_name)));
+    sel.innerHTML = people.map(p =>
+      `<option value="${esc(p.emp_code)}">${esc(p.emp_name)} · ${esc(p.role)} · ${esc(p.emp_code)}</option>`
+    ).join('') || `<option disabled>No plans this month.</option>`;
+    const top = people.find(p => p.role === 'ZH') || people[0];
+    if (top) sel.value = top.emp_code;
+  } catch (e) {
+    sel.innerHTML = `<option disabled>${esc(e.message)}</option>`;
+  }
+}
+
+async function renderHierarchy() {
+  const who = $('selHier').value;
+  const el = $('hierBody');
+  if (!who) { el.innerHTML = `<div class="empty">Nobody to report on.</div>`; return; }
+  el.innerHTML = `<div class="empty">Loading…</div>`;
+
+  let h;
+  try {
+    h = await call('GET', `/app/hierarchy/${encodeURIComponent(who)}/analysis` +
+      `?month=${state.month}&cycle=${state.cycle}`);
+  } catch (e) { el.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
+
+  const t = h.totals.scope, o = h.totals.own;
+  el.innerHTML = `
+    <div class="card">
+      <div class="row">
+        <div>
+          <div style="font-weight:650;font-size:15px">${esc(h.viewer.emp_name)}
+            <span class="muted small">${esc(h.viewer.role)} · ${esc(h.viewer.emp_code)}</span></div>
+          <div class="small muted">Sees ${h.viewer.sees.length ? h.viewer.sees.join(' → ') : 'his own plan only'}
+            · ${h.scope.people} ${h.scope.people === 1 ? 'person' : 'people'} below him
+            ${Object.keys(h.scope.by_role).length
+              ? '(' + Object.entries(h.scope.by_role).map(([r, n]) => `${n} ${r}`).join(', ') + ')' : ''}</div>
+        </div>
+        <div class="spacer"></div>
+        <div style="text-align:right">
+          <div class="kpi" style="justify-content:flex-end"><b>${t.adherence_pct}%</b></div>
+          <div class="small muted">whole scope, as on ${esc(h.period.as_on_date)}</div>
+        </div>
+      </div>
+      <div class="grid4">
+        <div><b>${t.counters}</b><span>counters</span></div>
+        <div><b>${t.planned}</b><span>visits planned</span></div>
+        <div><b>${t.adhered}</b><span>visits made</span></div>
+        <div><b>${fmt(t.pending)}</b><span>pending</span></div>
+      </div>
+      ${o.planned ? `<div class="small muted">Of that, his own plan: ${o.counters} counters ·
+        ${o.planned} planned · ${o.adhered} made · <b>${o.adherence_pct}%</b>. A manager carries
+        counters of his own as well as his team's.</div>` : ''}
+    </div>
+
+    <div class="card" style="margin-top:11px">
+      <div style="font-weight:650;font-size:13px;margin-bottom:8px">Execution funnel</div>
+      ${svgFunnel(h.funnel)}
+      <div class="small muted" style="margin-top:6px">Each bar is measured against the one above
+        it. Planned exceeds counters because most counters are owed more than one visit.</div>
+    </div>
+
+    ${h.levels.filter(L => L.people_count).map(L => `
+      <div class="lvl" style="margin-top:11px">
+        <h4>${esc(L.role)} — ${L.people_count} ${L.people_count === 1 ? 'person' : 'people'},
+          ${L.with_a_plan} with a plan
+          <span class="muted" style="font-weight:400">· ${L.totals.adhered} of
+            ${fmt(L.totals.mtd_due)} due · ${L.totals.adherence_pct}%</span></h4>
+        ${L.people.map(p => personLine(p)).join('')}
+      </div>`).join('')}
+
+    ${h.tree.length ? `
+      <div class="lvl" style="margin-top:11px">
+        <h4>Drill down — ${esc(h.viewer.role)} → ${h.viewer.sees.join(' → ')}</h4>
+        ${treeLines(h.tree)}
+      </div>` : ''}
+
+    <div class="small muted" style="margin-top:10px">${esc(h.method)}</div>`;
+  wireTips(el);
+}
+
+$('btnHier').onclick = async () => {
+  const pane = $('hierPane');
+  pane.hidden = false;
+  if (!$('selHier').options.length) await loadHierPeople();
+  await renderHierarchy();
+  pane.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+$('btnHierClose').onclick = () => { $('hierPane').hidden = true; };
+$('selHier').onchange = () => renderHierarchy();
+
 /**
  * What happens to the plan after the 15th.
  *
@@ -1112,7 +1602,7 @@ function dailyTable(d) {
     <div class="dayrow${r.is_future ? ' future' : ''}">
       <div>${esc(dayLabel(r.date))}</div>
       <div class="spark" title="${r.cum_adhered} of ${r.cum_planned} due by this day">
-        <i class="${meterClass(r.cum_pct)}" style="width:${Math.min(100, r.cum_pct)}%"></i></div>
+        <i style="width:${Math.min(100, r.cum_pct)}%"></i></div>
       <div style="text-align:right;font-weight:650">${r.is_future ? '' : r.cum_pct + '%'}</div>
       <div style="text-align:right" class="muted">
         ${r.planned ? r.same_day + '/' + r.planned : '—'}${r.unplanned ? ' +' + r.unplanned : ''}</div>
@@ -1125,6 +1615,11 @@ function dailyTable(d) {
         <span class="muted small" style="font-weight:400">· running total to
           ${esc(d.as_on_date)}: <b>${d.totals.cum_pct}%</b>
           (${d.totals.cum_adhered} of ${d.totals.cum_planned} due)</span>
+      </div>
+      <div style="padding:10px 11px 2px">
+        ${svgTrend(d.days)}
+        <div style="height:10px"></div>
+        ${svgDayColumns(d.days)}
       </div>
       <div class="dayrow head">
         <div>Day</div><div>Cumulative</div><div style="text-align:right">%</div>
@@ -1231,6 +1726,7 @@ async function renderMyAdherence() {
     ${daily ? dailyTable(daily) : ''}
     ${handover ? handoverPanel(handover) : ''}
     ${tracker ? trackerTable(tracker, [state.officer.role || 'SO']) : ''}`;
+  wireTips(el);
 }
 
 async function renderTeamAdherence() {
@@ -1306,6 +1802,7 @@ async function renderTeamAdherence() {
     ${daily ? dailyTable(daily) : ''}
     ${handover ? handoverPanel(handover) : ''}
     ${tracker ? trackerTable(tracker, ['SO', 'ASM', 'RSM', 'ZH']) : ''}`;
+  wireTips(el);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

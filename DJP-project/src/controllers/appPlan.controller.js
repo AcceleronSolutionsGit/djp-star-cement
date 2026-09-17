@@ -23,6 +23,7 @@ import {
   canApprove,
   stampPlanRouting,
   resolveEmployeeRole,
+  resolveEmployeeName,
   MAX_RECTIFICATIONS
 } from '../services/planRouting.service.js';
 
@@ -1968,6 +1969,554 @@ export async function getCycleHandover(req, res) {
     });
   } catch (err) {
     console.error('[getCycleHandover]', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HIERARCHY ANALYSIS — the funnel, scoped to who is asking
+// GET /api/app/hierarchy/:empCode/analysis?month=&cycle=&asOn=&depth=&include=
+//
+// Everyone sees themselves and everyone BELOW them, and nobody above or sideways:
+//
+//   ZH   → RSM → ASM → SO        (his whole zone)
+//   RSM  → ASM → SO              (his region)
+//   ASM  → SO                    (his area)
+//   SO   → himself
+//
+// The scope is derived from the Dealer / SO Mapping hierarchy — the same source the
+// approval routing uses — not from anything the caller sends, so a client cannot widen
+// its own view by asking for someone else's code: it gets that person's subtree only if
+// that person is inside the caller's own.
+//
+// TWO FUNNELS, and they are different questions:
+//
+//   the ORG funnel     ZH → RSM → ASM → SO, each level rolled up and drillable
+//   the EXECUTION funnel  counters targeted → visits planned → due so far → made
+//                          → counters actually covered
+//
+// Every node carries three sets of figures, because conflating them is the usual way
+// this kind of report misleads:
+//
+//   own    this person's own plan (an ASM has his own counters to visit)
+//   team   everyone beneath him, rolled up
+//   total  own + team
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ROLE_RANK  = { ZH: 0, RSM: 1, ASM: 2, SO: 3 };
+const BELOW      = { ZH: ['RSM', 'ASM', 'SO'], RSM: ['ASM', 'SO'], ASM: ['SO'], SO: [] };
+const OWN_COLUMN = { ZH: 'zh_code', RSM: 'rsm_code', ASM: 'asm_code', SO: 'so_emp_code' };
+const NAME_COLUMN = { ZH: 'zh_name', RSM: 'rsm_name', ASM: 'asm_name', SO: 'so_name' };
+
+/**
+ * Every (ZH, RSM, ASM, SO) chain in the hierarchy, deduplicated.
+ * Dealer / SO Mapping is authoritative; the per-cycle DJP snapshot is the fallback for
+ * a database where the mapping has not been uploaded yet.
+ */
+async function hierarchyChains() {
+  for (const table of ['master_dealer_so_mapping', 'dealer_visit_targets']) {
+    try {
+      const rows = await dbAll(
+        `SELECT DISTINCT zh_code, zh_name, rsm_code, rsm_name,
+                         asm_code, asm_name, so_emp_code, so_name
+           FROM ${table}
+          WHERE so_emp_code IS NOT NULL AND TRIM(so_emp_code) <> ''`
+      );
+      if (rows && rows.length) return { rows, source: table };
+    } catch { continue; }
+  }
+  return { rows: [], source: null };
+}
+
+/** The subtree under one person, as a nested tree plus a flat index by role. */
+function buildSubtree(chains, viewerRole, viewerCode) {
+  const mine = viewerRole === 'ADMIN'
+    ? chains
+    : chains.filter(c => same(c[OWN_COLUMN[viewerRole]], viewerCode));
+
+  // Only roles STRICTLY BELOW the viewer. A chain row carries his superiors' codes too,
+  // and indexing those would put his own RSM inside an ASM's "scope" — the report would
+  // then tell an ASM he oversees the man who oversees him.
+  const flat = { ZH: new Map(), RSM: new Map(), ASM: new Map(), SO: new Map() };
+  const visibleRoles = viewerRole === 'ADMIN'
+    ? ['ZH', 'RSM', 'ASM', 'SO']
+    : (BELOW[viewerRole] || []);
+  for (const c of mine) {
+    for (const role of visibleRoles) {
+      const code = norm(c[OWN_COLUMN[role]]);
+      if (!code) continue;
+      if (same(code, viewerCode)) continue;              // he is the viewer, not his own report
+      if (!flat[role].has(code.toUpperCase())) {
+        flat[role].set(code.toUpperCase(), { emp_code: code, emp_name: norm(c[NAME_COLUMN[role]]) || code, role });
+      }
+    }
+  }
+
+  // Nest, starting at the level directly below the viewer.
+  const childRole = { ZH: 'RSM', RSM: 'ASM', ASM: 'SO', SO: null };
+  const build = (role, code) => {
+    const next = childRole[role];
+    if (!next) return [];
+    const kids = new Map();
+    for (const c of mine) {
+      if (code && !same(c[OWN_COLUMN[role]], code)) continue;
+      const kidCode = norm(c[OWN_COLUMN[next]]);
+      if (!kidCode) continue;
+      if (!kids.has(kidCode.toUpperCase())) {
+        kids.set(kidCode.toUpperCase(), {
+          emp_code: kidCode, emp_name: norm(c[NAME_COLUMN[next]]) || kidCode, role: next
+        });
+      }
+    }
+    return [...kids.values()].map(k => ({ ...k, reports: build(next, k.emp_code) }));
+  };
+
+  return { flat, children: build(viewerRole, viewerCode) };
+}
+
+const ZERO = () => ({
+  counters: 0, counters_visited: 0, counters_missed: 0,
+  planned: 0, mtd_due: 0, adhered: 0, pending: 0, adherence_pct: 0, coverage_pct: 0
+});
+
+const roundTo = (n, p = 2) => Math.round(n * 10 ** p) / 10 ** p;
+
+/** Their formula, applied to a set of already-summed figures. */
+function score(s) {
+  const denom = s.mtd_due < 1 ? s.planned : s.mtd_due;
+  return {
+    counters: s.counters,
+    counters_visited: s.counters_visited,
+    counters_missed: s.counters_missed,
+    planned: s.planned,
+    mtd_due: roundTo(s.mtd_due),
+    adhered: s.adhered,
+    pending: roundTo(s.mtd_due - s.adhered),
+    adherence_pct: denom > 0 ? Math.round((s.adhered / denom) * 1000) / 10 : 0,
+    coverage_pct: s.counters > 0 ? Math.round((s.counters_visited / s.counters) * 1000) / 10 : 0
+  };
+}
+
+function addInto(acc, s) {
+  acc.counters += s.counters; acc.counters_visited += s.counters_visited;
+  acc.counters_missed += s.counters_missed; acc.planned += s.planned;
+  acc.mtd_due += s.mtd_due; acc.adhered += s.adhered;
+  return acc;
+}
+
+export async function getHierarchyAnalysis(req, res) {
+  try {
+    const empCode = norm(req.params.empCode);
+    const q = parseDailyQuery(req.query);
+    if (q.error) return res.status(400).json({ error: q.error });
+    const wantVisits = req.query.include === 'visits' || req.query.include === 'all';
+    const maxDepth = Math.max(1, Math.min(4, parseInt(req.query.depth || '4', 10)));
+
+    const viewerRole = same(empCode, 'ADMIN')
+      ? 'ADMIN'
+      : await resolveEmployeeRole(empCode);
+    const { rows: chains, source } = await hierarchyChains();
+    if (!chains.length) {
+      return res.status(409).json({
+        error: 'No hierarchy is loaded. Upload the Dealer / SO Mapping file, or run a ' +
+               'generation so dealer_visit_targets carries the hierarchy.'
+      });
+    }
+    const { flat, children } = buildSubtree(chains, viewerRole, empCode);
+
+    // ── the numbers, once, for everybody in scope ────────────────────────────
+    const { analyseAdherence } = await import('../engines/sfa-adherence.engine.js');
+    const a = await analyseAdherence({
+      periodMonth: q.month,
+      cycleCode: q.cycle && q.cycle !== 'ALL' ? q.cycle : null,
+      asOnDate: q.asOn || null
+    });
+    const statOf = new Map();
+    for (const e of a.byEmployee) {
+      statOf.set(norm(e.emp_code).toUpperCase(), {
+        counters: e.dealers,
+        counters_visited: e.dealers_visited,
+        counters_missed: e.dealers_missed,
+        planned: e.planned,
+        mtd_due: e.mtd_planned,
+        adhered: e.adhered
+      });
+    }
+
+    const planRows = await dbAll(
+      `SELECT emp_code, emp_role, status, cycle_code,
+              (SELECT COUNT(*) FROM sales_plan_details d WHERE d.plan_id = sales_plans.id) AS visits
+         FROM sales_plans WHERE period_month = ?` +
+      (q.cycle && q.cycle !== 'ALL' ? ' AND cycle_code = ?' : ''),
+      q.cycle && q.cycle !== 'ALL' ? [q.month, q.cycle] : [q.month]
+    ).catch(() => []);
+    const planOf = new Map();
+    for (const p of planRows) {
+      const k = norm(p.emp_code).toUpperCase();
+      if (!planOf.has(k)) planOf.set(k, { plans: 0, visits: 0, statuses: {} });
+      const v = planOf.get(k);
+      v.plans += 1;
+      v.visits += Number(p.visits || 0);
+      v.statuses[p.status] = (v.statuses[p.status] || 0) + 1;
+    }
+
+    // ── decorate the tree, rolling up as we come back out ────────────────────
+    const decorate = (node, depth) => {
+      const key = norm(node.emp_code).toUpperCase();
+      const own = statOf.get(key) || { counters: 0, counters_visited: 0, counters_missed: 0,
+                                       planned: 0, mtd_due: 0, adhered: 0 };
+      const teamAcc = { counters: 0, counters_visited: 0, counters_missed: 0,
+                        planned: 0, mtd_due: 0, adhered: 0 };
+      const reports = (node.reports || []).map(r => decorate(r, depth + 1));
+      for (const r of reports) addInto(teamAcc, r._raw_total);
+      const totalAcc = addInto(addInto({ counters: 0, counters_visited: 0, counters_missed: 0,
+                                         planned: 0, mtd_due: 0, adhered: 0 }, own), teamAcc);
+
+      const plan = planOf.get(key) || { plans: 0, visits: 0, statuses: {} };
+      const out = {
+        emp_code: node.emp_code,
+        emp_name: node.emp_name,
+        role: node.role,
+        depth,
+        plan: { plans: plan.plans, visits_scheduled: plan.visits, by_status: plan.statuses },
+        own: score(own),
+        team: score(teamAcc),
+        total: score(totalAcc),
+        reports_count: reports.length,
+        reports: depth < maxDepth ? reports.map(r => { const { _raw_total, ...rest } = r; return rest; }) : []
+      };
+      out._raw_total = totalAcc;
+      return out;
+    };
+
+    const tree = children.map(c => decorate(c, 1));
+
+    // The viewer's own line, and the whole scope rolled up.
+    const viewerKey = norm(empCode).toUpperCase();
+    const viewerOwn = statOf.get(viewerKey) || { counters: 0, counters_visited: 0, counters_missed: 0,
+                                                planned: 0, mtd_due: 0, adhered: 0 };
+    const scopeAcc = { counters: 0, counters_visited: 0, counters_missed: 0,
+                       planned: 0, mtd_due: 0, adhered: 0 };
+    addInto(scopeAcc, viewerOwn);
+    for (const t of tree) addInto(scopeAcc, t._raw_total);
+    for (const t of tree) delete t._raw_total;
+
+    // ── level bands: one row per person, per role, flat ──────────────────────
+    const levels = BELOW[viewerRole] || ['RSM', 'ASM', 'SO'];
+    const byLevel = levels.map(role => {
+      const people = [...flat[role].values()]
+        .map(p => {
+          const k = norm(p.emp_code).toUpperCase();
+          const s = statOf.get(k);
+          const plan = planOf.get(k) || { plans: 0, visits: 0 };
+          return {
+            emp_code: p.emp_code, emp_name: p.emp_name, role,
+            has_plan: !!s,
+            plans: plan.plans,
+            visits_scheduled: plan.visits,
+            ...score(s || { counters: 0, counters_visited: 0, counters_missed: 0,
+                            planned: 0, mtd_due: 0, adhered: 0 })
+          };
+        })
+        .sort((x, y) => x.adherence_pct - y.adherence_pct ||
+                        String(x.emp_name).localeCompare(String(y.emp_name)));
+      const acc = { counters: 0, counters_visited: 0, counters_missed: 0,
+                    planned: 0, mtd_due: 0, adhered: 0 };
+      for (const p of people) {
+        addInto(acc, { counters: p.counters, counters_visited: p.counters_visited,
+                       counters_missed: p.counters_missed, planned: p.planned,
+                       mtd_due: p.mtd_due, adhered: p.adhered });
+      }
+      return {
+        role,
+        people_count: people.length,
+        with_a_plan: people.filter(p => p.has_plan).length,
+        totals: score(acc),
+        people
+      };
+    });
+
+    // ── the execution funnel, for the whole scope ────────────────────────────
+    const scope = score(scopeAcc);
+    const funnel = [
+      { stage: 'Counters targeted', value: scope.counters, of_previous_pct: 100,
+        note: 'counters on a plan in this scope' },
+      { stage: 'Visits planned',    value: scope.planned,
+        of_previous_pct: scope.counters ? Math.round((scope.planned / scope.counters) * 1000) / 10 : 0,
+        note: 'visits scheduled across those counters' },
+      { stage: 'Due so far',        value: scope.mtd_due,
+        of_previous_pct: scope.planned ? Math.round((scope.mtd_due / scope.planned) * 1000) / 10 : 0,
+        note: 'planned x elapsed fraction of the cycle' },
+      { stage: 'Visits made',       value: scope.adhered,
+        of_previous_pct: scope.mtd_due >= 1 ? Math.round((scope.adhered / scope.mtd_due) * 1000) / 10 : 0,
+        note: 'from the SFA visit log' },
+      { stage: 'Counters covered',  value: scope.counters_visited,
+        of_previous_pct: scope.counters ? Math.round((scope.counters_visited / scope.counters) * 1000) / 10 : 0,
+        note: 'counters visited at least once' }
+    ];
+
+    // ── optional: every visit, for the officers in scope ─────────────────────
+    let visits = null;
+    if (wantVisits) {
+      const codes = [...new Set([
+        empCode,
+        ...['ZH', 'RSM', 'ASM', 'SO'].flatMap(r => [...flat[r].values()].map(p => p.emp_code))
+      ])].filter(Boolean);
+      if (codes.length) {
+        const marks = codes.map(() => '?').join(',');
+        visits = await dbAll(
+          `SELECT p.emp_code, p.emp_name, p.emp_role AS role, p.cycle_code, p.status AS plan_status,
+                  d.visit_date, d.dealer_sap_code, d.dealer_name, d.sequence, d.purpose_of_visit,
+                  COALESCE(d.source, 'AUTO') AS source
+             FROM sales_plan_details d
+             JOIN sales_plans p ON p.id = d.plan_id
+            WHERE p.period_month = ? AND UPPER(TRIM(p.emp_code)) IN (${marks})` +
+          (q.cycle && q.cycle !== 'ALL' ? ' AND p.cycle_code = ?' : '') +
+          ` ORDER BY d.visit_date ASC, p.emp_code ASC, d.sequence ASC`,
+          q.cycle && q.cycle !== 'ALL'
+            ? [q.month, ...codes.map(c => c.toUpperCase()), q.cycle]
+            : [q.month, ...codes.map(c => c.toUpperCase())]
+        ).catch(() => []);
+      }
+    }
+
+    res.json({
+      viewer: {
+        emp_code: empCode,
+        // resolveEmployeeName returns { name, source } — taking it as a string prints
+        // "[object Object]" where the person's name should be.
+        emp_name: (await resolveEmployeeName(empCode, viewerRole === 'ADMIN' ? null : viewerRole))?.name
+                  || empCode,
+        role: viewerRole,
+        sees: BELOW[viewerRole] || ['RSM', 'ASM', 'SO']
+      },
+      period: { month: q.month, cycle: q.cycle, as_on_date: a.asOnDate },
+      hierarchy_source: source,
+      scope: {
+        people: ['ZH', 'RSM', 'ASM', 'SO'].reduce((n, r) => n + flat[r].size, 0),
+        by_role: Object.fromEntries(
+          ['ZH', 'RSM', 'ASM', 'SO'].filter(r => flat[r].size).map(r => [r, flat[r].size]))
+      },
+      totals: { own: score(viewerOwn), scope },
+      funnel,
+      levels: byLevel,
+      tree,
+      visits,
+      method: 'Adherence % = adhered / IF(MTD due < 1, planned, MTD due). ' +
+              'own = this person\'s own plan; team = everyone beneath him; total = own + team.'
+    });
+  } catch (err) {
+    console.error('[getHierarchyAnalysis]', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OFFICER DRILL-DOWN — his visits, one by one, adhered or not
+// GET /api/app/hierarchy/:viewerCode/officer/:empCode/visits?month=&cycle=&asOn=
+//
+// The level above can click a name and see the actual diary: every visit the plan
+// asked for, and whether it happened. The manager's question is never "what is his
+// percentage" — it is "which counters did he not get to".
+//
+// ACCESS: the officer must be inside the viewer's own subtree, checked against the
+// hierarchy, not against anything the caller sends. An ASM asking for an SO who does
+// not report to him gets 403. A person may always drill into himself.
+//
+// MATCHING a planned visit to a logged one is the interesting part. A counter planned
+// twice, visited once, must read as one adhered and one missed — not two of either. So
+// for each (officer, counter) pair:
+//
+//   1. same-day matches first     plan 06 Jun + log 06 Jun  → ADHERED
+//   2. leftover logs then fill leftover planned slots, in date order
+//                                 plan 06 Jun + log 09 Jun  → ADHERED_LATE (shows both)
+//   3. planned slots still unfilled → MISSED
+//   4. logs still unused           → EXTRA (a visit nobody planned)
+//
+// Counting any other way is how a report ends up claiming more adherence than there
+// were visits.
+// ─────────────────────────────────────────────────────────────────────────────
+export async function getOfficerVisitDrill(req, res) {
+  try {
+    const viewerCode = norm(req.params.viewerCode);
+    const empCode    = norm(req.params.empCode);
+    const q = parseDailyQuery(req.query);
+    if (q.error) return res.status(400).json({ error: q.error });
+
+    // ── may this viewer see this officer? ────────────────────────────────────
+    const viewerRole = same(viewerCode, 'ADMIN') ? 'ADMIN' : await resolveEmployeeRole(viewerCode);
+    let allowed = same(viewerCode, empCode) || viewerRole === 'ADMIN';
+    let officerRole = null;
+    if (!allowed) {
+      const { rows: chains } = await hierarchyChains();
+      const { flat } = buildSubtree(chains, viewerRole, viewerCode);
+      for (const role of ['ZH', 'RSM', 'ASM', 'SO']) {
+        if (flat[role].has(empCode.toUpperCase())) { allowed = true; officerRole = role; break; }
+      }
+      if (!allowed) {
+        return res.status(403).json({
+          error: `${empCode} does not report to ${viewerCode}. A ${viewerRole} can only open ` +
+                 `the people beneath them in the Dealer / SO Mapping hierarchy.`
+        });
+      }
+    }
+    officerRole = officerRole || await resolveEmployeeRole(empCode);
+
+    // ── what was planned, and what was logged ────────────────────────────────
+    const canon = await dealerCodeAliases(q.month);
+    const cycleFilter = q.cycle && q.cycle !== 'ALL' ? ' AND p.cycle_code = ?' : '';
+    const params = q.cycle && q.cycle !== 'ALL' ? [q.month, empCode, q.cycle] : [q.month, empCode];
+
+    const planned = await dbAll(
+      `SELECT d.id AS detail_id, d.visit_date, d.dealer_sap_code, d.dealer_name, d.sequence,
+              d.purpose_of_visit, COALESCE(d.source, 'AUTO') AS source,
+              p.cycle_code, p.status AS plan_status, p.id AS plan_id, p.emp_name
+         FROM sales_plan_details d
+         JOIN sales_plans p ON p.id = d.plan_id
+        WHERE p.period_month = ? AND UPPER(TRIM(p.emp_code)) = UPPER(TRIM(?))${cycleFilter}
+        ORDER BY d.visit_date ASC, d.sequence ASC`,
+      params
+    ).catch(() => []);
+
+    const logs = await dbAll(
+      `SELECT visit_date, customer_code, customer_name, check_in_time, check_out_time,
+              duration, visit_status, purpose_of_visit, batch_code
+         FROM visit_execution_logs
+        WHERE UPPER(TRIM(employee_code)) = UPPER(TRIM(?))
+          AND visit_date BETWEEN ? AND ?
+        ORDER BY visit_date ASC`,
+      [empCode, `${q.month}-01`, `${q.month}-31`]
+    ).catch(() => []);
+
+    // Dealer-level buckets, so a counter planned twice is matched twice.
+    const byPair = new Map();
+    for (const d of planned) {
+      const k = canon(d.dealer_sap_code);
+      if (!byPair.has(k)) byPair.set(k, { planned: [], logs: [] });
+      byPair.get(k).planned.push({ ...d, day: String(d.visit_date).slice(0, 10) });
+    }
+    for (const l of logs) {
+      const k = canon(l.customer_code);
+      if (!byPair.has(k)) byPair.set(k, { planned: [], logs: [] });
+      byPair.get(k).logs.push({ ...l, day: String(l.visit_date).slice(0, 10) });
+    }
+
+    const rows = [];
+    const extras = [];
+    for (const [code, pair] of byPair) {
+      const unusedLogs = [...pair.logs].sort((a, b) => a.day.localeCompare(b.day));
+      const slots = pair.planned.map(p => ({ plan: p, log: null, how: null }));
+
+      // 1. same day
+      for (const s of slots) {
+        const i = unusedLogs.findIndex(l => l.day === s.plan.day);
+        if (i >= 0) { s.log = unusedLogs.splice(i, 1)[0]; s.how = 'ADHERED'; }
+      }
+      // 2. leftover logs fill leftover slots, earliest first
+      for (const s of slots) {
+        if (s.log || !unusedLogs.length) continue;
+        s.log = unusedLogs.shift();
+        s.how = s.log.day > s.plan.day ? 'ADHERED_LATE' : 'ADHERED_EARLY';
+      }
+      for (const s of slots) {
+        const p = s.plan;
+        rows.push({
+          detail_id: p.detail_id,
+          plan_id: p.plan_id,
+          cycle_code: p.cycle_code,
+          plan_status: p.plan_status,
+          planned_date: p.day,
+          sequence: p.sequence,
+          customer_code: code,
+          dealer_name: p.dealer_name,
+          purpose_of_visit: p.purpose_of_visit,
+          source: p.source,
+          status: s.how || 'MISSED',
+          adhered: !!s.log,
+          visited_date: s.log ? s.log.day : null,
+          days_late: s.log ? Math.round(
+            (Date.parse(s.log.day + 'T00:00:00Z') - Date.parse(p.day + 'T00:00:00Z')) / 86400000) : null,
+          check_in_time: s.log?.check_in_time || null,
+          check_out_time: s.log?.check_out_time || null,
+          duration: s.log?.duration || null,
+          visit_status: s.log?.visit_status || null,
+          logged_via: s.log?.batch_code || null
+        });
+      }
+      // 3. logs nobody planned
+      for (const l of unusedLogs) {
+        extras.push({
+          customer_code: code,
+          dealer_name: l.customer_name,
+          visited_date: l.day,
+          check_in_time: l.check_in_time,
+          check_out_time: l.check_out_time,
+          duration: l.duration,
+          visit_status: l.visit_status,
+          purpose_of_visit: l.purpose_of_visit,
+          logged_via: l.batch_code,
+          status: 'EXTRA'
+        });
+      }
+    }
+
+    rows.sort((a, b) => a.planned_date.localeCompare(b.planned_date) ||
+                        (a.sequence || 0) - (b.sequence || 0));
+    extras.sort((a, b) => a.visited_date.localeCompare(b.visited_date));
+
+    // Grouped by day, which is how the screen reads.
+    const byDay = new Map();
+    for (const r of rows) {
+      if (!byDay.has(r.planned_date)) byDay.set(r.planned_date, []);
+      byDay.get(r.planned_date).push(r);
+    }
+
+    const adhered = rows.filter(r => r.adhered).length;
+    const missed  = rows.length - adhered;
+    const counters = new Set(rows.map(r => r.customer_code));
+    const countersDone = new Set(rows.filter(r => r.adhered).map(r => r.customer_code));
+
+    res.json({
+      viewer: { emp_code: viewerCode, role: viewerRole },
+      officer: {
+        emp_code: empCode,
+        emp_name: planned[0]?.emp_name ||
+                  (await resolveEmployeeName(empCode, officerRole))?.name || empCode,
+        role: officerRole
+      },
+      period: { month: q.month, cycle: q.cycle, as_on_date: q.asOn || null },
+      totals: {
+        planned_visits: rows.length,
+        adhered: adhered,
+        adhered_same_day: rows.filter(r => r.status === 'ADHERED').length,
+        adhered_other_day: rows.filter(r => r.status === 'ADHERED_LATE' || r.status === 'ADHERED_EARLY').length,
+        missed: missed,
+        extra_visits: extras.length,
+        counters: counters.size,
+        counters_visited: countersDone.size,
+        adherence_pct: rows.length ? Math.round((adhered / rows.length) * 1000) / 10 : 0
+      },
+      legend: {
+        ADHERED: 'visited on the planned day',
+        ADHERED_LATE: 'visited, but after the planned day',
+        ADHERED_EARLY: 'visited before the planned day',
+        MISSED: 'no visit logged against this planned slot',
+        EXTRA: 'a visit that was not on the plan at all'
+      },
+      days: [...byDay.entries()].map(([date, visits]) => ({
+        visit_date: date,
+        planned: visits.length,
+        adhered: visits.filter(v => v.adhered).length,
+        visits
+      })),
+      visits: rows,
+      extra_visits: extras,
+      method: 'Each planned visit is matched to at most one logged visit — same day first, ' +
+              'then any remaining logs in date order. A counter planned twice and visited ' +
+              'once reads as one adhered and one missed.'
+    });
+  } catch (err) {
+    console.error('[getOfficerVisitDrill]', err);
     res.status(500).json({ error: err.message });
   }
 }

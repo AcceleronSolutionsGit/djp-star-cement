@@ -69,6 +69,8 @@ import {
   getDailyAdherence,
   getCounterAdherence,
   getCycleHandover,
+  getHierarchyAnalysis,
+  getOfficerVisitDrill,
   getTeamCounterAdherence,
   getTeamDailyAdherence,
   getMyAdherence,
@@ -225,6 +227,8 @@ router.get   ('/app/admin/adherence',                              getAdherenceR
 router.get   ('/app/admin/adherence/daily',                        getDailyAdherence);
 router.get   ('/app/admin/adherence/counters',                     getCounterAdherence);
 router.get   ('/app/admin/cycle-handover',                         getCycleHandover);
+router.get   ('/app/hierarchy/:empCode/analysis',                   getHierarchyAnalysis);
+router.get   ('/app/hierarchy/:viewerCode/officer/:empCode/visits', getOfficerVisitDrill);
 router.get   ('/app/approvers/:empCode/adherence/daily',           getTeamDailyAdherence);
 router.get   ('/app/approvers/:empCode/adherence/counters',        getTeamCounterAdherence);
 // C2 regeneration review — what the adherence result changed in the second cycle
