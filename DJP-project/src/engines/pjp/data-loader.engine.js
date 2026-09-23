@@ -105,7 +105,7 @@ export async function loadDealersWithMappings(options = {}) {
       d.branch
     FROM master_dealers d
     LEFT JOIN master_dealer_so_mapping m ON d.id = m.dealer_id
-    WHERE (d.status = 'ACTIVE' OR d.status IS NULL)
+    WHERE (d.status = 'ACTIVE' OR d.status = 'Active in SAP' OR d.status IS NULL)
     ${typeExclusion}
     ORDER BY d.id ASC
   `, queryParams);

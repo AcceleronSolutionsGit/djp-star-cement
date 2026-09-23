@@ -68,7 +68,7 @@ export async function reconcileUniverse(options = {}) {
       d.zh_name,
       d.zh_code
     FROM master_dealers d
-    WHERE (d.status = 'ACTIVE' OR d.status IS NULL)
+    WHERE (d.status = 'ACTIVE' OR d.status = 'Active in SAP' OR d.status IS NULL)
     ORDER BY d.id ASC
   `);
 
