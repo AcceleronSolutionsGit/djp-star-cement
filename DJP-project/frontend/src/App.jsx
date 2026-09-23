@@ -300,6 +300,7 @@ export default function App() {
                 onPeriodChange={setSelectedPeriod}
                 selectedCycle={selectedCycle}
                 onCycleChange={setSelectedCycle}
+                triggerReload={reloadTrigger}
               />
             )}
 

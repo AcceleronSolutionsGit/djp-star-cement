@@ -18,7 +18,8 @@ export default function MonthlyIngestionView({
   selectedPeriod,
   onPeriodChange,
   selectedCycle,
-  onCycleChange
+  onCycleChange,
+  triggerReload
 }) {
   const fileInputRef = React.useRef(null);
   const [batches, setBatches] = useState([]);
@@ -36,6 +37,26 @@ export default function MonthlyIngestionView({
   const [reconciliation, setReconciliation] = useState(null);
   const [readiness, setReadiness] = useState(null);
   const [sfaUploadResult, setSfaUploadResult] = useState(null); // tracks last SFA upload result
+
+  const [generatedPlans, setGeneratedPlans] = useState([]);
+  const [loadingPlans, setLoadingPlans] = useState(false);
+
+  const fetchGeneratedPlans = async () => {
+    if (!selectedPeriod) return;
+    setLoadingPlans(true);
+    try {
+      const res = await api.getAllOfficerPlans({ month: selectedPeriod, cycle: selectedCycle, role: 'ALL' });
+      setGeneratedPlans(res.plans || []);
+    } catch (err) {
+      console.error('Failed to load generated plans:', err);
+    } finally {
+      setLoadingPlans(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchGeneratedPlans();
+  }, [selectedPeriod, selectedCycle, triggerReload]);
 
   const loadBatches = async () => {
     setLoading(true);
@@ -439,22 +460,10 @@ export default function MonthlyIngestionView({
               <p style={{ margin: '0 0 12px 0', fontSize: '0.83rem', color: '#4338CA', lineHeight: 1.5 }}>
                 {sfaUploadResult.autoTriggered
                   ? `C2 plans for ${sfaUploadResult.period || selectedPeriod} are being regenerated in the background using SFA adherence data. Dealers missed in C1 will be prioritised in C2 schedules.`
-                  : `SFA data uploaded. Click "Regenerate C2 Plans" to recalibrate C2 visit schedules based on actual C1 adherence.`
+                  : `SFA data uploaded. You can now generate DJP plans for C2.`
                 }
               </p>
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-                <button
-                  className="btn btn-primary"
-                  onClick={() => onRegenerateC2 && onRegenerateC2(sfaUploadResult.period || selectedPeriod)}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: '6px',
-                    background: 'linear-gradient(135deg, #6366F1, #8B5CF6)',
-                    border: 'none', padding: '8px 16px', fontSize: '0.85rem', fontWeight: 700
-                  }}
-                >
-                  <RefreshCw size={15} />
-                  <span>Regenerate C2 Plans Now</span>
-                </button>
                 <span style={{ fontSize: '0.78rem', color: '#6366F1', fontWeight: 600 }}>
                   Period: {sfaUploadResult.period || selectedPeriod}
                 </span>
@@ -898,6 +907,67 @@ export default function MonthlyIngestionView({
           </div>
         </div>
       )}
+
+      {/* Generated Plans List */}
+      <div className="table-wrapper" style={{ marginTop: '24px' }}>
+        <div style={{
+          padding: '14px 20px',
+          background: '#FAFAFA',
+          borderBottom: '1px solid var(--border-subtle)',
+          fontWeight: 700,
+          fontSize: '0.88rem'
+        }}>
+          Generated Plans ({generatedPlans.length})
+        </div>
+
+        <div className="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>Plan ID</th>
+                <th>Employee Name</th>
+                <th>Role</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loadingPlans ? (
+                <tr>
+                  <td colSpan="4" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                    Loading plans...
+                  </td>
+                </tr>
+              ) : generatedPlans.length === 0 ? (
+                <tr>
+                  <td colSpan="4" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+                    No plans generated for {selectedPeriod} {selectedCycle} yet. Generate DJP to create plans.
+                  </td>
+                </tr>
+              ) : (
+                generatedPlans.map((p) => (
+                  <tr key={p.plan_id}>
+                    <td>
+                      <code style={{ fontSize: '0.8rem', background: 'var(--bg-app)', padding: '2px 6px', borderRadius: '4px' }}>
+                        {p.plan_id}
+                      </code>
+                    </td>
+                    <td>
+                      <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{p.employee?.emp_name}</div>
+                      <small style={{ color: 'var(--text-muted)' }}>{p.employee?.emp_code}</small>
+                    </td>
+                    <td>{p.employee?.role}</td>
+                    <td>
+                      <span className={`badge badge-${(p.status || '').toLowerCase()}`}>
+                        {p.status || 'DRAFT'}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
