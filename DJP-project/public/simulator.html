@@ -302,7 +302,15 @@
   <div class="db">
     <label>Day</label>
     <select id="addDay"></select>
-    <label>Dealer <span class="muted" style="font-weight:400">— only dealers targeted to this officer this cycle</span></label>
+    <div style="display:flex;align-items:center;gap:12px;margin:8px 0 4px">
+      <label style="margin:0;font-weight:600">Counter Type:</label>
+      <label style="font-weight:normal;cursor:pointer"><input type="radio" name="addPool" id="poolTarget" checked onchange="switchAddPool('mapped')"> Target Counters</label>
+      <label style="font-weight:normal;cursor:pointer"><input type="radio" name="addPool" id="poolUnmapped" onchange="switchAddPool('unmapped')"> Unmapped Counters</label>
+    </div>
+    <div id="unmappedSearchWrap" style="display:none;margin-bottom:6px">
+      <input id="addSearch" placeholder="Search unmapped counters (name, code, area)..." oninput="debounceAddSearch()">
+    </div>
+    <label id="addDealerLbl">Dealer <span class="muted" style="font-weight:400">— target counters for this cycle</span></label>
     <select id="addDealer" size="10" style="height:auto"></select>
     <label>Purpose</label>
     <input id="addPurpose" value="Routine Visit">
@@ -728,7 +736,7 @@ function renderPlanDetail() {
                 ${v.dealer.block ? '· ' + esc(v.dealer.block) : ''}
                 ${v.final_category ? `<span class="cat ${catClass(v.final_category)}">${esc(v.final_category)}</span>` : ''}
                 ${v.grade ? '· grade ' + esc(v.grade) : ''}
-                ${v.source === 'AGENT' ? '· <b>added by you</b>' : ''}</div>
+                ${v.source === 'UNMAPPED' || v.is_unmapped ? '· <b style="color:var(--warn)">[Unmapped Counter]</b>' : (v.source === 'AGENT' ? '· <b>added by you</b>' : '')}</div>
             </div>
             <div class="acts">
               ${v.executed ? '' : `<button class="tiny" onclick="openPunch('${d.visit_date}','${esc(v.dealer.sfa_code || v.dealer.sap_code || '')}','${esc(v.dealer.name)}','${esc(v.purpose_of_visit || '')}')">Punch</button>`}
@@ -767,16 +775,33 @@ function dayOptions(exclude) {
   }).join('');
 }
 
-async function openAdd() {
-  const p = state.officerPlan;
-  $('addErr').innerHTML = '';
-  $('addDay').innerHTML = dayOptions(null);
+let addPoolMode = 'mapped';
+let searchTimer = null;
 
+async function switchAddPool(mode) {
+  addPoolMode = mode;
+  $('poolTarget').checked = mode === 'mapped';
+  $('poolUnmapped').checked = mode === 'unmapped';
+  $('unmappedSearchWrap').style.display = mode === 'unmapped' ? 'block' : 'none';
+  $('addDealerLbl').innerHTML = mode === 'mapped'
+    ? 'Dealer <span class="muted" style="font-weight:400">— target counters for this cycle</span>'
+    : 'Dealer <span class="muted" style="font-weight:400">— unmapped counters from master records</span>';
+  await loadAddDealers();
+}
+
+function debounceAddSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => loadAddDealers(), 300);
+}
+
+async function loadAddDealers() {
+  const p = state.officerPlan;
   $('addDealer').innerHTML = `<option disabled>Loading…</option>`;
-  dlgAdd.showModal();
   try {
-    const r = await call('GET',
-      `/app/officers/${encodeURIComponent(state.officer.emp_code)}/dealers?month=${p.period_month}&cycle=${p.cycle_code}`);
+    const q = ($('addSearch').value || '').trim();
+    const url = `/app/officers/${encodeURIComponent(state.officer.emp_code)}/dealers?month=${p.period_month}&cycle=${p.cycle_code}&scope=${addPoolMode}` +
+      (addPoolMode === 'unmapped' && q ? `&search=${encodeURIComponent(q)}` : '');
+    const r = await call('GET', url);
     state.dealers = r.dealers || [];
   } catch (e) {
     $('addDealer').innerHTML = '';
@@ -784,9 +809,24 @@ async function openAdd() {
     return;
   }
   $('addDealer').innerHTML = state.dealers.map(d =>
-    `<option value="${esc(d.sap_code)}" data-name="${esc(d.dealer_name)}">
-       ${esc(d.dealer_name)} — ${esc(d.final_category || '')}${d.already_planned ? ' · already on plan' : ''}
-     </option>`).join('') || `<option disabled>No dealers targeted to this officer</option>`;
+    `<option value="${esc(d.sap_code || d.sfa_code)}" data-name="${esc(d.dealer_name)}" data-unmapped="${d.is_unmapped ? '1' : '0'}">
+       ${esc(d.dealer_name)} ${d.is_unmapped ? '[Unmapped] ' : ''}— ${esc(d.area || '')} (${esc(d.final_category || '')})${d.already_planned ? ' · already on plan' : ''}
+     </option>`).join('') || `<option disabled>No ${addPoolMode} counters found</option>`;
+}
+
+async function openAdd() {
+  const p = state.officerPlan;
+  $('addErr').innerHTML = '';
+  $('addDay').innerHTML = dayOptions(null);
+  $('addSearch').value = '';
+  addPoolMode = 'mapped';
+  $('poolTarget').checked = true;
+  $('poolUnmapped').checked = false;
+  $('unmappedSearchWrap').style.display = 'none';
+  $('addDealerLbl').innerHTML = 'Dealer <span class="muted" style="font-weight:400">— target counters for this cycle</span>';
+
+  dlgAdd.showModal();
+  await loadAddDealers();
 }
 
 $('addGo').onclick = async () => {
@@ -794,11 +834,17 @@ $('addGo').onclick = async () => {
   const opt = $('addDealer').selectedOptions[0];
   if (!opt) return;
   $('addErr').innerHTML = '';
+  const isUnmapped = opt.dataset.unmapped === '1';
   try {
     await call('POST',
       `/app/officers/${encodeURIComponent(state.officer.emp_code)}/plans/${p.plan_id}/visits`,
-      { visitDate: $('addDay').value, dealerSapCode: opt.value,
-        dealerName: opt.dataset.name, purposeOfVisit: $('addPurpose').value });
+      {
+        visitDate: $('addDay').value,
+        dealerSapCode: opt.value,
+        dealerName: opt.dataset.name,
+        isUnmapped,
+        purposeOfVisit: $('addPurpose').value
+      });
     dlgAdd.close();
     await openPlan(p.plan_id);
   } catch (e) {

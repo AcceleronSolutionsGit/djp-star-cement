@@ -474,13 +474,15 @@ async function buildDetail(plan, viewerIsOwner) {
           type: v.dealer_type,
           area: v.area,
           zone: v.zone,
-          block: v.block
+          block: v.block,
+          is_unmapped: v.source === 'UNMAPPED'
         },
         final_category: v.final_category,
         grade: v.grade,
         priority_score: v.priority_score,
         purpose_of_visit: v.purpose_of_visit,
         visit_status: v.visit_status,
+        is_unmapped: v.source === 'UNMAPPED',
         // The SFA side of this visit: has the officer actually punched it?
         executed: !!executionFor(v),
         execution: executionFor(v) ? {
@@ -612,9 +614,9 @@ export async function addVisit(req, res) {
     const dateErr = await validateVisitDate(plan, visitDate);
     if (dateErr) return res.status(400).json({ error: dateErr });
 
-    // The dealer must actually be one of this employee's targets for the period.
+    // 1. Check if the dealer is in this employee's targets for the period.
     const roleCol = { SO: 'so_emp_code', ASM: 'asm_code', RSM: 'rsm_code', ZH: 'zh_code' }[plan.emp_role || 'SO'];
-    const target = await dbGet(
+    let target = await dbGet(
       `SELECT dvt.*, md.id AS md_id, md.dealer_type
        FROM dealer_visit_targets dvt
        LEFT JOIN master_dealers md
@@ -625,15 +627,57 @@ export async function addVisit(req, res) {
        LIMIT 1`,
       [dealerCode, dealerCode, plan.period_month, plan.cycle_code, plan.emp_code]
     );
+
+    let isUnmapped = false;
     if (!target) {
-      return res.status(400).json({
-        error: `${dealerCode} is not one of ${plan.emp_code}'s dealers for ${plan.period_month} ${plan.cycle_code}.`,
-        hint: 'Use GET /api/app/officers/:empCode/dealers to list the dealers this plan may draw from.'
-      });
+      // Provision to add unmapped dealers: check master_dealers first
+      const md = await dbGet(
+        `SELECT md.* FROM master_dealers md
+         WHERE (UPPER(TRIM(md.sap_code)) = UPPER(TRIM(?))
+             OR UPPER(TRIM(md.sfa_code)) = UPPER(TRIM(?))
+             OR UPPER(TRIM(md.dealer_id)) = UPPER(TRIM(?)))
+         LIMIT 1`,
+        [dealerCode, dealerCode, dealerCode]
+      );
+
+      if (md) {
+        isUnmapped = true;
+        target = {
+          dealer_id: md.id,
+          sap_code: md.sap_code,
+          sfa_code: md.sfa_code,
+          dealer_name: md.dealer_name,
+          dealer_type: md.dealer_type || 'DEALER',
+          category: md.counter_strategy || 'Unmapped',
+          dealer_status: 'Unmapped',
+          area: md.area,
+          zone: md.zone,
+          block: md.block
+        };
+      } else if (req.body.dealerName || req.body.isUnmapped) {
+        // Provision to add custom/prospective unmapped dealer
+        isUnmapped = true;
+        target = {
+          dealer_id: null,
+          sap_code: norm(req.body.dealerSapCode) || null,
+          sfa_code: norm(req.body.dealerSfaCode) || (dealerCode !== 'UNMAPPED' ? dealerCode : null),
+          dealer_name: norm(req.body.dealerName) || dealerCode,
+          dealer_type: norm(req.body.dealerType) || 'PROSPECTIVE',
+          category: 'Unmapped',
+          dealer_status: 'Unmapped',
+          area: norm(req.body.area) || null,
+          zone: norm(req.body.zone) || null,
+          block: norm(req.body.block) || null
+        };
+      } else {
+        return res.status(400).json({
+          error: `${dealerCode} is not in target list or master records. To add an unmapped counter, select from master dealers or provide dealerName.`,
+          hint: 'Use GET /api/app/officers/:empCode/dealers?scope=unmapped to search available unmapped dealers.'
+        });
+      }
     }
 
-    // Store the same identifier the generator stores, so a hand-added visit and a
-    // generated one are the same shape: SAP where there is one, SFA for a prospect.
+    // Store the same identifier the generator stores: SAP where there is one, SFA for a prospect.
     const dealerSapCode = norm(target.sap_code) || norm(target.sfa_code) || dealerCode;
 
     const capErr = await validateDayCapacity(plan, visitDate, dealerSapCode);
@@ -644,24 +688,29 @@ export async function addVisit(req, res) {
       [plan.id, visitDate]
     );
 
+    const defaultPurpose = isUnmapped
+      ? `Unmapped Dealer Visit (${target.dealer_name})`
+      : `Agent added (${target.category || '-'} - ${target.dealer_status || 'Routine'})`;
+
     const result = await dbRun(
       `INSERT INTO sales_plan_details
        (plan_id, visit_date, dealer_id, dealer_sap_code, dealer_name, dealer_type, purpose_of_visit, sequence, visit_status, source, added_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 'AGENT', ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)`,
       [
         plan.id, visitDate, target.dealer_id || target.md_id || null, dealerSapCode,
         target.dealer_name, target.dealer_type || 'DEALER',
-        norm(req.body.purposeOfVisit) || `Agent added (${target.category || '-'} - ${target.dealer_status || 'Routine'})`,
-        seqRow?.next || 1, empCode
+        norm(req.body.purposeOfVisit) || defaultPurpose,
+        seqRow?.next || 1, isUnmapped ? 'UNMAPPED' : 'AGENT', empCode
       ]
     );
     await touch(plan.id, empCode);
 
     res.json({
       success: true,
-      message: `${target.dealer_name} added to ${visitDate}.`,
+      message: `${target.dealer_name} ${isUnmapped ? '(Unmapped) ' : ''}added to ${visitDate}.`,
       detail_id: result.insertId || result.lastID,
-      plan_id: plan.id
+      plan_id: plan.id,
+      is_unmapped: isUnmapped
     });
   } catch (err) {
     console.error('[addVisit]', err);
@@ -759,6 +808,11 @@ export async function getMyDealers(req, res) {
     const empCode = norm(req.params.empCode);
     const month = norm(req.query.month);
     const cycle = norm(req.query.cycle).toUpperCase() || 'C1';
+    const scope = norm(req.query.scope).toLowerCase() || (req.query.unmapped === 'true' || req.query.includeUnmapped === 'true' ? 'all' : 'mapped');
+    const search = norm(req.query.search);
+    const limit = Math.min(parseInt(req.query.limit || '200', 10), 1000);
+    const offset = parseInt(req.query.offset || '0', 10);
+
     if (!month) return res.status(400).json({ error: 'month (YYYY-MM) is required.' });
 
     let role = await resolveEmployeeRole(empCode);
@@ -782,37 +836,110 @@ export async function getMyDealers(req, res) {
     );
     const targetCycle = targetCycleCheck?.cycle_code || 'C1';
 
-    const dealers = await dbAll(
-      `SELECT dvt.sap_code, dvt.sfa_code, dvt.dealer_name, 
-              COALESCE(dvt.area, md.area, m.area) AS area, 
-              COALESCE(dvt.zone, md.zone, m.region) AS zone,
-              COALESCE(dvt.dealer_status, 'Routine') AS final_category, 
-              COALESCE(dvt.category, 'A') AS grade,
-              COALESCE(dvt.priority, 0) AS priority_score, 
-              dvt.${visitCol} AS required_visits,
-              COALESCE(md.block, dvt.block, dvt.sbg_block, m.block) AS block,
-              (SELECT COUNT(*) FROM sales_plan_details d
-                 JOIN sales_plans p ON p.id = d.plan_id
-                WHERE UPPER(TRIM(p.emp_code)) = UPPER(TRIM(?)) AND p.period_month = ? AND p.cycle_code = ?
-                  AND (
-                       (dvt.sap_code IS NOT NULL AND d.dealer_sap_code = dvt.sap_code)
-                    OR (dvt.sfa_code IS NOT NULL AND d.dealer_sap_code = dvt.sfa_code)
-                  )) AS already_planned
-       FROM dealer_visit_targets dvt
-       LEFT JOIN master_dealers md 
-              ON (dvt.sap_code IS NOT NULL AND md.sap_code = dvt.sap_code)
-              OR (dvt.sap_code IS NULL AND dvt.sfa_code IS NOT NULL AND md.sfa_code = dvt.sfa_code)
-       LEFT JOIN master_dealer_so_mapping m
-              ON (dvt.sap_code IS NOT NULL AND m.sap_code = dvt.sap_code)
-       WHERE UPPER(TRIM(dvt.${roleCol})) = UPPER(TRIM(?)) 
-         AND dvt.period_month = ? 
-         AND dvt.cycle_code = ? 
-         AND dvt.${visitCol} > 0
-       ORDER BY block ASC, dvt.priority DESC, dvt.dealer_name ASC`,
-      [empCode, month, cycle, empCode, targetPeriod, targetCycle]
-    );
+    let mappedDealers = [];
+    if (scope !== 'unmapped') {
+      let mappedWhere = `
+        UPPER(TRIM(dvt.${roleCol})) = UPPER(TRIM(?)) 
+        AND dvt.period_month = ? 
+        AND dvt.cycle_code = ? 
+        AND dvt.${visitCol} > 0
+      `;
+      const mappedParams = [empCode, month, cycle, empCode, targetPeriod, targetCycle];
+      if (search) {
+        mappedWhere += ` AND (dvt.dealer_name LIKE ? OR dvt.sap_code LIKE ? OR dvt.sfa_code LIKE ? OR dvt.area LIKE ? OR md.block LIKE ?)`;
+        const q = `%${search}%`;
+        mappedParams.push(q, q, q, q, q);
+      }
 
-    res.json({ emp_code: empCode, role, month, cycle, count: dealers.length, dealers });
+      mappedDealers = await dbAll(
+        `SELECT dvt.sap_code, dvt.sfa_code, dvt.dealer_name, 
+                COALESCE(dvt.area, md.area, m.area) AS area, 
+                COALESCE(dvt.zone, md.zone, m.region) AS zone,
+                COALESCE(dvt.dealer_status, 'Routine') AS final_category, 
+                COALESCE(dvt.category, 'A') AS grade,
+                COALESCE(dvt.priority, 0) AS priority_score, 
+                dvt.${visitCol} AS required_visits,
+                COALESCE(md.block, dvt.block, dvt.sbg_block, m.block) AS block,
+                (SELECT COUNT(*) FROM sales_plan_details d
+                   JOIN sales_plans p ON p.id = d.plan_id
+                  WHERE UPPER(TRIM(p.emp_code)) = UPPER(TRIM(?)) AND p.period_month = ? AND p.cycle_code = ?
+                    AND (
+                         (dvt.sap_code IS NOT NULL AND d.dealer_sap_code = dvt.sap_code)
+                      OR (dvt.sfa_code IS NOT NULL AND d.dealer_sap_code = dvt.sfa_code)
+                    )) AS already_planned,
+                0 AS is_unmapped
+         FROM dealer_visit_targets dvt
+         LEFT JOIN master_dealers md 
+                ON (dvt.sap_code IS NOT NULL AND md.sap_code = dvt.sap_code)
+                OR (dvt.sap_code IS NULL AND dvt.sfa_code IS NOT NULL AND md.sfa_code = dvt.sfa_code)
+         LEFT JOIN master_dealer_so_mapping m
+                ON (dvt.sap_code IS NOT NULL AND m.sap_code = dvt.sap_code)
+         WHERE ${mappedWhere}
+         ORDER BY block ASC, dvt.priority DESC, dvt.dealer_name ASC`,
+        mappedParams
+      );
+    }
+
+    let unmappedDealers = [];
+    if (scope === 'unmapped' || scope === 'all') {
+      let unmappedWhere = `
+        md.sap_code NOT IN (
+          SELECT dvt.sap_code FROM dealer_visit_targets dvt 
+          WHERE dvt.period_month = ? AND dvt.cycle_code = ? AND UPPER(TRIM(dvt.${roleCol})) = UPPER(TRIM(?)) 
+            AND dvt.${visitCol} > 0 AND dvt.sap_code IS NOT NULL
+        )
+      `;
+      const unmappedParams = [targetPeriod, targetCycle, empCode];
+      if (search) {
+        unmappedWhere += ` AND (md.dealer_name LIKE ? OR md.sap_code LIKE ? OR md.sfa_code LIKE ? OR md.area LIKE ? OR md.block LIKE ?)`;
+        const q = `%${search}%`;
+        unmappedParams.push(q, q, q, q, q);
+      }
+      unmappedParams.push(empCode, month, cycle);
+
+      const unmappedLimit = scope === 'unmapped' ? limit : Math.min(limit, 100);
+      unmappedParams.push(unmappedLimit, offset);
+
+      unmappedDealers = await dbAll(
+        `SELECT md.sap_code, md.sfa_code, md.dealer_name,
+                COALESCE(md.area, m.area) AS area,
+                COALESCE(md.zone, m.region) AS zone,
+                'Unmapped' AS final_category,
+                COALESCE(md.counter_strategy, 'C') AS grade,
+                0 AS priority_score,
+                0 AS required_visits,
+                COALESCE(md.block, m.block) AS block,
+                (SELECT COUNT(*) FROM sales_plan_details d
+                   JOIN sales_plans p ON p.id = d.plan_id
+                  WHERE UPPER(TRIM(p.emp_code)) = UPPER(TRIM(?)) AND p.period_month = ? AND p.cycle_code = ?
+                    AND (
+                         (md.sap_code IS NOT NULL AND d.dealer_sap_code = md.sap_code)
+                      OR (md.sfa_code IS NOT NULL AND d.dealer_sap_code = md.sfa_code)
+                    )) AS already_planned,
+                1 AS is_unmapped
+         FROM master_dealers md
+         LEFT JOIN master_dealer_so_mapping m
+                ON (md.sap_code IS NOT NULL AND m.sap_code = md.sap_code)
+         WHERE ${unmappedWhere}
+         ORDER BY md.dealer_name ASC
+         LIMIT ? OFFSET ?`,
+        unmappedParams
+      );
+    }
+
+    const dealers = scope === 'unmapped'
+      ? unmappedDealers
+      : (scope === 'all' ? [...mappedDealers, ...unmappedDealers] : mappedDealers);
+
+    res.json({
+      emp_code: empCode,
+      role,
+      month,
+      cycle,
+      scope,
+      count: dealers.length,
+      dealers: dealers.map(d => ({ ...d, is_unmapped: Boolean(d.is_unmapped) }))
+    });
   } catch (err) {
     console.error('[getMyDealers]', err);
     res.status(500).json({ error: err.message });
@@ -1282,7 +1409,7 @@ export async function punchVisit(req, res) {
 
     // The dealer's own record, for the customer name, type and branch the SFA
     // report carries. Prospects have no SAP code, so match on either.
-    const target = await dbGet(
+    let target = await dbGet(
       `SELECT dealer_name, sap_code, sfa_code, cust_type, branch, block, sbg_block,
               area, dm_area, territory_name
          FROM dealer_visit_targets
@@ -1292,10 +1419,34 @@ export async function punchVisit(req, res) {
       [month, dealerCode, dealerCode]
     ).catch(() => null);
 
+    if (!target) {
+      // Look up master_dealers for unmapped dealer
+      const md = await dbGet(
+        `SELECT dealer_name, sap_code, sfa_code, dealer_type AS cust_type, branch, block, sbg_block,
+                area, dm_area, territory_name
+           FROM master_dealers
+          WHERE (UPPER(TRIM(sap_code)) = UPPER(TRIM(?)) OR UPPER(TRIM(sfa_code)) = UPPER(TRIM(?)))
+          LIMIT 1`,
+        [dealerCode, dealerCode]
+      ).catch(() => null);
+      if (md) target = md;
+    }
+
+    if (!target && planned) {
+      target = {
+        dealer_name: planned.dealer_name,
+        sap_code: planned.dealer_sap_code,
+        sfa_code: planned.dealer_sap_code,
+        cust_type: 'Dealer',
+        area: 'Unmapped',
+        branch: null
+      };
+    }
+
     if (!planned && !target) {
       return res.status(404).json({
         error: `${dealerCode} is not on ${empCode}'s plan for ${visitDate}, and is not a ` +
-               `counter in ${month}. Check the code.`
+               `counter in master or target records for ${month}. Check the code.`
       });
     }
 
