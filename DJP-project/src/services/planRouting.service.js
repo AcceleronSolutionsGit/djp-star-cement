@@ -106,7 +106,7 @@ export async function resolveEmployeeRole(empCode, hint = null) {
   for (const role of ['ZH', 'RSM', 'ASM', 'SO']) {
     const col = ROLE_CODE_COLUMN[role];
     const { rows } = await queryHierarchy(table => [
-      `SELECT 1 AS found FROM ${table} WHERE ${col} = ? LIMIT 1`, [empCode]
+      `SELECT 1 AS found FROM ${table} WHERE UPPER(TRIM(${col})) = UPPER(TRIM(?)) LIMIT 1`, [empCode]
     ]);
     if (rows.length > 0) return role;
   }
@@ -130,7 +130,7 @@ export async function resolveEmployeeName(empCode, role = null) {
 
   try {
     const emp = await dbGet(
-      'SELECT emp_name FROM master_employees WHERE emp_code = ? LIMIT 1',
+      'SELECT emp_name FROM master_employees WHERE UPPER(TRIM(emp_code)) = UPPER(TRIM(?)) LIMIT 1',
       [empCode]
     );
     if (emp?.emp_name && String(emp.emp_name).trim()) {
@@ -150,7 +150,7 @@ export async function resolveEmployeeName(empCode, role = null) {
     const { rows, source } = await queryHierarchy(table => [
       `SELECT ${nameCol} AS name, COUNT(*) AS n
        FROM ${table}
-       WHERE ${codeCol} = ? AND ${nameCol} IS NOT NULL AND TRIM(${nameCol}) != ''
+       WHERE UPPER(TRIM(${codeCol})) = UPPER(TRIM(?)) AND ${nameCol} IS NOT NULL AND TRIM(${nameCol}) != ''
        GROUP BY ${nameCol}
        ORDER BY n DESC`,
       [empCode]
@@ -180,22 +180,31 @@ export async function resolveEmployeeName(empCode, role = null) {
 export async function resolveL1Approver(empCode, role) {
   const spec = L1_OF[(role || 'SO').toUpperCase()];
   if (!spec) return { empCode: null, name: null, role: null };
-  if (!spec.codeCol) return { empCode: null, name: null, role: spec.role };
+  if (!spec.codeCol) return { empCode: null, name: spec.role === 'ADMIN' ? 'Admin' : null, role: spec.role };
 
   const ownCol = ROLE_CODE_COLUMN[(role || 'SO').toUpperCase()];
   const { rows, source } = await queryHierarchy(table => [
     `SELECT ${spec.codeCol} AS code, ${spec.nameCol} AS name, COUNT(*) AS n
      FROM ${table}
-     WHERE ${ownCol} = ? AND ${spec.codeCol} IS NOT NULL AND TRIM(${spec.codeCol}) != ''
+     WHERE UPPER(TRIM(${ownCol})) = UPPER(TRIM(?)) AND ${spec.codeCol} IS NOT NULL AND TRIM(${spec.codeCol}) != ''
      GROUP BY ${spec.codeCol}, ${spec.nameCol}
      ORDER BY n DESC`,
     [empCode]
   ]);
 
-  if (rows.length === 0) return { empCode: null, name: null, role: spec.role, source: null };
+  if (rows.length === 0) return { empCode: null, name: spec.role === 'ADMIN' ? 'Admin' : null, role: spec.role, source: null };
+
+  const approverCode = String(rows[0].code).trim();
+  let approverName = rows[0].name ? String(rows[0].name).trim() : null;
+
+  if (!approverName && approverCode) {
+    const resName = await resolveEmployeeName(approverCode, spec.role);
+    if (resName?.name) approverName = resName.name;
+  }
+
   return {
-    empCode: String(rows[0].code).trim(),
-    name: rows[0].name ? String(rows[0].name).trim() : null,
+    empCode: approverCode,
+    name: approverName,
     role: spec.role,
     source,
     ambiguous: rows.length > 1,
