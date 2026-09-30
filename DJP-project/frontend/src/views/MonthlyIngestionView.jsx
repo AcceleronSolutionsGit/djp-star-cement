@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { api } from '../services/api';
+import { api, API_BASE } from '../services/api';
 import { UploadCloud, Plus, Zap, FileSpreadsheet, CheckCircle2, Clock, X, Trash2, HelpCircle, RefreshCw, AlertCircle } from 'lucide-react';
 
 const SCHEMAS = [
@@ -268,7 +268,7 @@ export default function MonthlyIngestionView({
               <span>Excel Schema Guide</span>
             </button>
             <a 
-              href="/api/djp/export-master" 
+              href={`${API_BASE}/djp/export-master`} 
               className="btn btn-outline" 
               target="_blank" 
               rel="noreferrer"
@@ -279,7 +279,7 @@ export default function MonthlyIngestionView({
               <span>Download Masters Excel</span>
             </a>
             <a 
-              href="/api/djp/export-visits" 
+              href={`${API_BASE}/djp/export-visits`} 
               className="btn btn-outline" 
               target="_blank" 
               rel="noreferrer"
@@ -804,7 +804,7 @@ export default function MonthlyIngestionView({
                         {s.templateFile && (
                           <div style={{ marginTop: '10px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                             <a
-                              href={`/api/templates/${encodeURIComponent(s.templateFile)}`}
+                              href={`${API_BASE}/templates/${encodeURIComponent(s.templateFile)}`}
                               download={s.templateFile}
                               className="btn btn-outline"
                               style={{
@@ -824,7 +824,7 @@ export default function MonthlyIngestionView({
                               <span>Excel (.xlsx)</span>
                             </a>
                             <a
-                              href={`/api/templates/${encodeURIComponent(s.templateFile.replace('.xlsx', '.csv'))}`}
+                              href={`${API_BASE}/templates/${encodeURIComponent(s.templateFile.replace('.xlsx', '.csv'))}`}
                               download={s.templateFile.replace('.xlsx', '.csv')}
                               className="btn btn-outline"
                               style={{

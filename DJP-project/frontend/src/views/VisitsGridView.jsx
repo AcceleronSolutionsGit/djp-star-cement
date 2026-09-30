@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { api } from '../services/api';
+import { api, API_BASE } from '../services/api';
 import { 
   Building2, 
   UserCheck, 
@@ -156,7 +156,7 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
       onShowToast('Preparing official 16-column Excel file...', 'info');
       const pMonth = filters.periodMonth || '2026-06';
       const cCode = filters.cycleCode || 'C1';
-      const res = await fetch(`/api/djp/export-pjp-trade?periodMonth=${encodeURIComponent(pMonth)}&cycleCode=${encodeURIComponent(cCode)}`);
+      const res = await fetch(`${API_BASE}/djp/export-pjp-trade?periodMonth=${encodeURIComponent(pMonth)}&cycleCode=${encodeURIComponent(cCode)}`);
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
         throw new Error(errJson.error || 'Failed to download Excel file');
@@ -363,7 +363,7 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
               <span>Upload Excel</span>
             </button>
             <a
-              href={`/api/djp/export-master${filters.periodMonth && filters.periodMonth !== 'ALL' ? `?periodMonth=${encodeURIComponent(filters.periodMonth)}&cycleCode=${encodeURIComponent(filters.cycleCode || 'C1')}` : ''}`}
+              href={`${API_BASE}/djp/export-master${filters.periodMonth && filters.periodMonth !== 'ALL' ? `?periodMonth=${encodeURIComponent(filters.periodMonth)}&cycleCode=${encodeURIComponent(filters.cycleCode || 'C1')}` : ''}`}
               className="btn btn-outline"
               style={{ padding: '5px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', color: '#16a34a', borderColor: '#16a34a', fontWeight: 600 }}
               title="Download 22-column Master Report Excel"
@@ -374,7 +374,7 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
               <span>Masters Excel</span>
             </a>
             <a
-              href={`/api/djp/export-visits${filters.periodMonth && filters.periodMonth !== 'ALL' ? `?periodMonth=${encodeURIComponent(filters.periodMonth)}&cycleCode=${encodeURIComponent(filters.cycleCode || 'C1')}` : ''}`}
+              href={`${API_BASE}/djp/export-visits${filters.periodMonth && filters.periodMonth !== 'ALL' ? `?periodMonth=${encodeURIComponent(filters.periodMonth)}&cycleCode=${encodeURIComponent(filters.cycleCode || 'C1')}` : ''}`}
               className="btn btn-outline"
               style={{ padding: '5px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', color: '#2563eb', borderColor: '#2563eb', fontWeight: 600 }}
               title="Download Visits Planned Excel"

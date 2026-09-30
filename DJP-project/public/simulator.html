@@ -426,7 +426,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Everything below calls the real API. No mock data.
 // ─────────────────────────────────────────────────────────────────────────────
-const API = '/api';
+const BASE_PATH = window.location.pathname.replace(/\/simulator(?:\.html)?(?:\/.*)?$/, '');
+const API = (BASE_PATH && BASE_PATH !== '/' ? BASE_PATH : '') + '/api';
 const $  = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

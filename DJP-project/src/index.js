@@ -31,6 +31,8 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const rawBasePath = process.env.BASE_PATH || process.env.APP_BASE_PATH || '';
+const basePath = rawBasePath ? (rawBasePath.startsWith('/') ? rawBasePath : `/${rawBasePath}`).replace(/\/$/, '') : '';
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -58,13 +60,26 @@ app.get('/health', (req, res) => {
 // API Routes
 app.use('/api', apiRoutes);
 
+// Subpath deployment support: if BASE_PATH is defined (e.g. /djp or /star-cement), mount endpoints under it as well
+if (basePath) {
+  app.use(basePath, express.static(adminPath));
+  app.use(`${basePath}/admin`, express.static(adminPath));
+  app.use(`${basePath}/simulator`, express.static(simulatorPath, { index: 'simulator.html' }));
+  app.get(`${basePath}/simulator`, (req, res) => res.sendFile(path.join(simulatorPath, 'simulator.html')));
+  app.get(`${basePath}/health`, (req, res) => {
+    res.json({ status: 'UP', message: 'Star Cement PJP / DJP Engine API Platform running.' });
+  });
+  app.use(`${basePath}/api`, apiRoutes);
+}
+
 // Run startup migrations then start server
 runStartupMigrations().then(() => {
   const server = app.listen(PORT, () => {
     console.log(`====================================================`);
     console.log(`Star Cement PJP / DJP Engine Server running on port ${PORT}`);
-    console.log(`Admin Panel UI: http://localhost:${PORT}/`);
-    console.log(`Health check:    http://localhost:${PORT}/health`);
+    if (basePath) console.log(`Base Path:       ${basePath}`);
+    console.log(`Admin Panel UI: http://localhost:${PORT}${basePath}/`);
+    console.log(`Health check:    http://localhost:${PORT}${basePath}/health`);
     console.log(`====================================================`);
   });
 

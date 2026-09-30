@@ -17,7 +17,7 @@ import MasterSheetView from './views/MasterSheetView';
 import LoginView from './views/LoginView';
 import ErrorBoundary from './components/ErrorBoundary';
 
-import { api } from './services/api';
+import { api, API_BASE } from './services/api';
 import { useAuth } from './contexts/AuthContext';
 
 export default function App() {
@@ -152,7 +152,7 @@ export default function App() {
       showToast('Generating official 16-column PJP/DJP Excel file...', 'info');
       const period = selectedPeriod || '2026-06';
       const cycle = selectedCycle || 'C1';
-      const res = await fetch(`/api/djp/export-pjp-trade?periodMonth=${encodeURIComponent(period)}&cycleCode=${encodeURIComponent(cycle)}`);
+      const res = await fetch(`${API_BASE}/djp/export-pjp-trade?periodMonth=${encodeURIComponent(period)}&cycleCode=${encodeURIComponent(cycle)}`);
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
         throw new Error(errJson.error || 'Failed to download Excel file');
@@ -178,7 +178,7 @@ export default function App() {
       showToast('Preparing Master Report Excel file...', 'info');
       const period = selectedPeriod || '2026-09';
       const cycle = selectedCycle || 'C1';
-      const res = await fetch(`/api/djp/export-master?periodMonth=${encodeURIComponent(period)}&cycleCode=${encodeURIComponent(cycle)}`);
+      const res = await fetch(`${API_BASE}/djp/export-master?periodMonth=${encodeURIComponent(period)}&cycleCode=${encodeURIComponent(cycle)}`);
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
         throw new Error(errJson.error || 'Failed to download Master Excel file');
@@ -204,7 +204,7 @@ export default function App() {
       showToast('Preparing Visits Planned Report Excel file...', 'info');
       const period = selectedPeriod || '2026-09';
       const cycle = selectedCycle || 'C1';
-      const res = await fetch(`/api/djp/export-visits?periodMonth=${encodeURIComponent(period)}&cycleCode=${encodeURIComponent(cycle)}`);
+      const res = await fetch(`${API_BASE}/djp/export-visits?periodMonth=${encodeURIComponent(period)}&cycleCode=${encodeURIComponent(cycle)}`);
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
         throw new Error(errJson.error || 'Failed to download Visits Planned Excel file');
