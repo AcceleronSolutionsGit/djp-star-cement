@@ -29,7 +29,19 @@ function normalizeDate(val) {
 export async function importSfaReport(filePath, batchCode = null) {
   console.log(`[SFA_REPORT] Processing SFA Report & Master Lists from: ${filePath}`);
 
-  // Wipe previous data as requested
+  // Archive previous data before wiping
+  console.log(`[SFA_REPORT] Archiving previous SFA execution logs...`);
+  try {
+    await dbRun(`
+      INSERT IGNORE INTO visit_execution_logs_archive 
+      (id, visit_date, customer_code, customer_name, customer_type, route, branch, employee_code, employee_name, check_in_time, check_out_time, duration, visit_status, purpose_of_visit, remarks, batch_code, created_at)
+      SELECT id, visit_date, customer_code, customer_name, customer_type, route, branch, employee_code, employee_name, check_in_time, check_out_time, duration, visit_status, purpose_of_visit, remarks, batch_code, created_at
+      FROM visit_execution_logs
+    `);
+  } catch (err) {
+    console.log(`[SFA_REPORT] Warning: Could not archive logs (maybe archive table doesn't exist yet): ${err.message}`);
+  }
+
   console.log(`[SFA_REPORT] Wiping previous SFA execution logs...`);
   await dbRun("DELETE FROM visit_execution_logs");
 

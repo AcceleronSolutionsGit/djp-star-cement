@@ -111,6 +111,13 @@ export const api = {
     return res.json();
   },
 
+  getArchiveSummary: async (periodMonth = null) => {
+    const query = periodMonth && periodMonth !== 'ALL' ? `?periodMonth=${encodeURIComponent(periodMonth)}` : '';
+    const res = await fetch(`${API_BASE}/admin/archives/summary${query}`);
+    if (!res.ok) throw new Error('Failed to fetch archive summary');
+    return res.json();
+  },
+
   getInputReadiness: async () => {
     const res = await fetch(`${API_BASE}/admin/readiness`);
     if (!res.ok) throw new Error('Failed to fetch input readiness');

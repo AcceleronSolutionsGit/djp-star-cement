@@ -146,6 +146,10 @@ router.get('/admin/rules', getRules);
 router.put('/admin/rules', updateRule);
 router.put('/admin/rules/batch', updateRulesBatch);
 
+// Archive APIs
+import { getArchiveSummary } from '../controllers/archive.controller.js';
+router.get('/admin/archives/summary', getArchiveSummary);
+
 // DJP Engine APIs — legacy single-shot endpoint (uses latest batches auto)
 router.post('/djp/generate-all', generateAllLegacy);
 router.get('/djp/dealer-targets', getDealerVisitTargets);

@@ -15,6 +15,7 @@ import PlanApprovalsView from './views/PlanApprovalsView';
 import OfficerPlansView from './views/OfficerPlansView';
 import MasterSheetView from './views/MasterSheetView';
 import LoginView from './views/LoginView';
+import ArchiveView from './views/ArchiveView';
 import ErrorBoundary from './components/ErrorBoundary';
 
 import { api, API_BASE } from './services/api';
@@ -234,6 +235,7 @@ export default function App() {
       case 'plan-gen': return 'Plan Generation';
       case 'plan-appr': return 'Plan Approvals';
       case 'officer-plans': return 'Officer Plans & Adherence';
+      case 'archives': return 'Data Archives';
       default: return 'Star Cement | DJP';
     }
   };
@@ -334,6 +336,13 @@ export default function App() {
                 onShowToast={showToast}
                 selectedPeriod={selectedPeriod}
                 selectedCycle={selectedCycle}
+              />
+            )}
+
+            {activeTab === 'archives' && (
+              <ArchiveView
+                onShowToast={showToast}
+                selectedPeriod={selectedPeriod}
               />
             )}
           </ErrorBoundary>

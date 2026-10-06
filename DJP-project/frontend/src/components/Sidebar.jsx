@@ -27,7 +27,8 @@ export default function Sidebar({ activeTab, setActiveTab, collapsed }) {
       group: 'SFA Master Integration',
       items: [
         { id: 'master-data', label: 'Master Data Hub', icon: Database, desc: 'All Uploaded Master Records' },
-        { id: 'mapping', label: 'Dealer / SO Mapping', icon: Users, desc: 'Territory Hierarchy' }
+        { id: 'mapping', label: 'Dealer / SO Mapping', icon: Users, desc: 'Territory Hierarchy' },
+        { id: 'archives', label: 'Data Archives', icon: Database, desc: 'Historical Archive Records' }
       ]
     },
     {
