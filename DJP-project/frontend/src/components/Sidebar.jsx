@@ -11,6 +11,7 @@ import {
   Layers,
   Table2
 } from 'lucide-react';
+import starLogo from '../assets/star-cement-logo.png';
 
 export default function Sidebar({ activeTab, setActiveTab, collapsed }) {
   const navItems = [
@@ -43,12 +44,9 @@ export default function Sidebar({ activeTab, setActiveTab, collapsed }) {
 
   return (
     <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
-      <div className="brand-section">
-        <div className="brand-logo-icon">★</div>
-        <div>
-          <div className="brand-title">STAR CEMENT</div>
-          <div className="brand-subtitle">DJP (Dynamic Journey Planner)</div>
-        </div>
+      <div className="brand-section" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px', background: '#FFFFFF', borderBottom: '1px solid #E2E8F0' }}>
+        <img src={starLogo} alt="Star Cement Logo" style={{ width: '140px', height: 'auto', objectFit: 'contain' }} />
+        <div className="brand-subtitle" style={{ color: '#64748B', marginTop: '8px', fontSize: '0.65rem' }}>DJP (Dynamic Journey Planner)</div>
       </div>
 
       <div className="nav-section">

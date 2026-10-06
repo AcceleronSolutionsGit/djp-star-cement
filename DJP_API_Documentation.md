@@ -11,19 +11,25 @@
 ## Table of Contents
 
 1. [Auth](#1-auth)
-2. [Plans](#2-plans)
-3. [Employees](#3-employees)
-4. [Admin — Dashboard & Filters](#4-admin--dashboard--filters)
-5. [Admin — Business Rules](#5-admin--business-rules)
-6. [Master Data](#6-master-data)
-7. [Uploads & Batches](#7-uploads--batches)
-8. [DJP Engine](#8-djp-engine)
-9. [Generation Runs (Batch-Isolated)](#9-generation-runs-batch-isolated)
-10. [PJP Canonical Engine](#10-pjp-canonical-engine)
-11. [Export APIs — File Downloads](#11-export-apis--file-downloads)
-12. [Healthcheck](#12-healthcheck)
-13. [Error Reference](#13-error-reference)
-14. [React Native Setup & Tips](#14-react-native-setup--tips)
+2. [Field App APIs (Mobile / App Engine)](#2-field-app-apis-mobile--app-engine)
+   - [2.1 Architecture & Permissions](#21-architecture--permissions)
+   - [2.2 Officer Endpoints](#22-officer-endpoints-apiappofficersempcode)
+   - [2.3 Approver Endpoints](#23-approver-endpoints-apiappapproversempcode)
+   - [2.4 Hierarchy & Drill-Down](#24-hierarchy--drill-down-apiapphierarchy)
+   - [2.5 Field Admin & System Endpoints](#25-field-admin--system-endpoints-apiappadmin)
+3. [Plans & Workflows (Admin / Backend)](#3-plans--workflows-admin--backend)
+4. [Employees](#4-employees)
+5. [Admin — Dashboard & Filters](#5-admin--dashboard--filters)
+6. [Admin — Business Rules](#6-admin--business-rules)
+7. [Master Data](#7-master-data)
+8. [Uploads & Batches](#8-uploads--batches)
+9. [DJP Engine](#9-djp-engine)
+10. [Generation Runs (Batch-Isolated)](#10-generation-runs-batch-isolated)
+11. [PJP Canonical Engine](#11-pjp-canonical-engine)
+12. [Export APIs — File Downloads](#12-export-apis--file-downloads)
+13. [Healthcheck](#13-healthcheck)
+14. [Error Reference](#14-error-reference)
+15. [React Native Setup & Tips](#15-react-native-setup--tips)
 
 ---
 
@@ -89,7 +95,810 @@ const login = async (username, password) => {
 
 ---
 
-## 2. Plans
+## 2. Field App APIs (Mobile / App Engine)
+
+> **Mobile Architecture & Auth Model:**
+> Unlike the admin/web portal, Field App APIs under `/api/app/...` do **not** require Bearer tokens.
+> The active officer or manager is identified by their Employee Code in the URL path (`:empCode`).
+> The backend automatically validates employee identity, resolves hierarchy and ownership, and enforces role-based permissions directly.
+
+### 2.1 Architecture & Permissions
+
+#### Hierarchy & Approval Matrix:
+- **SO** (Sales Officer) → L1 Approver: **ASM** (Area Sales Manager)
+- **ASM** → L1 Approver: **RSM** (Regional Sales Manager)
+- **RSM** → L1 Approver: **ZH** (Zonal Head)
+- **ZH** → L1 Approver: **ADMIN**
+
+#### Plan Lifecycle & Strict Rectify-Once Policy:
+```
+[DRAFT]  ----(Submit)---->  [SUBMITTED]  ----(Approve)----> [APPROVED] (Locked for Punching)
+   ^                               |
+   |----(Rectify: Max 1 time)------|
+```
+- **`DRAFT`**: Owned and editable by the officer. Officer can add dealers from their pool, reschedule/move visits, and delete visits.
+- **`SUBMITTED`**: Locked for editing. Moved to the designated L1 Approver's inbox.
+- **`RECTIFY`**: Returned by L1 with mandatory feedback comments. The plan becomes editable again for the officer.
+  - **Single Rectification Guarantee (`MAX_RECTIFICATIONS = 1`):** A manager can only send a plan back for rectification once. Once re-submitted, the only permitted manager action is `APPROVE`.
+- **`APPROVED`**: Final approved schedule. Visited counters are ready for field check-in / check-out ("punching").
+
+> [!IMPORTANT]
+> **Unmapped Dealers Business Rule:**  
+> **Unmapped dealers are NEVER auto-generated.**  
+> The backend PJP / DJP auto-generation engine schedules **only mapped target counters** with pre-allocated visit quotas (`required_visits > 0`).  
+> Unmapped dealers (from master records or new ground prospects) can **only be added manually by Sales Officers (SOs)** directly into their plans while in `DRAFT` or `RECTIFY` status.
+
+---
+
+### 2.2 Officer Endpoints (`/api/app/officers/:empCode/...`)
+
+#### `GET /api/app/officers/:empCode/summary`
+
+Fetch home screen status counters and action indicators for the mobile app dashboard.
+
+**Path Parameters:**
+| Param | Type | Description |
+|---|---|---|
+| `empCode` | string | Officer employee code (e.g. `2500070`) |
+
+**Query Parameters:**
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `month` | string | No | Filter by month `YYYY-MM` (e.g. `2026-07`). Default: `ALL` |
+
+**Success `200`:**
+```json
+{
+  "emp_code": "2500070",
+  "emp_name": "PIKAN SAHA",
+  "role": "SO",
+  "month": "2026-07",
+  "my_plans": {
+    "DRAFT": 1,
+    "SUBMITTED": 0,
+    "APPROVED": 1,
+    "RECTIFY": 0
+  },
+  "awaiting_my_approval": 0,
+  "action_required": 1
+}
+```
+
+---
+
+#### `GET /api/app/officers/:empCode/plans`
+
+List all plans owned by the officer, including cycle breakdowns and status pills.
+
+**Path Parameters:**
+| Param | Type | Description |
+|---|---|---|
+| `empCode` | string | Officer employee code |
+
+**Query Parameters:**
+| Param | Type | Description |
+|---|---|---|
+| `month` | string | Month filter in `YYYY-MM` format |
+| `cycle` | string | Cycle filter: `C1`, `C2`, or `ALL` |
+| `status` | string | Status filter: `DRAFT`, `SUBMITTED`, `APPROVED`, `RECTIFY`, or `ALL` |
+
+**Success `200`:**
+```json
+{
+  "emp_code": "2500070",
+  "role": "SO",
+  "filter": { "month": "2026-07", "cycle": "ALL", "status": "ALL" },
+  "count": 2,
+  "plans": [
+    {
+      "plan_id": 4,
+      "period_month": "2026-07",
+      "cycle_code": "C1",
+      "status": "APPROVED",
+      "employee": {
+        "emp_code": "2500070",
+        "emp_name": "PIKAN SAHA",
+        "role": "SO"
+      },
+      "approver": {
+        "emp_code": "11001772",
+        "name": "BIKRAM KUMAR HALDER",
+        "role": "ASM"
+      },
+      "counts": {
+        "visits": 24,
+        "dealers": 18,
+        "working_days": 12
+      },
+      "date_range": {
+        "from": "2026-07-01",
+        "to": "2026-07-15"
+      },
+      "rectification": {
+        "count": 0,
+        "remaining": 1,
+        "requested_by": null,
+        "requested_at": null,
+        "remarks": null
+      },
+      "timestamps": {
+        "created_at": "2026-06-25T08:30:00.000Z",
+        "submitted_at": "2026-06-26T11:00:00.000Z",
+        "approved_at": "2026-06-27T09:15:00.000Z"
+      },
+      "actions": {
+        "can_edit": false,
+        "can_submit": false,
+        "can_approve": false,
+        "can_rectify": false,
+        "rectify_blocked_reason": null
+      }
+    }
+  ]
+}
+```
+
+---
+
+#### `GET /api/app/officers/:empCode/plans/:planId`
+
+Get full plan detail, day-by-day scheduled visits, dealer location/category metadata, category mix breakdown, cycle constraints, and permitted UI actions.
+
+**Path Parameters:**
+| Param | Type | Description |
+|---|---|---|
+| `empCode` | string | Officer employee code |
+| `planId` | number | Plan ID |
+
+**Success `200`:**
+```json
+{
+  "plan": {
+    "plan_id": 4,
+    "period_month": "2026-07",
+    "cycle_code": "C1",
+    "status": "APPROVED",
+    "employee": {
+      "emp_code": "2500070",
+      "emp_name": "PIKAN SAHA",
+      "role": "SO"
+    },
+    "approver": {
+      "emp_code": "11001772",
+      "name": "BIKRAM KUMAR HALDER",
+      "role": "ASM"
+    },
+    "counts": {
+      "visits": 24,
+      "dealers": 18,
+      "working_days": 12
+    },
+    "date_range": {
+      "from": "2026-07-01",
+      "to": "2026-07-15"
+    },
+    "rectification": {
+      "count": 0,
+      "remaining": 1,
+      "requested_by": null,
+      "requested_at": null,
+      "remarks": null
+    },
+    "timestamps": {
+      "created_at": "2026-06-25T08:30:00.000Z",
+      "submitted_at": "2026-06-26T11:00:00.000Z",
+      "approved_at": "2026-06-27T09:15:00.000Z"
+    },
+    "actions": {
+      "can_edit": false,
+      "can_submit": false,
+      "can_approve": false,
+      "can_rectify": false,
+      "rectify_blocked_reason": null
+    },
+    "category_mix": {
+      "Growing": 14,
+      "Elite": 6,
+      "Routine": 4
+    },
+    "cycle_window": {
+      "from": "2026-07-01",
+      "to": "2026-07-15",
+      "min_per_day": 1,
+      "max_per_day": 4
+    },
+    "days": [
+      {
+        "date": "2026-07-01",
+        "day_of_week": "Wednesday",
+        "visit_count": 2,
+        "visits": [
+          {
+            "detail_id": 189,
+            "sequence": 1,
+            "dealer": {
+              "dealer_id": 23,
+              "sap_code": "1000000051",
+              "sfa_code": "NEM065",
+              "name": "MODAK TRADERS (AGARTALA)",
+              "type": "STAR",
+              "area": "AGARTALA",
+              "zone": "NE2",
+              "block": "KALYANPUR"
+            },
+            "final_category": "Growing",
+            "grade": "D",
+            "priority_score": 8,
+            "purpose_of_visit": "PJP Scheduled Visit (D - Growing)",
+            "visit_status": "ACTIVE",
+            "executed": true,
+            "execution": {
+              "check_in_time": "10:15:00",
+              "check_out_time": "10:48:00",
+              "duration": "33 Minute(s)",
+              "status": "Productive"
+            },
+            "source": "AUTO"
+          }
+        ]
+      }
+    ],
+    "history": [
+      {
+        "action": "SUBMITTED",
+        "action_by": "2500070",
+        "action_at": "2026-06-26T11:00:00.000Z",
+        "remarks": "Submitting July C1 plan"
+      },
+      {
+        "action": "APPROVED",
+        "action_by": "11001772",
+        "action_at": "2026-06-27T09:15:00.000Z",
+        "remarks": "Approved"
+      }
+    ]
+  }
+}
+```
+
+---
+
+#### `GET /api/app/officers/:empCode/dealers`
+
+Fetch dealers eligible to be added to this officer's plan for the period. Supports fetching **Target Dealers** (mapped to the officer), **Unmapped Dealers** (all other active or prospective dealers from master data), or **All Counters**.
+
+**Path Parameters:**
+| Param | Type | Description |
+|---|---|---|
+| `empCode` | string | Officer employee code |
+
+**Query Parameters:**
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `month` | string | Yes | Period month `YYYY-MM` (e.g. `2026-07`) |
+| `cycle` | string | No | `C1` or `C2` (default: `C1`) |
+| `scope` | string | No | `mapped` (default), `unmapped`, or `all` |
+| `search` | string | No | Search string (matches counter name, SAP code, SFA code, area, block) |
+| `limit` | number | No | Results limit (default: `200`, max: `1000`) |
+| `offset` | number | No | Offset for pagination (default: `0`) |
+
+**Success `200` (Mapped Dealers — Default):**
+```json
+{
+  "emp_code": "2500070",
+  "role": "SO",
+  "month": "2026-07",
+  "cycle": "C1",
+  "scope": "mapped",
+  "count": 28,
+  "dealers": [
+    {
+      "sap_code": "1000000051",
+      "sfa_code": "NEM065",
+      "dealer_name": "MODAK TRADERS (AGARTALA)",
+      "area": "AGARTALA",
+      "zone": "NE2",
+      "block": "KALYANPUR",
+      "final_category": "Growing",
+      "grade": "D",
+      "priority_score": 8,
+      "required_visits": 2,
+      "already_planned": 1,
+      "is_unmapped": false
+    }
+  ]
+}
+```
+
+**Success `200` (Unmapped Dealers — `?scope=unmapped`):**
+```json
+{
+  "emp_code": "2500070",
+  "role": "SO",
+  "month": "2026-07",
+  "cycle": "C1",
+  "scope": "unmapped",
+  "count": 45,
+  "dealers": [
+    {
+      "sap_code": "1000000013",
+      "sfa_code": "B138",
+      "dealer_name": "BANKA BEHARI PAUL",
+      "area": "AGARTALA",
+      "zone": "NE2",
+      "block": "AMC (SADAR)",
+      "final_category": "Unmapped",
+      "grade": "C",
+      "priority_score": 0,
+      "required_visits": 0,
+      "already_planned": 0,
+      "is_unmapped": true
+    }
+  ]
+}
+```
+
+---
+
+#### `POST /api/app/officers/:empCode/plans/:planId/visits`
+
+Add a dealer visit to a specific date on a `DRAFT` or `RECTIFY` plan.
+**Supports both Mapped and Unmapped Dealers:**
+1. **Mapped Target Counter:** Provide `dealerSapCode` or `dealerSfaCode`.
+2. **Existing Master Unmapped Counter:** Provide `dealerSapCode` or `dealerSfaCode` with `isUnmapped: true`.
+3. **New Unmapped Counter (Ground Prospect):** Provide `dealerName`, `dealerType: "PROSPECTIVE"`, `area`, `block`, and `isUnmapped: true`.
+
+**Path Parameters:**
+| Param | Type | Description |
+|---|---|---|
+| `empCode` | string | Officer employee code |
+| `planId` | number | Plan ID |
+
+**Request Body (Adding Existing Counter):**
+```json
+{
+  "visitDate": "2026-07-04",
+  "dealerSapCode": "1000000013",
+  "isUnmapped": true,
+  "purposeOfVisit": "Unmapped counter market introduction"
+}
+```
+
+**Request Body (Adding New Ground Prospect):**
+```json
+{
+  "visitDate": "2026-07-04",
+  "dealerName": "Guwahati Cement Depot",
+  "dealerType": "PROSPECTIVE",
+  "area": "GUWAHATI",
+  "block": "DISPUR",
+  "isUnmapped": true,
+  "purposeOfVisit": "New dealer onboarding pitch"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `visitDate` | string | Yes | Date string `YYYY-MM-DD` within cycle window |
+| `dealerSapCode` | string | Yes* | Dealer SAP code (or `dealerSfaCode` for prospects) |
+| `dealerName` | string | No* | Required if adding a new unmapped dealer by name |
+| `dealerType` | string | No | E.g. `"STAR"`, `"PROSPECTIVE"`, `"DEALER"` (default: `"PROSPECTIVE"`) |
+| `area` | string | No | Counter territory area |
+| `block` | string | No | Counter block / sub-district |
+| `isUnmapped` | boolean | No | Set to `true` when adding an unmapped counter |
+| `purposeOfVisit` | string | No | Purpose of visit description |
+
+**Success `200`:**
+```json
+{
+  "success": true,
+  "message": "BANKA BEHARI PAUL (Unmapped) added to 2026-07-04.",
+  "detail_id": 342,
+  "plan_id": 4,
+  "is_unmapped": true
+}
+```
+
+**Errors:**
+- `400`: `visitDate` outside cycle window, or counter code not found and no `dealerName` provided.
+- `409`: Plan is not editable (`SUBMITTED` or `APPROVED`), or daily visit capacity limit reached.
+
+---
+
+#### `PUT /api/app/officers/:empCode/plans/:planId/visits/:detailId`
+
+Reschedule an existing visit to another date or update its visit sequence.
+
+**Path Parameters:**
+| Param | Type | Description |
+|---|---|---|
+| `empCode` | string | Officer employee code |
+| `planId` | number | Plan ID |
+| `detailId` | number | Detail/Visit ID |
+
+**Request Body:**
+```json
+{
+  "visitDate": "2026-07-05",
+  "sequence": 2,
+  "purposeOfVisit": "Rescheduled meeting"
+}
+```
+
+**Success `200`:**
+```json
+{
+  "success": true,
+  "message": "MODAK TRADERS (AGARTALA) moved to 2026-07-05.",
+  "plan_id": 4,
+  "detail_id": 342
+}
+```
+
+---
+
+#### `DELETE /api/app/officers/:empCode/plans/:planId/visits/:detailId`
+
+Drop a visit from a `DRAFT` or `RECTIFY` plan.
+
+**Success `200`:**
+```json
+{
+  "success": true,
+  "message": "MODAK TRADERS (AGARTALA) removed from 2026-07-04.",
+  "plan_id": 4
+}
+```
+
+---
+
+#### `POST /api/app/officers/:empCode/plans/:planId/submit`
+
+Submit a plan to the officer's L1 approver. Re-verifies hierarchy routing and validates that the plan contains visits.
+
+**Request Body:**
+```json
+{
+  "remarks": "July C1 plan ready for review"
+}
+```
+
+**Success `200`:**
+```json
+{
+  "success": true,
+  "message": "Plan 4 submitted to BIKRAM KUMAR HALDER for approval.",
+  "plan_id": 4,
+  "status": "SUBMITTED",
+  "is_resubmission": false,
+  "visits_submitted": 24,
+  "approver": {
+    "emp_code": "11001772",
+    "name": "BIKRAM KUMAR HALDER",
+    "role": "ASM"
+  },
+  "rectification_remaining": 1
+}
+```
+
+---
+
+#### `POST /api/app/officers/:empCode/visits/punch`
+
+Field visit execution check-in / check-out ("punching"). Writes directly to `visit_execution_logs` under batch `APP-PUNCH-<month>`. Supports both planned visits and ad-hoc unplanned visits.
+
+**Request Body:**
+```json
+{
+  "visitDate": "2026-07-01",
+  "dealerCode": "1000000051",
+  "checkInTime": "10:15:00",
+  "checkOutTime": "10:48:00",
+  "duration": "33 Minute(s)",
+  "visitStatus": "Productive",
+  "purposeOfVisit": "PJP Scheduled Visit (D - Growing)",
+  "remarks": "Order placed: 50 MT"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `visitDate` | string | Yes | Date string `YYYY-MM-DD` |
+| `dealerCode` | string | Yes | Dealer SAP Code or SFA Code |
+| `checkInTime` | string | No | `HH:MM:SS` (default: server auto) |
+| `checkOutTime` | string | No | `HH:MM:SS` (default: server auto) |
+| `duration` | string | No | E.g. `"33 Minute(s)"` (default: calculated) |
+| `visitStatus` | string | No | `"Productive"` or `"Non productive"` (default: `"Productive"`) |
+| `purposeOfVisit` | string | No | Visit purpose |
+| `remarks` | string | No | Field observations |
+
+**Success `201`:**
+```json
+{
+  "message": "Punched MODAK TRADERS (AGARTALA) on 2026-07-01.",
+  "planned": true,
+  "cycle_code": "C1",
+  "sfa_row": {
+    "Date of Visit": "2026-07-01",
+    "Customer Code": "NEM065",
+    "Customer Name": "MODAK TRADERS (AGARTALA)",
+    "Type": "STAR",
+    "Route": "AGARTALA",
+    "Branch": "KALYANPUR",
+    "Employee Code": "2500070",
+    "Visit Status(Productive / Non productive)": "Productive",
+    "Purpose Of Visit": "PJP Scheduled Visit (D - Growing)",
+    "Remarks": "Order placed: 50 MT"
+  }
+}
+```
+
+**Errors:**
+- `409`: Counter already punched on this day by this officer.
+
+---
+
+#### `GET /api/app/officers/:empCode/adherence`
+
+Officer personal performance & adherence scorecard.
+
+**Query Parameters:**
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `month` | string | Yes | Period month `YYYY-MM` |
+| `cycle` | string | No | `C1` or `C2` |
+| `asOn` | string | No | Cutoff date `YYYY-MM-DD` |
+
+**Success `200`:**
+```json
+{
+  "emp_code": "2500070",
+  "emp_name": "PIKAN SAHA",
+  "role": "SO",
+  "period_month": "2026-07",
+  "cycle_code": "C1",
+  "summary": {
+    "planned_visits": 24,
+    "completed_visits": 20,
+    "productive_visits": 18,
+    "adherence_pct": 83.3,
+    "unplanned_visits": 2
+  },
+  "counters": {
+    "targeted": 18,
+    "covered": 16,
+    "coverage_pct": 88.9
+  }
+}
+```
+
+---
+
+### 2.3 Approver Endpoints (`/api/app/approvers/:empCode/...`)
+
+#### `GET /api/app/approvers/:empCode/inbox`
+
+Fetch all submitted plans awaiting this manager's review.
+
+**Path Parameters:**
+| Param | Type | Description |
+|---|---|---|
+| `empCode` | string | Manager employee code (or `ADMIN`) |
+
+**Query Parameters:**
+| Param | Type | Description |
+|---|---|---|
+| `month` | string | `YYYY-MM` |
+| `status` | string | Status filter (default: `SUBMITTED`, or `ALL`) |
+
+**Success `200`:**
+```json
+{
+  "approver": {
+    "emp_code": "11001772",
+    "name": "BIKRAM KUMAR HALDER",
+    "role": "ASM"
+  },
+  "filter": { "status": "SUBMITTED", "month": "2026-07" },
+  "count": 1,
+  "plans": [
+    {
+      "plan_id": 4,
+      "period_month": "2026-07",
+      "cycle_code": "C1",
+      "status": "SUBMITTED",
+      "employee": {
+        "emp_code": "2500070",
+        "emp_name": "PIKAN SAHA",
+        "role": "SO"
+      },
+      "approver": {
+        "emp_code": "11001772",
+        "name": "BIKRAM KUMAR HALDER",
+        "role": "ASM"
+      },
+      "counts": {
+        "visits": 24,
+        "dealers": 18,
+        "working_days": 12
+      },
+      "rectification": { "count": 0, "remaining": 1 }
+    }
+  ]
+}
+```
+
+---
+
+#### `GET /api/app/approvers/:empCode/plans/:planId`
+
+Detailed review of a subordinate's plan with manager-specific action flags (`can_approve: true`, `can_rectify: true`).
+
+---
+
+#### `POST /api/app/approvers/:empCode/plans/:planId/decision`
+
+Approve or send back a plan for rectification.
+
+**Request Body (Approve):**
+```json
+{
+  "action": "APPROVE",
+  "remarks": "Approved for July C1"
+}
+```
+
+**Request Body (Rectify):**
+```json
+{
+  "action": "RECTIFY",
+  "remarks": "Please add more visits to Udaipur area dealers."
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `action` | string | Yes | `"APPROVE"` or `"RECTIFY"` |
+| `remarks` | string | Yes (if RECTIFY) | Explanatory remarks for the officer |
+
+**Success `200` (Approve):**
+```json
+{
+  "success": true,
+  "message": "Plan 4 approved.",
+  "plan_id": 4,
+  "status": "APPROVED",
+  "action": "APPROVE"
+}
+```
+
+**Success `200` (Rectify):**
+```json
+{
+  "success": true,
+  "message": "Plan 4 sent back for rectification. The agent has been notified.",
+  "plan_id": 4,
+  "status": "RECTIFY",
+  "action": "RECTIFY",
+  "rectification_count": 1,
+  "rectifications_remaining": 0
+}
+```
+
+**Errors:**
+- `400`: Missing required remarks on rectification.
+- `409`: Plan is not in `SUBMITTED` state, or plan has already been rectified once.
+
+---
+
+#### `GET /api/app/approvers/:empCode/team-adherence`
+
+Manager view of team execution performance across direct reports.
+
+**Query Parameters:**
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `month` | string | Yes | `YYYY-MM` |
+| `cycle` | string | No | `C1` or `C2` |
+| `asOn` | string | No | Cutoff date `YYYY-MM-DD` |
+
+**Success `200`:**
+```json
+{
+  "approver": {
+    "emp_code": "11001772",
+    "name": "BIKRAM KUMAR HALDER",
+    "role": "ASM"
+  },
+  "month": "2026-07",
+  "cycle": "C1",
+  "team_count": 5,
+  "team": [
+    {
+      "emp_code": "2500070",
+      "emp_name": "PIKAN SAHA",
+      "role": "SO",
+      "planned_visits": 24,
+      "completed_visits": 20,
+      "adherence_pct": 83.3,
+      "counters_covered_pct": 88.9
+    }
+  ]
+}
+```
+
+---
+
+#### `GET /api/app/approvers/:empCode/adherence/daily`
+Team day-by-day visit adherence matrix.
+
+#### `GET /api/app/approvers/:empCode/adherence/counters`
+Team counter-level coverage and repeat visit performance.
+
+---
+
+### 2.4 Hierarchy & Drill-Down (`/api/app/hierarchy/...`)
+
+#### `GET /api/app/hierarchy/:empCode/analysis`
+Multi-level organizational performance analysis down from this employee.
+- **Query Parameters:** `month`, `cycle`, `asOn`, `depth` (`1` = direct reports, `2` = recursive team).
+
+#### `GET /api/app/hierarchy/:viewerCode/officer/:empCode/visits`
+Manager drill-down into an individual officer's raw punch logs and execution audits.
+
+---
+
+### 2.5 Field Admin & System Endpoints (`/api/app/admin/...`)
+
+#### `GET /api/app/admin/plan-periods`
+List all generated plan periods, cycle codes, and officer/plan counts.
+
+**Success `200`:**
+```json
+{
+  "periods": [
+    {
+      "month": "2026-07",
+      "plans": 14,
+      "officers": 7,
+      "cycles": {
+        "C1": { "plans": 7, "visits": 168 },
+        "C2": { "plans": 7, "visits": 168 }
+      },
+      "by_status": {
+        "DRAFT": 2,
+        "SUBMITTED": 4,
+        "APPROVED": 8
+      }
+    }
+  ]
+}
+```
+
+#### `GET /api/app/admin/plans`
+Global directory of all sales plans with multi-faceted search, filters, pagination, and rollup metrics.
+- **Query Parameters:** `month`, `cycle`, `status`, `role`, `search`, `limit`, `offset`
+
+#### `GET /api/app/admin/plans/:planId`
+Unrestricted detail view of any plan without ownership restrictions.
+
+#### `GET /api/app/admin/adherence`
+Organization-wide adherence report across all zones, regions, and roles.
+- **Query Parameters:** `month`, `cycle`, `asOn`, `productiveOnly=1`
+
+#### `GET /api/app/admin/cycle-handover`
+Audit of unvisited C1 counters and rollover into C2 targets.
+
+#### `GET /api/app/admin/c2-regenerations` & `GET /api/app/admin/c2-regenerations/:id`
+Review automated C2 regeneration runs and diff reports.
+
+#### `POST /api/app/routing/restamp`
+Re-evaluate and restamp approval hierarchy routing on existing plans when organizational changes occur.
+- **Body:** `{ "periodMonth": "2026-07", "cycleCode": "C1" }`
+
+---
+
+## 3. Plans & Workflows (Admin / Backend)
 
 ### `POST /api/plans/generate`
 
@@ -395,7 +1204,7 @@ Trigger dealer-to-employee auto-mapping engine.
 
 ---
 
-## 3. Employees
+## 4. Employees
 
 ### `GET /api/employees`
 
@@ -431,7 +1240,7 @@ Get all employees across all roles (merged from master table + visit targets).
 
 ---
 
-## 4. Admin — Dashboard & Filters
+## 5. Admin — Dashboard & Filters
 
 ### `GET /api/admin/stats`
 
@@ -554,7 +1363,7 @@ Check if all 5 required Excel input files are uploaded and ready.
 
 ---
 
-## 5. Admin — Business Rules
+## 6. Admin — Business Rules
 
 ### `GET /api/admin/rules`
 
@@ -648,7 +1457,7 @@ Update multiple business rules in one call.
 
 ---
 
-## 6. Master Data
+## 7. Master Data
 
 ### `GET /api/master/summary`
 
@@ -863,7 +1672,7 @@ Get SFA visit execution logs with filters and pagination.
 
 ---
 
-## 7. Uploads & Batches
+## 8. Uploads & Batches
 
 ### `POST /api/uploads/file`
 
@@ -1032,7 +1841,7 @@ Delete a batch and all its associated data.
 
 ---
 
-## 8. DJP Engine
+## 9. DJP Engine
 
 ### `POST /api/djp/generate-all`
 
@@ -1198,7 +2007,7 @@ Get multi-source reconciliation diagnostics.
 
 ---
 
-## 9. Generation Runs (Batch-Isolated)
+## 10. Generation Runs (Batch-Isolated)
 
 > Use this set of APIs for **reproducible, auditable** generation runs where you explicitly declare which uploaded batch each run should use.
 
@@ -1334,7 +2143,7 @@ Get a specific generation run by code.
 
 ---
 
-## 10. PJP Canonical Engine
+## 11. PJP Canonical Engine
 
 ### `POST /api/pjp/calculate`
 
@@ -1419,7 +2228,7 @@ Same as `GET /api/djp/reconciliation`. Accepts `periodMonth` and `cycleCode` que
 
 ---
 
-## 11. Export APIs — File Downloads
+## 12. Export APIs — File Downloads
 
 These endpoints return **binary Excel files**. In React Native, use `expo-file-system` or `react-native-fs` to download.
 
@@ -1465,7 +2274,7 @@ const downloadReport = async (type, periodMonth, cycleCode) => {
 
 ---
 
-## 12. Healthcheck
+## 13. Healthcheck
 
 ### `GET /health`
 
@@ -1481,7 +2290,7 @@ const downloadReport = async (type, periodMonth, cycleCode) => {
 
 ---
 
-## 13. Error Reference
+## 14. Error Reference
 
 All error responses:
 ```json
@@ -1492,24 +2301,52 @@ All error responses:
 |---|---|
 | `400` | Bad request — missing or invalid params |
 | `401` | Authentication failure |
+| `403` | Forbidden — permission or hierarchy barrier |
 | `404` | Resource not found |
-| `409` | Conflict — duplicate or invalid state |
+| `409` | Conflict — duplicate visit, capacity exceeded, or state lock |
 | `422` | Unprocessable — file validation failed |
 | `500` | Internal server error |
 
 ---
 
-## 14. React Native Setup & Tips
+## 15. React Native Setup & Tips
 
-### Base API Client
+### 15.1 Field App Client (Sessionless `:empCode`)
+
+For the Field App (`/api/app/...`), no token is needed. You can use a lightweight helper:
+
 ```javascript
-// api/client.js
+// api/fieldAppClient.js
+const BASE_URL = 'http://192.168.x.x:3000'; // Replace with server LAN IP
+
+export const fieldAppApi = async (endpoint, method = 'GET', body = null) => {
+  const options = {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+  };
+  if (body) options.body = JSON.stringify(body);
+
+  const res = await fetch(`${BASE_URL}/api/app${endpoint}`, options);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+};
+
+// Examples:
+// const summary = await fieldAppApi('/officers/2500070/summary?month=2026-07');
+// const plans   = await fieldAppApi('/officers/2500070/plans?cycle=C1');
+// const detail  = await fieldAppApi('/officers/2500070/plans/4');
+```
+
+### 15.2 Admin Web & Master Data Client (Bearer Token)
+
+```javascript
+// api/adminClient.js
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// On a real device, use your machine's LAN IP, NOT "localhost"
 const BASE_URL = 'http://192.168.x.x:3000';
 
-export const apiClient = async (endpoint, options = {}) => {
+export const adminApi = async (endpoint, options = {}) => {
   const token = await AsyncStorage.getItem('token');
   const headers = {
     'Content-Type': 'application/json',
@@ -1521,36 +2358,60 @@ export const apiClient = async (endpoint, options = {}) => {
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 };
-
-// Examples:
-// GET  → apiClient('/admin/stats')
-// POST → apiClient('/plans/submit', { method: 'POST', body: JSON.stringify({ planId: 42 }) })
 ```
 
-### Pagination Pattern
+---
 
-All list APIs share the same `total` + data array pattern:
+### 15.3 End-to-End Field App Workflows
 
-```javascript
-const fetchPage = async (page, pageSize = 20) => {
-  const offset = page * pageSize;
-  const data = await apiClient(`/master/dealers?limit=${pageSize}&offset=${offset}`);
-  // data.total  → total record count
-  // data.dealers → current page array
-  return data;
-};
-```
-
-### End-to-End Mobile App Workflow
+#### A. Field Officer Workflow (Daily Mobile Operations)
 
 ```
-Step 1  GET  /api/admin/readiness           Check all 5 Excel files uploaded
-Step 2  POST /api/djp/generate-all          Generate PJP + DJP for all roles
-Step 3  GET  /api/employees?role=SO         List SOs to pick from
-Step 4  POST /api/plans/generate            Auto-generate plan for selected SO
-Step 5  GET  /api/plans?empCode=SO001       View SO's plans
-Step 6  GET  /api/plans/:planId/details     View day-wise visit schedule
-Step 7  POST /api/plans/details             Add / adjust a visit manually
-Step 8  POST /api/plans/submit              SO submits for approval
-Step 9  POST /api/plans/approve             Manager approves or rejects
+Step 1: GET  /api/app/officers/:empCode/summary
+        Display dashboard KPI counters (pending plans, approval alerts).
+
+Step 2: GET  /api/app/officers/:empCode/plans?month=YYYY-MM&cycle=C1
+        Show officer's plans with status badges (DRAFT, SUBMITTED, APPROVED, RECTIFY).
+
+Step 3: GET  /api/app/officers/:empCode/plans/:planId
+        Open the active plan. Renders day-by-day diary, dealer cards (name, area, zone,
+        category, grade), category mix breakdown, and permissible action buttons.
+
+Step 4: GET  /api/app/officers/:empCode/dealers?month=YYYY-MM&cycle=C1
+        (If plan is DRAFT or RECTIFY) Open dealer picker showing available pool & quota.
+
+Step 5: POST /api/app/officers/:empCode/plans/:planId/visits
+        Add a dealer to a specific visit date.
+
+Step 6: PUT  /api/app/officers/:empCode/plans/:planId/visits/:detailId
+        Drag-and-drop or reschedule visit to another day.
+
+Step 7: POST /api/app/officers/:empCode/plans/:planId/submit
+        Submit finalized schedule to L1 manager.
+
+Step 8: POST /api/app/officers/:empCode/visits/punch
+        (When plan is APPROVED) Officer visits dealer on the road: check-in, execution
+        status (Productive / Non-Productive), and check-out.
+
+Step 9: GET  /api/app/officers/:empCode/adherence?month=YYYY-MM&cycle=C1
+        Check personal adherence percentage and list of remaining counters.
 ```
+
+#### B. Approver / Manager Workflow
+
+```
+Step 1: GET  /api/app/approvers/:empCode/inbox?month=YYYY-MM
+        List pending plans from subordinates (SOs, ASMs, RSMs).
+
+Step 2: GET  /api/app/approvers/:empCode/plans/:planId
+        Review the officer's scheduled route, dealer category mix, and visit frequency.
+
+Step 3: POST /api/app/approvers/:empCode/plans/:planId/decision
+        Submit decision:
+        • APPROVE: Locks plan; officer can now punch visits.
+        • RECTIFY: Sends plan back with mandatory remarks. (Note: Allowed once only).
+
+Step 4: GET  /api/app/approvers/:empCode/team-adherence?month=YYYY-MM&cycle=C1
+        Monitor overall team adherence rates and target completion percentages.
+```
+

@@ -4,6 +4,17 @@ export const API_BASE = import.meta.env.VITE_API_BASE ?? (
     : '/api'
 );
 
+const fetchWithAuth = async (url, options = {}) => {
+  const token = localStorage.getItem('star_auth_token');
+  if (token) {
+    options.headers = {
+      ...options.headers,
+      'Authorization': `Bearer ${token}`
+    };
+  }
+  return fetch(url, options);
+};
+
 /**
  * Read a response body that is SUPPOSED to be JSON, and fail with something a human
  * can act on when it isn't.
@@ -43,7 +54,7 @@ async function readJson(res, fallbackMessage) {
 export const api = {
   // Auth
   login: async (username, password) => {
-    const res = await fetch(`${API_BASE}/auth/login`, {
+    const res = await fetchWithAuth(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
@@ -55,13 +66,13 @@ export const api = {
 
   // Stats & Filters
   getStats: async () => {
-    const res = await fetch(`${API_BASE}/admin/stats`);
+    const res = await fetchWithAuth(`${API_BASE}/admin/stats`);
     if (!res.ok) throw new Error('Failed to fetch stats');
     return res.json();
   },
 
   getFilters: async () => {
-    const res = await fetch(`${API_BASE}/admin/filters`);
+    const res = await fetchWithAuth(`${API_BASE}/admin/filters`);
     if (!res.ok) throw new Error('Failed to fetch filter options');
     return res.json();
   },
@@ -82,20 +93,20 @@ export const api = {
     if (params.limit) query.append('limit', params.limit);
     if (params.offset) query.append('offset', params.offset);
 
-    const res = await fetch(`${API_BASE}/djp/dealer-targets?${query.toString()}`);
+    const res = await fetchWithAuth(`${API_BASE}/djp/dealer-targets?${query.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch visit targets');
     return res.json();
   },
 
   // Rules Engine
   getRules: async () => {
-    const res = await fetch(`${API_BASE}/admin/rules`);
+    const res = await fetchWithAuth(`${API_BASE}/admin/rules`);
     if (!res.ok) throw new Error('Failed to fetch rules');
     return res.json();
   },
 
   updateRulesBatch: async (rules) => {
-    const res = await fetch(`${API_BASE}/admin/rules/batch`, {
+    const res = await fetchWithAuth(`${API_BASE}/admin/rules/batch`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rules })
@@ -106,26 +117,26 @@ export const api = {
 
   // Upload Batches & Ingestion
   getBatches: async () => {
-    const res = await fetch(`${API_BASE}/admin/batches`);
+    const res = await fetchWithAuth(`${API_BASE}/admin/batches`);
     if (!res.ok) throw new Error('Failed to fetch upload batches');
     return res.json();
   },
 
   getArchiveSummary: async (periodMonth = null) => {
     const query = periodMonth && periodMonth !== 'ALL' ? `?periodMonth=${encodeURIComponent(periodMonth)}` : '';
-    const res = await fetch(`${API_BASE}/admin/archives/summary${query}`);
+    const res = await fetchWithAuth(`${API_BASE}/admin/archives/summary${query}`);
     if (!res.ok) throw new Error('Failed to fetch archive summary');
     return res.json();
   },
 
   getInputReadiness: async () => {
-    const res = await fetch(`${API_BASE}/admin/readiness`);
+    const res = await fetchWithAuth(`${API_BASE}/admin/readiness`);
     if (!res.ok) throw new Error('Failed to fetch input readiness');
     return res.json();
   },
 
   deleteBatch: async (batchCode) => {
-    const res = await fetch(`${API_BASE}/admin/batches/${batchCode}`, {
+    const res = await fetchWithAuth(`${API_BASE}/admin/batches/${batchCode}`, {
       method: 'DELETE'
     });
     const data = await res.json();
@@ -134,7 +145,7 @@ export const api = {
   },
 
   uploadFile: async (formData) => {
-    const res = await fetch(`${API_BASE}/uploads/file`, {
+    const res = await fetchWithAuth(`${API_BASE}/uploads/file`, {
       method: 'POST',
       body: formData
     });
@@ -144,13 +155,13 @@ export const api = {
   },
 
   getReconciliation: async (periodMonth = '2026-06', cycleCode = 'C1') => {
-    const res = await fetch(`${API_BASE}/djp/reconciliation?periodMonth=${periodMonth}&cycleCode=${cycleCode}`);
+    const res = await fetchWithAuth(`${API_BASE}/djp/reconciliation?periodMonth=${periodMonth}&cycleCode=${cycleCode}`);
     if (!res.ok) throw new Error('Failed to fetch reconciliation report');
     return res.json();
   },
 
   calculatePjp: async (periodMonth = '2026-06', cycleCode = 'C1') => {
-    const res = await fetch(`${API_BASE}/pjp/calculate`, {
+    const res = await fetchWithAuth(`${API_BASE}/pjp/calculate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ periodMonth, cycleCode })
@@ -161,7 +172,7 @@ export const api = {
   },
 
   purgeData: async () => {
-    const res = await fetch(`${API_BASE}/admin/purge`, {
+    const res = await fetchWithAuth(`${API_BASE}/admin/purge`, {
       method: 'DELETE'
     });
     const data = await res.json();
@@ -176,7 +187,7 @@ export const api = {
     query.append('limit', limit);
     query.append('offset', offset);
 
-    const res = await fetch(`${API_BASE}/admin/mapping?${query.toString()}`);
+    const res = await fetchWithAuth(`${API_BASE}/admin/mapping?${query.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch territory mapping');
     return res.json();
   },
@@ -186,7 +197,7 @@ export const api = {
     if (!periodMonth) {
       throw new Error('planMonth is required');
     }
-    const res = await fetch(`${API_BASE}/djp/generate-all`, {
+    const res = await fetchWithAuth(`${API_BASE}/djp/generate-all`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ planMonth: periodMonth, periodMonth })
@@ -197,7 +208,7 @@ export const api = {
   // Regenerate C2 Plans after SFA feedback upload (adherence-based)
   regenerateC2Plans: async (periodMonth) => {
     if (!periodMonth) throw new Error('periodMonth is required');
-    const res = await fetch(`${API_BASE}/generation/regenerate-c2`, {
+    const res = await fetchWithAuth(`${API_BASE}/generation/regenerate-c2`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ periodMonth })
@@ -210,7 +221,7 @@ export const api = {
     if (!periodMonth || !cycleCode) {
       throw new Error('planMonth and cycleCode are required');
     }
-    const res = await fetch(`${API_BASE}/pjp/calculate`, {
+    const res = await fetchWithAuth(`${API_BASE}/pjp/calculate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ planMonth: periodMonth, periodMonth, cycleCode })
@@ -225,7 +236,7 @@ export const api = {
     const query = new URLSearchParams();
     if (periodMonth) query.append('periodMonth', periodMonth);
     if (cycleCode) query.append('cycleCode', cycleCode);
-    const res = await fetch(`${API_BASE}/pjp/debug/${encodeURIComponent(dealerCode)}?${query.toString()}`);
+    const res = await fetchWithAuth(`${API_BASE}/pjp/debug/${encodeURIComponent(dealerCode)}?${query.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch PJP debug');
     return res.json();
   },
@@ -233,14 +244,14 @@ export const api = {
   // Employees
   getEmployees: async (role = '') => {
     const query = role && role !== 'ALL' ? `?role=${encodeURIComponent(role)}` : '';
-    const res = await fetch(`${API_BASE}/employees${query}`);
+    const res = await fetchWithAuth(`${API_BASE}/employees${query}`);
     if (!res.ok) throw new Error('Failed to fetch employees');
     return res.json();
   },
 
   // Sales Plans
   generateAutoPlan: async (empCode, periodMonth, role = 'SO', cycleCode = 'C1') => {
-    const res = await fetch(`${API_BASE}/plans/generate`, {
+    const res = await fetchWithAuth(`${API_BASE}/plans/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ empCode, planMonth: periodMonth, periodMonth, role, cycleCode })
@@ -252,19 +263,19 @@ export const api = {
 
   getPlans: async (empCode) => {
     const query = empCode ? `?empCode=${encodeURIComponent(empCode)}` : '';
-    const res = await fetch(`${API_BASE}/plans${query}`);
+    const res = await fetchWithAuth(`${API_BASE}/plans${query}`);
     if (!res.ok) throw new Error('Failed to fetch plans');
     return res.json();
   },
 
   getPlanDetails: async (planId) => {
-    const res = await fetch(`${API_BASE}/plans/${planId}/details`);
+    const res = await fetchWithAuth(`${API_BASE}/plans/${planId}/details`);
     if (!res.ok) throw new Error('Failed to fetch plan details');
     return res.json();
   },
 
   submitPlan: async (planId) => {
-    const res = await fetch(`${API_BASE}/plans/submit`, {
+    const res = await fetchWithAuth(`${API_BASE}/plans/submit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ planId })
@@ -275,7 +286,7 @@ export const api = {
   },
 
   approvePlan: async (planId, managerEmpCode, action, remarks = '') => {
-    const res = await fetch(`${API_BASE}/plans/approve`, {
+    const res = await fetchWithAuth(`${API_BASE}/plans/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ planId, managerEmpCode, action, remarks })
@@ -286,14 +297,14 @@ export const api = {
   },
 
   deletePlan: async (planId) => {
-    const res = await fetch(`${API_BASE}/plans/${planId}`, { method: 'DELETE' });
+    const res = await fetchWithAuth(`${API_BASE}/plans/${planId}`, { method: 'DELETE' });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to delete plan');
     return data;
   },
 
   bulkDeletePlans: async (planIds) => {
-    const res = await fetch(`${API_BASE}/plans/bulk-delete`, {
+    const res = await fetchWithAuth(`${API_BASE}/plans/bulk-delete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ planIds })
@@ -313,14 +324,14 @@ export const api = {
     if (status && status !== 'ALL') q.append('status', status);
     if (role && role !== 'ALL') q.append('role', role);
     if (search) q.append('search', search);
-    const res = await fetch(`${API_BASE}/app/admin/plans?${q.toString()}`);
+    const res = await fetchWithAuth(`${API_BASE}/app/admin/plans?${q.toString()}`);
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to fetch officer plans');
     return data;
   },
 
   getOfficerPlanDetail: async (planId) => {
-    const res = await fetch(`${API_BASE}/app/admin/plans/${planId}`);
+    const res = await fetchWithAuth(`${API_BASE}/app/admin/plans/${planId}`);
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to fetch plan detail');
     return data;
@@ -334,24 +345,24 @@ export const api = {
     if (cycle && cycle !== 'ALL') q.append('cycle', cycle);
     if (asOn) q.append('asOn', asOn);
     if (productiveOnly) q.append('productiveOnly', '1');
-    const res = await fetch(`${API_BASE}/app/admin/adherence?${q.toString()}`);
+    const res = await fetchWithAuth(`${API_BASE}/app/admin/adherence?${q.toString()}`);
     return readJson(res, 'Adherence report failed');
   },
 
   // C2 regeneration review — what the adherence result changed in the second cycle
   listC2Regenerations: async (month) => {
     const q = month ? `?month=${encodeURIComponent(month)}` : '';
-    const res = await fetch(`${API_BASE}/app/admin/c2-regenerations${q}`);
+    const res = await fetchWithAuth(`${API_BASE}/app/admin/c2-regenerations${q}`);
     return readJson(res, 'Failed to load C2 regenerations');
   },
 
   getC2Regeneration: async (id) => {
-    const res = await fetch(`${API_BASE}/app/admin/c2-regenerations/${id}`);
+    const res = await fetchWithAuth(`${API_BASE}/app/admin/c2-regenerations/${id}`);
     return readJson(res, 'Failed to load the C2 regeneration');
   },
 
   restampPlanRouting: async (periodMonth, cycleCode) => {
-    const res = await fetch(`${API_BASE}/app/routing/restamp`, {
+    const res = await fetchWithAuth(`${API_BASE}/app/routing/restamp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ periodMonth, cycleCode })
@@ -362,13 +373,13 @@ export const api = {
   },
 
   getDealersForSO: async (empCode) => {
-    const res = await fetch(`${API_BASE}/plans/dealers?empCode=${encodeURIComponent(empCode)}`);
+    const res = await fetchWithAuth(`${API_BASE}/plans/dealers?empCode=${encodeURIComponent(empCode)}`);
     if (!res.ok) throw new Error('Failed to fetch dealers for SO');
     return res.json();
   },
 
   addPlanVisit: async (data) => {
-    const res = await fetch(`${API_BASE}/plans/details`, {
+    const res = await fetchWithAuth(`${API_BASE}/plans/details`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -379,7 +390,7 @@ export const api = {
   },
 
   removePlanVisit: async (detailId) => {
-    const res = await fetch(`${API_BASE}/plans/details/${detailId}`, { method: 'DELETE' });
+    const res = await fetchWithAuth(`${API_BASE}/plans/details/${detailId}`, { method: 'DELETE' });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to remove visit');
     return data;
@@ -387,13 +398,13 @@ export const api = {
 
   // Master Data Repository
   getMasterSummary: async () => {
-    const res = await fetch(`${API_BASE}/master/summary`);
+    const res = await fetchWithAuth(`${API_BASE}/master/summary`);
     if (!res.ok) throw new Error('Failed to fetch master summary');
     return res.json();
   },
 
   getMasterFilters: async () => {
-    const res = await fetch(`${API_BASE}/master/filters`);
+    const res = await fetchWithAuth(`${API_BASE}/master/filters`);
     if (!res.ok) throw new Error('Failed to fetch master filters');
     return res.json();
   },
@@ -410,7 +421,7 @@ export const api = {
     query.append('limit', params.limit || 50);
     query.append('offset', params.offset || 0);
 
-    const res = await fetch(`${API_BASE}/master/dealers?${query.toString()}`);
+    const res = await fetchWithAuth(`${API_BASE}/master/dealers?${query.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch master dealers');
     return res.json();
   },
@@ -425,7 +436,7 @@ export const api = {
     query.append('limit', params.limit || 50);
     query.append('offset', params.offset || 0);
 
-    const res = await fetch(`${API_BASE}/admin/mapping?${query.toString()}`);
+    const res = await fetchWithAuth(`${API_BASE}/admin/mapping?${query.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch territory mapping');
     return res.json();
   },
@@ -438,7 +449,7 @@ export const api = {
     query.append('limit', params.limit || 50);
     query.append('offset', params.offset || 0);
 
-    const res = await fetch(`${API_BASE}/master/employees?${query.toString()}`);
+    const res = await fetchWithAuth(`${API_BASE}/master/employees?${query.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch master employees');
     return res.json();
   },
@@ -451,7 +462,7 @@ export const api = {
     query.append('limit', params.limit || 50);
     query.append('offset', params.offset || 0);
 
-    const res = await fetch(`${API_BASE}/master/sales-history?${query.toString()}`);
+    const res = await fetchWithAuth(`${API_BASE}/master/sales-history?${query.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch sales history');
     return res.json();
   },
@@ -466,7 +477,7 @@ export const api = {
     query.append('limit', params.limit || 50);
     query.append('offset', params.offset || 0);
 
-    const res = await fetch(`${API_BASE}/master/dealer-performance?${query.toString()}`);
+    const res = await fetchWithAuth(`${API_BASE}/master/dealer-performance?${query.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch dealer performance');
     return res.json();
   },
@@ -483,7 +494,7 @@ export const api = {
     q.append('pageSize', pageSize);
     if (search) q.append('search', search);
 
-    const res = await fetch(`${API_BASE}/djp/master-view?${q.toString()}`);
+    const res = await fetchWithAuth(`${API_BASE}/djp/master-view?${q.toString()}`);
     const data = await readJson(res, 'Could not load the Master sheet');
     if (!res.ok) throw new Error([data.error, data.fix].filter(Boolean).join(' — '));
     return data;
@@ -495,7 +506,7 @@ export const api = {
     if (month && month !== 'ALL') q.append('periodMonth', month);
     if (cycle && cycle !== 'ALL') q.append('cycleCode', cycle);
 
-    const res = await fetch(`${API_BASE}/djp/export-master?${q.toString()}`);
+    const res = await fetchWithAuth(`${API_BASE}/djp/export-master?${q.toString()}`);
     if (!res.ok) {
       // The server sends JSON on failure and a spreadsheet on success.
       let msg = `Export failed (HTTP ${res.status})`;
@@ -526,7 +537,7 @@ export const api = {
     query.append('limit', params.limit || 50);
     query.append('offset', params.offset || 0);
 
-    const res = await fetch(`${API_BASE}/master/visit-logs?${query.toString()}`);
+    const res = await fetchWithAuth(`${API_BASE}/master/visit-logs?${query.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch visit logs');
     return res.json();
   }

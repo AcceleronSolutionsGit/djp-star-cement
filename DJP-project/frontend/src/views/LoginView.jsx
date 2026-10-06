@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { ShieldCheck, LogIn, KeyRound, UserCircle } from 'lucide-react';
+import starLogo from '../assets/star-cement-logo.png';
 
 export default function LoginView() {
   const { login } = useAuth();
@@ -25,10 +26,9 @@ export default function LoginView() {
   return (
     <div className="login-container">
       <div className="login-box">
-        <div className="login-header">
-          <div className="login-logo-icon">★</div>
-          <h2>STAR CEMENT</h2>
-          <p>DJP (Dynamic Journey Planner)</p>
+        <div className="login-header" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <img src={starLogo} alt="Star Cement Logo" style={{ width: '180px', height: 'auto', objectFit: 'contain', marginBottom: '16px' }} />
+          <p style={{ color: '#475569', fontWeight: 600, margin: 0 }}>DJP (Dynamic Journey Planner)</p>
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">

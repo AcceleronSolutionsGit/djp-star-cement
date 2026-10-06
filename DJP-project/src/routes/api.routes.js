@@ -89,6 +89,18 @@ import {
 
 const router = express.Router();
 
+const authMiddleware = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized: Missing or invalid authentication token. You are not authorized to perform this action.' });
+  }
+  const token = authHeader.split(' ')[1];
+  if (!token.startsWith('mock-') && !token.startsWith('token-')) {
+    return res.status(401).json({ error: 'Unauthorized: Invalid authentication token.' });
+  }
+  next();
+};
+
 // Auth APIs
 router.post('/auth/login', login);
 
@@ -129,22 +141,22 @@ router.post('/plans/visits/unplanned/:requestId/approve', approveUnplannedVisit)
 router.get('/plans/visits/unplanned', getUnplannedVisitRequests);
 
 // Upload APIs
-router.post('/uploads/file', uploadMiddleware.single('file'), uploadFile);
-router.post('/uploads/process', processUpload);
+router.post('/uploads/file', authMiddleware, uploadMiddleware.single('file'), uploadFile);
+router.post('/uploads/process', authMiddleware, processUpload);
 router.get('/admin/batches', getUploadBatches);
-router.delete('/admin/batches/:batchCode', deleteUploadBatch);
+router.delete('/admin/batches/:batchCode', authMiddleware, deleteUploadBatch);
 
 // Admin Dashboard & Options APIs
 router.get('/admin/stats', getDashboardStats);
 router.get('/admin/filters', getFilterOptions);
 router.get('/admin/mapping', getTerritoryMapping);
 router.get('/admin/readiness', getInputReadiness);
-router.delete('/admin/purge', purgeOldData);
+router.delete('/admin/purge', authMiddleware, purgeOldData);
 
 // Business Rules APIs
 router.get('/admin/rules', getRules);
-router.put('/admin/rules', updateRule);
-router.put('/admin/rules/batch', updateRulesBatch);
+router.put('/admin/rules', authMiddleware, updateRule);
+router.put('/admin/rules/batch', authMiddleware, updateRulesBatch);
 
 // Archive APIs
 import { getArchiveSummary } from '../controllers/archive.controller.js';
