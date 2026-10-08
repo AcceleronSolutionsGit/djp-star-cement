@@ -6,6 +6,7 @@ import SpinnerOverlay from './components/SpinnerOverlay';
 import GeneratePlanModal from './components/GeneratePlanModal';
 
 import VisitsGridView from './views/VisitsGridView';
+import AnalyticsDashboardView from './views/AnalyticsDashboardView';
 import FormulaSettingsView from './views/FormulaSettingsView';
 import MonthlyIngestionView from './views/MonthlyIngestionView';
 import MasterDataRepositoryView from './views/MasterDataRepositoryView';
@@ -227,6 +228,7 @@ export default function App() {
 
   const getPageTitle = () => {
     switch (activeTab) {
+      case 'analytics': return 'Live Analytics Dashboard';
       case 'visits': return 'Master Visits Grid';
       case 'formulas': return 'Rule Engine Settings';
       case 'upload': return 'Master Excel Ingestion';
@@ -270,6 +272,12 @@ export default function App() {
 
         <main className="app-content">
           <ErrorBoundary key={activeTab}>
+            {activeTab === 'analytics' && (
+              <AnalyticsDashboardView
+                onShowToast={showToast}
+              />
+            )}
+
             {activeTab === 'visits' && (
               <VisitsGridView
                 onShowToast={showToast}

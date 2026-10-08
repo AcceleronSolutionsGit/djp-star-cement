@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import apiRoutes from './routes/api.routes.js';
 import { dbAll, dbRun } from './config/database.js';
+import { startSfaSyncCron } from './services/sfaSync.service.js';
 
 dotenv.config();
 
@@ -74,6 +75,7 @@ if (basePath) {
 
 // Run startup migrations then start server
 runStartupMigrations().then(() => {
+  startSfaSyncCron();
   const server = app.listen(PORT, () => {
     console.log(`====================================================`);
     console.log(`Star Cement PJP / DJP Engine Server running on port ${PORT}`);

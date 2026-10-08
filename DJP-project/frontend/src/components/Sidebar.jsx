@@ -18,6 +18,7 @@ export default function Sidebar({ activeTab, setActiveTab, collapsed }) {
     {
       group: 'Consolidated Engines',
       items: [
+        { id: 'analytics', label: 'Analytics Dashboard', icon: Grid3X3, desc: 'Live Adherence Analytics' },
         { id: 'visits', label: 'Master Visits Grid', icon: Grid3X3, desc: 'All Zones & Cycles' },
         { id: 'master-sheet', label: 'Master Sheet (M.xlsx)', icon: Table2, desc: 'All 42 columns, as downloaded' },
         { id: 'formulas', label: 'Rule Engine Settings', icon: Sliders, desc: 'Formulas & Weights' },

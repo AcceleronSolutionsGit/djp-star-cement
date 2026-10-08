@@ -256,5 +256,12 @@ router.post  ('/app/routing/restamp',                              restampRoutin
 router.get('/templates', listTemplates);
 router.get('/templates/:name', downloadTemplate);
 
+// SFA Auto-Sync API
+import { syncSfaDataFromApi } from '../services/sfaSync.service.js';
+router.post('/sfa/sync', async (req, res) => {
+  const result = await syncSfaDataFromApi();
+  res.json(result);
+});
+
 export default router;
 
