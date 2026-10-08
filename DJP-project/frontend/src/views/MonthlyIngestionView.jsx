@@ -193,20 +193,46 @@ export default function MonthlyIngestionView({
   const handleSfaSync = async () => {
     if (!window.confirm("Trigger a manual SFA API sync now? This will fetch the active month's data.")) return;
     setSyncing(true);
-    onShowToast('Syncing SFA execution logs from live API...', 'info');
+    setProgress(0);
+    setProgressText('Syncing live SFA data day-by-day (this takes about 5-7 minutes)...');
+    
+    // Simulate a 5-minute progress bar
+    const progressInterval = setInterval(() => {
+      setProgress(prev => {
+        if (prev >= 95) return prev;
+        return prev + 1; // 1% every 3 seconds = 5 minutes to reach 100%
+      });
+    }, 3000);
+
+    onShowToast('Syncing SFA execution logs from live API in the background...', 'info');
+    
     try {
-      // Direct fetch to backend since this is not in api.js
       const res = await fetch(`${API_BASE}/sfa/sync`, { method: 'POST' });
       if (!res.ok) {
-        let errorData;
-        try { errorData = await res.json(); } catch(e) {}
-        throw new Error(errorData?.error || 'API Sync Failed');
+        if (res.status === 504) {
+          // It's a timeout. NGINX dropped us but backend is still running.
+          // Don't throw an error.
+          console.log("NGINX Timeout reached, but backend is still working.");
+        } else {
+          let errorData;
+          try { errorData = await res.json(); } catch(e) {}
+          throw new Error(errorData?.error || 'API Sync Failed');
+        }
+      } else {
+        onShowToast('SFA Sync completed successfully!', 'success');
+        loadBatches();
+        clearInterval(progressInterval);
+        setProgress(100);
+        setProgressText('Sync Complete!');
+        setTimeout(() => setProgress(0), 2000);
       }
-      onShowToast('SFA Sync completed successfully!', 'success');
-      loadBatches();
     } catch (err) {
       onShowToast(err.message || 'Failed to sync SFA data', 'error');
+      clearInterval(progressInterval);
+      setProgress(0);
     } finally {
+      // If we got a 504, we intentionally don't clear the progress bar immediately 
+      // so the user knows it's still running for the remaining 5 minutes.
       setSyncing(false);
     }
   };
