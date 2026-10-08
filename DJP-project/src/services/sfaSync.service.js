@@ -49,28 +49,61 @@ export async function syncSfaDataFromApi() {
       end_date: endDate
     };
 
-    // 2. Fetch from API
-    console.log(`[SFA_SYNC] Fetching from API for dates ${startDate} to ${endDate}`);
-    const res = await fetch('http://52.66.31.108/star-one-sfa/misreport/api_star_customer_visit_report_daywise.php', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': 'STAR_SFA_DJP_SECURE_TOKEN_2026_98F7A1B2'
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (!res.ok) {
-      throw new Error(`API responded with status: ${res.status}`);
-    }
-
-    const data = await res.json();
-    const rows = Array.isArray(data) ? data : (data.data || []);
+    // 2. Fetch from API in 7-day chunks to prevent 504 Gateway Timeout on PHP side
+    console.log(`[SFA_SYNC] Fetching from API for dates ${startDate} to ${endDate} in chunks`);
     
-    if (rows.length === 0) {
-      console.log('[SFA_SYNC] No data returned from API. Skipping import.');
+    const getChunks = (startYMD, endYMD, daysPerChunk) => {
+      const chunks = [];
+      let current = new Date(startYMD + 'T00:00:00');
+      const finalEnd = new Date(endYMD + 'T00:00:00');
+
+      while (current <= finalEnd) {
+        let chunkStart = formatYMD(current.getFullYear(), current.getMonth() + 1, current.getDate());
+        
+        let endOfChunk = new Date(current);
+        endOfChunk.setDate(endOfChunk.getDate() + daysPerChunk - 1);
+        if (endOfChunk > finalEnd) endOfChunk = new Date(finalEnd);
+        
+        let chunkEnd = formatYMD(endOfChunk.getFullYear(), endOfChunk.getMonth() + 1, endOfChunk.getDate());
+        chunks.push({ start_date: chunkStart, end_date: chunkEnd });
+        
+        current = new Date(endOfChunk);
+        current.setDate(current.getDate() + 1);
+      }
+      return chunks;
+    };
+
+    const dateChunks = getChunks(startDate, endDate, 5); // 5 days per request to be safe
+    let allRows = [];
+
+    for (const chunk of dateChunks) {
+      console.log(`[SFA_SYNC] Fetching chunk ${chunk.start_date} to ${chunk.end_date}...`);
+      const chunkPayload = { employee: 'all', start_date: chunk.start_date, end_date: chunk.end_date };
+      
+      const res = await fetch('http://52.66.31.108/star-one-sfa/misreport/api_star_customer_visit_report_daywise.php', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': 'STAR_SFA_DJP_SECURE_TOKEN_2026_98F7A1B2'
+        },
+        body: JSON.stringify(chunkPayload)
+      });
+
+      if (!res.ok) {
+        throw new Error(`API responded with status: ${res.status} for chunk ${chunk.start_date}`);
+      }
+
+      const data = await res.json();
+      const rows = Array.isArray(data) ? data : (data.data || []);
+      allRows = allRows.concat(rows);
+    }
+    
+    if (allRows.length === 0) {
+      console.log('[SFA_SYNC] No data returned from API across all chunks. Skipping import.');
       return { status: 'skipped', message: 'No data returned from API.' };
     }
+    
+    const rows = allRows;
 
     // 3. Keep report downloadable: generate Excel and save batch
     const batchCode = `BAT-${new Date().toISOString().slice(0, 7).replace('-', '')}-SYNC-${Math.floor(100 + Math.random() * 900)}`;
