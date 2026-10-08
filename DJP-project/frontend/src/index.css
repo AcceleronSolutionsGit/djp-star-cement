@@ -218,7 +218,7 @@ body {
 /* Header */
 .app-header {
   min-height: var(--header-height);
-  background-color: #FFFFFF;
+  background-color: var(--star-red);
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
@@ -238,8 +238,8 @@ body {
 }
 
 .toggle-sidebar-btn {
-  background: #F1F5F9;
-  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: var(--radius-sm);
   width: 36px;
   height: 36px;
@@ -247,21 +247,21 @@ body {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  color: var(--text-secondary);
+  color: #FFFFFF;
   transition: all 0.2s ease;
   flex-shrink: 0;
 }
 
 .toggle-sidebar-btn:hover {
-  background: #E2E8F0;
-  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.25);
+  color: #FFFFFF;
 }
 
 .page-heading {
   font-family: var(--font-display);
   font-size: 1.15rem;
   font-weight: 700;
-  color: var(--text-primary);
+  color: #FFFFFF;
   letter-spacing: -0.2px;
   white-space: nowrap;
   overflow: hidden;
