@@ -73,29 +73,36 @@ export async function syncSfaDataFromApi() {
       return chunks;
     };
 
-    const dateChunks = getChunks(startDate, endDate, 5); // 5 days per request to be safe
+    // Use 1 day per request because the PHP API is timing out even on 5 days
+    const dateChunks = getChunks(startDate, endDate, 1); 
     let allRows = [];
 
     for (const chunk of dateChunks) {
       console.log(`[SFA_SYNC] Fetching chunk ${chunk.start_date} to ${chunk.end_date}...`);
       const chunkPayload = { employee: 'all', start_date: chunk.start_date, end_date: chunk.end_date };
       
-      const res = await fetch('http://52.66.31.108/star-one-sfa/misreport/api_star_customer_visit_report_daywise.php', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': 'STAR_SFA_DJP_SECURE_TOKEN_2026_98F7A1B2'
-        },
-        body: JSON.stringify(chunkPayload)
-      });
+      try {
+        const res = await fetch('http://52.66.31.108/star-one-sfa/misreport/api_star_customer_visit_report_daywise.php', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': 'STAR_SFA_DJP_SECURE_TOKEN_2026_98F7A1B2'
+          },
+          body: JSON.stringify(chunkPayload)
+        });
 
-      if (!res.ok) {
-        throw new Error(`API responded with status: ${res.status} for chunk ${chunk.start_date}`);
+        if (!res.ok) {
+          console.error(`[SFA_SYNC] API responded with status: ${res.status} for chunk ${chunk.start_date}`);
+          continue; // Skip this day and continue with the rest of the month
+        }
+
+        const data = await res.json();
+        const rows = Array.isArray(data) ? data : (data.data || []);
+        allRows = allRows.concat(rows);
+      } catch (err) {
+        console.error(`[SFA_SYNC] Network error for chunk ${chunk.start_date}: ${err.message}`);
+        continue; // Skip failing days so the whole month doesn't fail
       }
-
-      const data = await res.json();
-      const rows = Array.isArray(data) ? data : (data.data || []);
-      allRows = allRows.concat(rows);
     }
     
     if (allRows.length === 0) {
