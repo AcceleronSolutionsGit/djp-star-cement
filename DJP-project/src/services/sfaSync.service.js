@@ -134,7 +134,7 @@ export async function syncSfaDataFromApi() {
           allRows = allRows.concat(formattedRows);
 
           // Insert this day's rows incrementally
-          await dbRun('BEGIN TRANSACTION');
+          await dbRun('START TRANSACTION');
           try {
             // Delete ONLY this day's data before re-inserting, to prevent wiping the whole month if later days fail
             await dbRun("DELETE FROM visit_execution_logs WHERE visit_date = ?", [chunk.start_date]);
