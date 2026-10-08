@@ -45,9 +45,17 @@ export default function Sidebar({ activeTab, setActiveTab, collapsed }) {
 
   return (
     <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
-      <div className="brand-section" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px', background: '#FFFFFF', borderBottom: '1px solid #E2E8F0' }}>
-        <img src={starLogo} alt="Star Cement Logo" style={{ width: '140px', height: 'auto', objectFit: 'contain' }} />
-        <div className="brand-subtitle" style={{ color: '#64748B', marginTop: '8px', fontSize: '0.65rem' }}>DJP (Dynamic Journey Planner)</div>
+      <div className="brand-section" style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        height: 'var(--header-height)', 
+        background: '#FFFFFF', 
+        borderBottom: '1px solid #E2E8F0',
+        padding: '0 16px',
+        flexShrink: 0
+      }}>
+        <img src={starLogo} alt="Star Cement Logo" style={{ maxHeight: '40px', maxWidth: '100%', objectFit: 'contain' }} />
       </div>
 
       <div className="nav-section">
