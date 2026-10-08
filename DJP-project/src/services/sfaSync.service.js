@@ -30,7 +30,7 @@ export async function syncSfaDataFromApi() {
 
     // 2. Fetch from API
     console.log(`[SFA_SYNC] Fetching from API for dates ${startDate} to ${endDate}`);
-    const res = await fetch('https://proceedings-fold-feeling-baskets.trycloudflare.com/misreport/api_star_customer_visit_report_daywise.php', {
+    const res = await fetch('http://52.66.31.108/star-one-sfa/misreport/api_star_customer_visit_report_daywise.php', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
