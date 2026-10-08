@@ -25,7 +25,8 @@ import {
   exportVisitsExcel,
   getReconciliationDiagnostics,
   getInputReadiness,
-  getMasterView
+  getMasterView,
+  exportSfaLogsExcel
 } from '../controllers/djp.controller.js';
 import { createGenerationRun, executeGenerationRun, listGenerationRuns, getGenerationRun, generateAllLegacy, regenerateC2Plans } from '../controllers/generation.controller.js';
 import { 
@@ -212,6 +213,7 @@ router.put('/djp/dealer-targets/:id', async (req, res) => {
 router.get('/djp/export-pjp-trade', exportPjpTradeExcel);
 router.get('/djp/export-master', exportMasterExcel);
 router.get('/djp/export-visits', exportVisitsExcel);
+router.get('/djp/export-sfa-logs', exportSfaLogsExcel);
 router.get('/djp/reconciliation', getReconciliationDiagnostics);
 router.get('/djp/plan', getDjpPlan);
 // The Master sheet on screen — same 42 columns as the M.xlsx download

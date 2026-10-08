@@ -354,6 +354,17 @@ export default function MonthlyIngestionView({
               <FileSpreadsheet size={16} />
               <span>Download Visits Planned</span>
             </a>
+            <a 
+              href={`${API_BASE}/djp/export-sfa-logs`} 
+              className="btn btn-outline" 
+              target="_blank" 
+              rel="noreferrer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#8B5CF6', borderColor: '#8B5CF6', fontWeight: 600 }}
+              title="Download SFA Execution Logs Excel"
+            >
+              <FileSpreadsheet size={16} />
+              <span>Download SFA Report</span>
+            </a>
             <button className="btn btn-outline" onClick={handleSfaSync} disabled={syncing} style={{ color: '#16A34A', borderColor: '#16A34A' }}>
               <RefreshCw size={16} className={syncing ? 'spin' : ''} />
               <span>{syncing ? 'Syncing...' : 'Sync Live SFA Report'}</span>

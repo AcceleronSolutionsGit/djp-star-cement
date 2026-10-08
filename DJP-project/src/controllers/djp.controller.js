@@ -1153,3 +1153,20 @@ export async function getMasterView(req, res) {
     res.status(500).json({ error: err.message });
   }
 }
+
+export async function exportSfaLogsExcel(req, res) {
+  try {
+    const rows = await dbAll(`SELECT * FROM visit_execution_logs ORDER BY visit_date DESC LIMIT 50000`);
+    const XLSX = await import('xlsx');
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'SFA Logs');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', 'attachment; filename="SFA_Logs_Export.xlsx"');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buffer);
+  } catch (err) {
+    console.error('Error exporting SFA Logs:', err);
+    res.status(500).json({ error: 'Failed to export SFA Logs' });
+  }
+}
