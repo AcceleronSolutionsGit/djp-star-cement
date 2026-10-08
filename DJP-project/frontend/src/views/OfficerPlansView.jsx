@@ -117,6 +117,13 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
 
   useEffect(() => { if (tab === 'plans') loadPlans(); /* eslint-disable-next-line */ }, [tab, month, cycle, status, role]);
 
+  useEffect(() => {
+    if (tab === 'adherence') {
+      runAdherence(true);
+    }
+    // eslint-disable-next-line
+  }, [tab, month, adhCycle]);
+
   const openDetail = async (planId) => {
     setDetailLoading(true);
     setDetail({ loading: true });
@@ -131,16 +138,18 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
     }
   };
 
-  const runAdherence = async () => {
+  const runAdherence = async (isAuto = false) => {
     setAdhLoading(true);
     try {
       const res = await api.getAdherenceReport(month, { cycle: adhCycle, asOn: asOn || undefined });
       setAdh(res);
-      onShowToast?.(
-        `${month} ${res.cycles.join('+')} as on ${res.as_on_date}: ` +
-        `${res.totals.adhered} adhered against ${res.totals.mtd_due} due — ${res.adherence.capped_pct}%.`,
-        'success'
-      );
+      if (!isAuto) {
+        onShowToast?.(
+          `${month} ${res.cycles.join('+')} as on ${res.as_on_date}: ` +
+          `${res.totals.adhered} adhered against ${res.totals.mtd_due} due — ${res.adherence.capped_pct}%.`,
+          'success'
+        );
+      }
     } catch (e) {
       onShowToast?.(e.message || 'Adherence report failed', 'error');
       setAdh(null);

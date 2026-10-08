@@ -11,10 +11,10 @@ export default function AnalyticsDashboardView({ onShowToast }) {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [statsRes, adherenceRes] = await Promise.all([
-        api.getStats(),
-        api.getAdherenceReport(new Date().toISOString().slice(0, 7), { cycle: 'ALL' }).catch(() => null)
-      ]);
+      const statsRes = await api.getStats();
+      const period = statsRes.latestPeriod || new Date().toISOString().slice(0, 7);
+      const adherenceRes = await api.getAdherenceReport(period, { cycle: 'ALL' }).catch(() => null);
+      
       setStats(statsRes.stats);
       setAdherence(adherenceRes);
       setLastSync(new Date());

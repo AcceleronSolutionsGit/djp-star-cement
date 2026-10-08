@@ -18,7 +18,11 @@ export async function getDashboardStats(req, res) {
       FROM dealer_visit_targets
     `);
 
+    const latestPeriodObj = await dbGet('SELECT period_month FROM dealer_visit_targets ORDER BY period_month DESC LIMIT 1');
+    const latestPeriod = latestPeriodObj ? latestPeriodObj.period_month : new Date().toISOString().slice(0, 7);
+
     res.json({
+      latestPeriod,
       stats: {
         totalDealers: visitsObj?.target_dealers || totalDealersObj?.count || 0,
         totalAreas: totalAreasObj?.count || 0,
