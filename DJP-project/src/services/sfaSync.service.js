@@ -73,12 +73,25 @@ export async function syncSfaDataFromApi() {
       return chunks;
     };
 
-    // Use 1 day per request because the PHP API is timing out even on 5 days
     const dateChunks = getChunks(startDate, endDate, 1); 
     let allRows = [];
+    let inserted = 0;
+    const batchCode = `BAT-${new Date().toISOString().slice(0, 7).replace('-', '')}-SYNC-${Math.floor(100 + Math.random() * 900)}`;
+
+    // Archive old logs just in case
+    try {
+      await dbRun(`
+        INSERT IGNORE INTO visit_execution_logs_archive 
+        (id, visit_date, customer_code, customer_name, customer_type, route, branch, employee_code, employee_name, check_in_time, check_out_time, duration, visit_status, purpose_of_visit, remarks, batch_code, created_at)
+        SELECT id, visit_date, customer_code, customer_name, customer_type, route, branch, employee_code, employee_name, check_in_time, check_out_time, duration, visit_status, purpose_of_visit, remarks, batch_code, created_at
+        FROM visit_execution_logs
+      `);
+    } catch (e) {
+      console.warn('[SFA_SYNC] Archiving skipped: ', e.message);
+    }
 
     for (const chunk of dateChunks) {
-      console.log(`[SFA_SYNC] Fetching chunk ${chunk.start_date} to ${chunk.end_date}...`);
+      console.log(`[SFA_SYNC] Fetching chunk ${chunk.start_date}...`);
       const chunkPayload = { employee: 'all', start_date: chunk.start_date, end_date: chunk.end_date };
       
       try {
@@ -93,49 +106,83 @@ export async function syncSfaDataFromApi() {
 
         if (!res.ok) {
           console.error(`[SFA_SYNC] API responded with status: ${res.status} for chunk ${chunk.start_date}`);
-          continue; // Skip this day and continue with the rest of the month
+          continue; 
         }
 
         const data = await res.json();
         const rows = Array.isArray(data) ? data : (data.data || []);
-        allRows = allRows.concat(rows);
+        
+        if (rows.length > 0) {
+          // Format rows for this day
+          const formattedRows = rows.map(row => ({
+            'Date of Visit': row.visit_date || row.date_of_visit || null,
+            'Customer Code': row.dns_customer_code || row.customer_code || null,
+            'Customer Name': row.customer_name || null,
+            'Route': row.route_name || row.route || null,
+            'Type': row.cust_type || row.type || null,
+            'Branch': row.branch_name || row.branch || null,
+            'Employee Code': row.emp_code || row.employee_code || null,
+            'Employee Name': row.emp_name || row.employee_name || null,
+            'Check In Time': row.check_in_time || null,
+            'Check Out Time': row.check_out_time || null,
+            'Duration': row.time_duration || row.duration || null,
+            'Visit Status(Productive / Non productive)': row.visit_status || 'Completed',
+            'Purpose Of Visit': row.purpose_of_visit || null,
+            'Remarks': row.remarks || null
+          }));
+
+          allRows = allRows.concat(formattedRows);
+
+          // Insert this day's rows incrementally
+          await dbRun('BEGIN TRANSACTION');
+          try {
+            // Delete ONLY this day's data before re-inserting, to prevent wiping the whole month if later days fail
+            await dbRun("DELETE FROM visit_execution_logs WHERE visit_date = ?", [chunk.start_date]);
+            
+            for (const row of formattedRows) {
+              let visitDate = row['Date of Visit'];
+              if (visitDate && visitDate.length === 8) { 
+                visitDate = `${visitDate.slice(0,4)}-${visitDate.slice(4,6)}-${visitDate.slice(6,8)}`;
+              } else if (visitDate && visitDate.includes('-') && visitDate.split('-')[0].length === 2) { 
+                const [d, m, y] = visitDate.split('-');
+                visitDate = `${y}-${m}-${d}`;
+              }
+              const customerCode = row['Customer Code'];
+              const empCode = row['Employee Code'];
+              
+              if (!customerCode || !empCode || !visitDate) continue;
+
+              await dbRun(
+                `INSERT INTO visit_execution_logs 
+                (visit_date, customer_code, customer_name, customer_type, route, branch, employee_code, employee_name, check_in_time, check_out_time, duration, visit_status, purpose_of_visit, remarks, batch_code) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [visitDate.slice(0, 10), customerCode, row['Customer Name'], row['Type'], row['Route'], row['Branch'], empCode, row['Employee Name'], row['Check In Time'], row['Check Out Time'], row['Duration'], row['Visit Status(Productive / Non productive)'], row['Purpose Of Visit'], row['Remarks'], batchCode]
+              );
+              inserted++;
+            }
+            await dbRun('COMMIT');
+            console.log(`[SFA_SYNC] Successfully inserted ${formattedRows.length} visits for ${chunk.start_date}`);
+          } catch (e) {
+            await dbRun('ROLLBACK');
+            console.error(`[SFA_SYNC] DB error on ${chunk.start_date}:`, e.message);
+          }
+        }
       } catch (err) {
         console.error(`[SFA_SYNC] Network error for chunk ${chunk.start_date}: ${err.message}`);
-        continue; // Skip failing days so the whole month doesn't fail
+        continue; 
       }
     }
     
     if (allRows.length === 0) {
-      console.log('[SFA_SYNC] No data returned from API across all chunks. Skipping import.');
-      return { status: 'skipped', message: 'No data returned from API.' };
+      console.log('[SFA_SYNC] No data successfully fetched. Skipping Excel generation.');
+      return { status: 'skipped', message: 'No data fetched.' };
     }
-    
-    const rows = allRows;
 
-    // 3. Keep report downloadable: generate Excel and save batch
-    const batchCode = `BAT-${new Date().toISOString().slice(0, 7).replace('-', '')}-SYNC-${Math.floor(100 + Math.random() * 900)}`;
+    // Generate Excel backup of everything we successfully fetched
     const fileName = `SFA_Sync_${endDate}.xlsx`;
     const filePath = path.join(uploadDir, fileName);
-
-    // Transform live API schema back into the legacy Excel format
-    const formattedRows = rows.map(row => ({
-      'Date of Visit': row.visit_date || row.date_of_visit || null,
-      'Customer Code': row.dns_customer_code || row.customer_code || null,
-      'Customer Name': row.customer_name || null,
-      'Route': row.route_name || row.route || null,
-      'Type': row.cust_type || row.type || null,
-      'Branch': row.branch_name || row.branch || null,
-      'Employee Code': row.emp_code || row.employee_code || null,
-      'Employee Name': row.emp_name || row.employee_name || null,
-      'Check In Time': row.check_in_time || null,
-      'Check Out Time': row.check_out_time || null,
-      'Duration': row.time_duration || row.duration || null,
-      'Visit Status(Productive / Non productive)': row.visit_status || 'Completed',
-      'Purpose Of Visit': row.purpose_of_visit || null,
-      'Remarks': row.remarks || null
-    }));
-
-    const worksheet = XLSX.utils.json_to_sheet(formattedRows);
+    
+    const worksheet = XLSX.utils.json_to_sheet(allRows);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'SFA Report');
     XLSX.writeFile(workbook, filePath);
@@ -143,68 +190,10 @@ export async function syncSfaDataFromApi() {
     await dbRun(
       `INSERT INTO upload_batches (batch_code, file_type, file_name, file_path, status, total_rows, valid_rows, invalid_rows, duplicate_rows) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [batchCode, 'SFA_REPORT', fileName, filePath, 'VALIDATED', formattedRows.length, formattedRows.length, 0, 0]
+      [batchCode, 'SFA_REPORT', fileName, filePath, 'VALIDATED', allRows.length, allRows.length, 0, 0]
     );
 
-    // 4. Archive old logs
-    try {
-      await dbRun(`
-        INSERT IGNORE INTO visit_execution_logs_archive 
-        (id, visit_date, customer_code, customer_name, customer_type, route, branch, employee_code, employee_name, check_in_time, check_out_time, duration, visit_status, purpose_of_visit, remarks, batch_code, created_at)
-        SELECT id, visit_date, customer_code, customer_name, customer_type, route, branch, employee_code, employee_name, check_in_time, check_out_time, duration, visit_status, purpose_of_visit, remarks, batch_code, created_at
-        FROM visit_execution_logs
-      `);
-    } catch (e) {
-      console.warn('[SFA_SYNC] Archiving skipped: ', e.message);
-    }
-    
-    // Wipe
-    await dbRun("DELETE FROM visit_execution_logs");
-
-    let inserted = 0;
-    // 5. Insert rows mapping from the legacy formatted rows
-    await dbRun('BEGIN TRANSACTION');
-    try {
-      for (const row of formattedRows) {
-        let visitDate = row['Date of Visit'];
-        if (visitDate && visitDate.length === 8) { // e.g., "20261008"
-          visitDate = `${visitDate.slice(0,4)}-${visitDate.slice(4,6)}-${visitDate.slice(6,8)}`;
-        } else if (visitDate && visitDate.includes('-') && visitDate.split('-')[0].length === 2) { // e.g. "08-10-2026"
-          const [d, m, y] = visitDate.split('-');
-          visitDate = `${y}-${m}-${d}`;
-        }
-
-        const customerCode = row['Customer Code'];
-        const customerName = row['Customer Name'];
-        const route = row['Route'];
-        const customerType = row['Type'];
-        const branch = row['Branch'];
-        const empCode = row['Employee Code'];
-        const empName = row['Employee Name'];
-        const checkIn = row['Check In Time'];
-        const checkOut = row['Check Out Time'];
-        const duration = row['Duration'];
-        const visitStatus = row['Visit Status(Productive / Non productive)'];
-        const purpose = row['Purpose Of Visit'];
-        const remarks = row['Remarks'];
-
-        if (!customerCode || !empCode || !visitDate) continue;
-
-        await dbRun(
-          `INSERT INTO visit_execution_logs 
-          (visit_date, customer_code, customer_name, customer_type, route, branch, employee_code, employee_name, check_in_time, check_out_time, duration, visit_status, purpose_of_visit, remarks, batch_code) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [visitDate.slice(0, 10), customerCode, customerName, customerType, route, branch, empCode, empName, checkIn, checkOut, duration, visitStatus, purpose, remarks, batchCode]
-        );
-        inserted++;
-      }
-      await dbRun('COMMIT');
-    } catch (e) {
-      await dbRun('ROLLBACK');
-      throw e;
-    }
-
-    console.log(`[SFA_SYNC] Inserted ${inserted} visits from API.`);
+    console.log(`[SFA_SYNC] Finished sync. Inserted ${inserted} total visits from API.`);
 
     // 6. Trigger C2 Regeneration
     const latestPeriod = await dbGet(`SELECT period_month FROM dealer_visit_targets ORDER BY period_month DESC LIMIT 1`);
