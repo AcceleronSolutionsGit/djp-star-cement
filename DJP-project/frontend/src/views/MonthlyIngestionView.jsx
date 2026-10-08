@@ -188,6 +188,28 @@ export default function MonthlyIngestionView({
       onShowToast(`Upload failed: ${errMsg}`, 'error');
     }
   };
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSfaSync = async () => {
+    if (!window.confirm("Trigger a manual SFA API sync now? This will fetch the active month's data.")) return;
+    setSyncing(true);
+    onShowToast('Syncing SFA execution logs from live API...', 'info');
+    try {
+      // Direct fetch to backend since this is not in api.js
+      const res = await fetch(`${API_BASE}/sfa/sync`, { method: 'POST' });
+      if (!res.ok) {
+        let errorData;
+        try { errorData = await res.json(); } catch(e) {}
+        throw new Error(errorData?.error || 'API Sync Failed');
+      }
+      onShowToast('SFA Sync completed successfully!', 'success');
+      loadBatches();
+    } catch (err) {
+      onShowToast(err.message || 'Failed to sync SFA data', 'error');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const handlePurge = async () => {
     if (!window.confirm('Are you sure you want to purge all old master data? This cannot be undone.')) {
@@ -289,6 +311,10 @@ export default function MonthlyIngestionView({
               <FileSpreadsheet size={16} />
               <span>Download Visits Planned</span>
             </a>
+            <button className="btn btn-outline" onClick={handleSfaSync} disabled={syncing} style={{ color: '#16A34A', borderColor: '#16A34A' }}>
+              <RefreshCw size={16} className={syncing ? 'spin' : ''} />
+              <span>{syncing ? 'Syncing...' : 'Sync Live SFA Report'}</span>
+            </button>
             <button className="btn btn-outline" onClick={handlePurge} disabled={purging} style={{ color: 'var(--star-red)', borderColor: 'var(--star-red)' }}>
               <Trash2 size={16} />
               <span>{purging ? 'Purging...' : 'Purge Old Data'}</span>
