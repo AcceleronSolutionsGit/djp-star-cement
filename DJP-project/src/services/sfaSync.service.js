@@ -20,7 +20,9 @@ export async function syncSfaDataFromApi() {
     // 1. Determine dates (e.g., current active period month)
     let targetYear = new Date().getFullYear();
     let targetMonth = new Date().getMonth();
-    let endDate = new Date().toISOString().split('T')[0];
+    
+    const formatYMD = (y, m, d) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    let endDate = formatYMD(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate());
 
     try {
       const latestPeriodRow = await dbGet(`SELECT period_month FROM dealer_visit_targets ORDER BY period_month DESC LIMIT 1`);
@@ -31,14 +33,15 @@ export async function syncSfaDataFromApi() {
         
         // If the active period is a past month, fetch until the last day of that month
         if (targetYear < new Date().getFullYear() || (targetYear === new Date().getFullYear() && targetMonth < new Date().getMonth())) {
-          endDate = new Date(targetYear, targetMonth + 1, 0).toISOString().split('T')[0];
+          const lastDayObj = new Date(targetYear, targetMonth + 1, 0);
+          endDate = formatYMD(lastDayObj.getFullYear(), lastDayObj.getMonth() + 1, lastDayObj.getDate());
         }
       }
     } catch (err) {
       console.warn('[SFA_SYNC] Could not fetch latest period, defaulting to current calendar month:', err.message);
     }
 
-    const startDate = new Date(targetYear, targetMonth, 1).toISOString().split('T')[0];
+    const startDate = formatYMD(targetYear, targetMonth + 1, 1);
     
     const payload = {
       employee: 'all',
@@ -120,38 +123,45 @@ export async function syncSfaDataFromApi() {
 
     let inserted = 0;
     // 5. Insert rows mapping from the legacy formatted rows
-    for (const row of formattedRows) {
-      let visitDate = row['Date of Visit'];
-      if (visitDate && visitDate.length === 8) { // e.g., "20261008"
-        visitDate = `${visitDate.slice(0,4)}-${visitDate.slice(4,6)}-${visitDate.slice(6,8)}`;
-      } else if (visitDate && visitDate.includes('-') && visitDate.split('-')[0].length === 2) { // e.g. "08-10-2026"
-        const [d, m, y] = visitDate.split('-');
-        visitDate = `${y}-${m}-${d}`;
+    await dbRun('BEGIN TRANSACTION');
+    try {
+      for (const row of formattedRows) {
+        let visitDate = row['Date of Visit'];
+        if (visitDate && visitDate.length === 8) { // e.g., "20261008"
+          visitDate = `${visitDate.slice(0,4)}-${visitDate.slice(4,6)}-${visitDate.slice(6,8)}`;
+        } else if (visitDate && visitDate.includes('-') && visitDate.split('-')[0].length === 2) { // e.g. "08-10-2026"
+          const [d, m, y] = visitDate.split('-');
+          visitDate = `${y}-${m}-${d}`;
+        }
+
+        const customerCode = row['Customer Code'];
+        const customerName = row['Customer Name'];
+        const route = row['Route'];
+        const customerType = row['Type'];
+        const branch = row['Branch'];
+        const empCode = row['Employee Code'];
+        const empName = row['Employee Name'];
+        const checkIn = row['Check In Time'];
+        const checkOut = row['Check Out Time'];
+        const duration = row['Duration'];
+        const visitStatus = row['Visit Status(Productive / Non productive)'];
+        const purpose = row['Purpose Of Visit'];
+        const remarks = row['Remarks'];
+
+        if (!customerCode || !empCode || !visitDate) continue;
+
+        await dbRun(
+          `INSERT INTO visit_execution_logs 
+          (visit_date, customer_code, customer_name, customer_type, route, branch, employee_code, employee_name, check_in_time, check_out_time, duration, visit_status, purpose_of_visit, remarks, batch_code) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [visitDate.slice(0, 10), customerCode, customerName, customerType, route, branch, empCode, empName, checkIn, checkOut, duration, visitStatus, purpose, remarks, batchCode]
+        );
+        inserted++;
       }
-
-      const customerCode = row['Customer Code'];
-      const customerName = row['Customer Name'];
-      const route = row['Route'];
-      const customerType = row['Type'];
-      const branch = row['Branch'];
-      const empCode = row['Employee Code'];
-      const empName = row['Employee Name'];
-      const checkIn = row['Check In Time'];
-      const checkOut = row['Check Out Time'];
-      const duration = row['Duration'];
-      const visitStatus = row['Visit Status(Productive / Non productive)'];
-      const purpose = row['Purpose Of Visit'];
-      const remarks = row['Remarks'];
-
-      if (!customerCode || !empCode || !visitDate) continue;
-
-      await dbRun(
-        `INSERT INTO visit_execution_logs 
-        (visit_date, customer_code, customer_name, customer_type, route, branch, employee_code, employee_name, check_in_time, check_out_time, duration, visit_status, purpose_of_visit, remarks, batch_code) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [visitDate.slice(0, 10), customerCode, customerName, customerType, route, branch, empCode, empName, checkIn, checkOut, duration, visitStatus, purpose, remarks, batchCode]
-      );
-      inserted++;
+      await dbRun('COMMIT');
+    } catch (e) {
+      await dbRun('ROLLBACK');
+      throw e;
     }
 
     console.log(`[SFA_SYNC] Inserted ${inserted} visits from API.`);
