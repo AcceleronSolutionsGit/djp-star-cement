@@ -56,7 +56,25 @@ export async function syncSfaDataFromApi() {
     const fileName = `SFA_Sync_${endDate}.xlsx`;
     const filePath = path.join(uploadDir, fileName);
 
-    const worksheet = XLSX.utils.json_to_sheet(rows);
+    // Transform live API schema back into the legacy Excel format
+    const formattedRows = rows.map(row => ({
+      'Date of Visit': row.visit_date || row.date_of_visit || null,
+      'Customer Code': row.dns_customer_code || row.customer_code || null,
+      'Customer Name': row.customer_name || null,
+      'Route': row.route_name || row.route || null,
+      'Type': row.cust_type || row.type || null,
+      'Branch': row.branch_name || row.branch || null,
+      'Employee Code': row.emp_code || row.employee_code || null,
+      'Employee Name': row.emp_name || row.employee_name || null,
+      'Check In Time': row.check_in_time || null,
+      'Check Out Time': row.check_out_time || null,
+      'Duration': row.time_duration || row.duration || null,
+      'Visit Status(Productive / Non productive)': row.visit_status || 'Completed',
+      'Purpose Of Visit': row.purpose_of_visit || null,
+      'Remarks': row.remarks || null
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(formattedRows);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'SFA Report');
     XLSX.writeFile(workbook, filePath);
@@ -64,7 +82,7 @@ export async function syncSfaDataFromApi() {
     await dbRun(
       `INSERT INTO upload_batches (batch_code, file_type, file_name, file_path, status, total_rows, valid_rows, invalid_rows, duplicate_rows) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [batchCode, 'SFA_REPORT', fileName, filePath, 'VALIDATED', rows.length, rows.length, 0, 0]
+      [batchCode, 'SFA_REPORT', fileName, filePath, 'VALIDATED', formattedRows.length, formattedRows.length, 0, 0]
     );
 
     // 4. Archive old logs
@@ -83,23 +101,29 @@ export async function syncSfaDataFromApi() {
     await dbRun("DELETE FROM visit_execution_logs");
 
     let inserted = 0;
-    // 5. Insert rows (assuming columns loosely map to standard names)
-    for (const row of rows) {
-      // Map API keys to DB fields (guessing standard keys based on typical exports)
-      const visitDate = row.date_of_visit || row['Date of Visit'] || row.date || null;
-      const customerCode = row.customer_code || row['Customer Code'] || null;
-      const customerName = row.customer_name || row['Customer Name'] || null;
-      const route = row.route || row['Route'] || null;
-      const customerType = row.type || row['Type'] || null;
-      const branch = row.branch || row['Branch'] || null;
-      const empCode = row.employee_code || row['Employee Code'] || null;
-      const empName = row.employee_name || row['Employee Name'] || null;
-      const checkIn = row.check_in_time || row['Check In Time'] || null;
-      const checkOut = row.check_out_time || row['Check Out Time'] || null;
-      const duration = row.duration || row['Duration'] || null;
-      const visitStatus = row.visit_status || row['Visit Status(Productive / Non productive)'] || 'Completed';
-      const purpose = row.purpose_of_visit || row['Purpose Of Visit'] || null;
-      const remarks = row.remarks || row['Remarks'] || null;
+    // 5. Insert rows mapping from the legacy formatted rows
+    for (const row of formattedRows) {
+      let visitDate = row['Date of Visit'];
+      if (visitDate && visitDate.length === 8) { // e.g., "20261008"
+        visitDate = `${visitDate.slice(0,4)}-${visitDate.slice(4,6)}-${visitDate.slice(6,8)}`;
+      } else if (visitDate && visitDate.includes('-') && visitDate.split('-')[0].length === 2) { // e.g. "08-10-2026"
+        const [d, m, y] = visitDate.split('-');
+        visitDate = `${y}-${m}-${d}`;
+      }
+
+      const customerCode = row['Customer Code'];
+      const customerName = row['Customer Name'];
+      const route = row['Route'];
+      const customerType = row['Type'];
+      const branch = row['Branch'];
+      const empCode = row['Employee Code'];
+      const empName = row['Employee Name'];
+      const checkIn = row['Check In Time'];
+      const checkOut = row['Check Out Time'];
+      const duration = row['Duration'];
+      const visitStatus = row['Visit Status(Productive / Non productive)'];
+      const purpose = row['Purpose Of Visit'];
+      const remarks = row['Remarks'];
 
       if (!customerCode || !empCode || !visitDate) continue;
 
