@@ -1156,13 +1156,49 @@ export async function getMasterView(req, res) {
 
 export async function exportSfaLogsExcel(req, res) {
   try {
-    const rows = await dbAll(`SELECT * FROM visit_execution_logs ORDER BY visit_date DESC LIMIT 50000`);
+    const rows = await dbAll(`
+      SELECT 
+        v.visit_date, 
+        v.customer_code AS sfa_code, 
+        d.sap_code AS mapped_sap_code, 
+        v.customer_name, 
+        v.customer_type, 
+        v.route, 
+        v.branch, 
+        v.employee_code, 
+        v.employee_name, 
+        v.check_in_time, 
+        v.check_out_time, 
+        v.duration, 
+        v.visit_status, 
+        v.purpose_of_visit, 
+        v.remarks 
+      FROM visit_execution_logs v
+      LEFT JOIN master_dealers d ON d.sfa_code = v.customer_code
+      ORDER BY v.visit_date DESC LIMIT 50000
+    `);
     const XLSX = await import('xlsx');
-    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const worksheet = XLSX.utils.json_to_sheet(rows.map(r => ({
+      'Date of Visit': r.visit_date,
+      'SFA Customer Code': r.sfa_code,
+      'Mapped SAP Code': r.mapped_sap_code || 'Unmapped',
+      'Customer Name': r.customer_name,
+      'Type': r.customer_type,
+      'Route': r.route,
+      'Branch': r.branch,
+      'Employee Code': r.employee_code,
+      'Employee Name': r.employee_name,
+      'Check In Time': r.check_in_time,
+      'Check Out Time': r.check_out_time,
+      'Duration': r.duration,
+      'Visit Status': r.visit_status,
+      'Purpose Of Visit': r.purpose_of_visit,
+      'Remarks': r.remarks
+    })));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'SFA Logs');
     const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-    res.setHeader('Content-Disposition', 'attachment; filename="SFA_Logs_Export.xlsx"');
+    res.setHeader('Content-Disposition', 'attachment; filename="SFA_Logs_Export_Mapped.xlsx"');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.send(buffer);
   } catch (err) {

@@ -134,11 +134,24 @@ function cycleWindowDates(cycleCode, asOnDate, periodMonth, windows) {
  * can be reported with something a human recognises.
  */
 export async function buildDealerCodeIndex() {
+  const index = new Map();
+  
+  // 1. Target mapping (most accurate for the month)
+  const targetRows = await dbAll(`SELECT sap_code, sfa_code, dealer_name FROM dealer_visit_targets`).catch(() => []);
+  for (const d of targetRows) {
+    const canonical = norm(d.sap_code) || norm(d.sfa_code);
+    if (!canonical) continue;
+    for (const c of [d.sap_code, d.sfa_code]) {
+      const k = key(c);
+      if (k && !index.has(k)) index.set(k, { canonical, name: d.dealer_name });
+    }
+  }
+
+  // 2. Master fallback
   const rows = await dbAll(
     `SELECT sap_code, sfa_code, rssd_code, dealer_name FROM master_dealers`
   ).catch(async () => dbAll(`SELECT sap_code, sfa_code, dealer_name FROM master_dealers`));
 
-  const index = new Map();
   for (const d of rows) {
     const canonical = norm(d.sap_code) || norm(d.sfa_code);
     if (!canonical) continue;

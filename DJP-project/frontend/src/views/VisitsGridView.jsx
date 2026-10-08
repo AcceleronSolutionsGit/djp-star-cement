@@ -472,7 +472,8 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
                 <th>RSM Name</th>
                 <th>ZH Name</th>
                 <th>Customer Name</th>
-                <th>Customer Code</th>
+                <th>Customer Code (SAP)</th>
+                <th>SFA Code</th>
                 <th>Category</th>
                 <th>Status Classification</th>
                 <th style={{ textAlign: 'center' }}>SO Visits</th>
@@ -486,13 +487,13 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="16" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  <td colSpan="17" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                     Loading visit targets...
                   </td>
                 </tr>
               ) : paginatedData.length === 0 ? (
                 <tr>
-                  <td colSpan="16" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  <td colSpan="17" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                     No visit target records found matching the current filters.
                   </td>
                 </tr>
@@ -507,7 +508,8 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
                     <td>{r.rsm_name || '-'}</td>
                     <td>{r.zh_name || '-'}</td>
                     <td><strong>{r.dealer_name}</strong></td>
-                    <td><code>{r.sap_code || r.sfa_code || '-'}</code></td>
+                    <td><code>{r.sap_code || '-'}</code></td>
+                    <td><code>{r.sfa_code || '-'}</code></td>
                     <td style={{ fontWeight: 800, color: 'var(--star-red)' }}>{r.category || 'A'}</td>
                     <td>
                       <span className={`status-badge ${getStatusBadgeClass(r.dealer_status || r.category)}`}>
