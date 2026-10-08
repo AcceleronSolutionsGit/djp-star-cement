@@ -17,11 +17,29 @@ export async function syncSfaDataFromApi() {
   console.log('[SFA_SYNC] Starting automatic SFA adherence sync...');
 
   try {
-    // 1. Determine dates (e.g., current month 1st to today)
-    const today = new Date();
-    const endDate = today.toISOString().split('T')[0];
-    const startDate = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+    // 1. Determine dates (e.g., current active period month)
+    let targetYear = new Date().getFullYear();
+    let targetMonth = new Date().getMonth();
+    let endDate = new Date().toISOString().split('T')[0];
 
+    try {
+      const latestPeriodRow = await dbGet(`SELECT period_month FROM dealer_visit_targets ORDER BY period_month DESC LIMIT 1`);
+      if (latestPeriodRow && latestPeriodRow.period_month) {
+        const [y, m] = latestPeriodRow.period_month.split('-');
+        targetYear = parseInt(y, 10);
+        targetMonth = parseInt(m, 10) - 1;
+        
+        // If the active period is a past month, fetch until the last day of that month
+        if (targetYear < new Date().getFullYear() || (targetYear === new Date().getFullYear() && targetMonth < new Date().getMonth())) {
+          endDate = new Date(targetYear, targetMonth + 1, 0).toISOString().split('T')[0];
+        }
+      }
+    } catch (err) {
+      console.warn('[SFA_SYNC] Could not fetch latest period, defaulting to current calendar month:', err.message);
+    }
+
+    const startDate = new Date(targetYear, targetMonth, 1).toISOString().split('T')[0];
+    
     const payload = {
       employee: 'all',
       start_date: startDate,
