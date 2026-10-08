@@ -11,7 +11,10 @@ import {
   ChevronLeft, 
   ChevronRight,
   Filter,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Edit2,
+  Save,
+  X
 } from 'lucide-react';
 
 export default function VisitsGridView({ onShowToast, triggerReload, onOpenUpload }) {
@@ -46,6 +49,46 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const pageSize = 50;
+
+  // Editing state
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({
+    so_visits: 0,
+    asm_visits: 0,
+    rsm_visits: 0,
+    zh_visits: 0
+  });
+
+  const handleEditClick = (r) => {
+    setEditingId(r.id);
+    setEditForm({
+      so_visits: r.so_visits || 0,
+      asm_visits: r.asm_visits || 0,
+      rsm_visits: r.rsm_visits || 0,
+      zh_visits: r.zh_visits || 0
+    });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+  };
+
+  const handleSaveEdit = async (id) => {
+    try {
+      const res = await fetch(`${API_BASE}/djp/dealer-targets/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editForm)
+      });
+      if (!res.ok) throw new Error('Failed to save');
+      
+      onShowToast('Target updated', 'success');
+      setEditingId(null);
+      loadTargets();
+    } catch (err) {
+      onShowToast(err.message, 'error');
+    }
+  };
 
   // Load KPI Stats
   const loadStats = async () => {
@@ -437,6 +480,7 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
                 <th style={{ textAlign: 'center' }}>RSM Visits</th>
                 <th style={{ textAlign: 'center' }}>ZH Visits</th>
                 <th style={{ textAlign: 'center' }}>Total Visits</th>
+                <th style={{ textAlign: 'center' }}>Action</th>
               </tr>
             </thead>
             <tbody>
@@ -471,19 +515,47 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
                       </span>
                     </td>
                     <td style={{ textAlign: 'center' }}>
-                      <span className="visit-pill so">{r.so_visits || 0}</span>
+                      {editingId === r.id ? (
+                        <input type="number" min="0" max="31" className="form-control" style={{ width: '60px', padding: '2px 4px', height: '24px' }} value={editForm.so_visits} onChange={e => setEditForm({...editForm, so_visits: parseInt(e.target.value) || 0})} />
+                      ) : (
+                        <span className="visit-pill so">{r.so_visits || 0}</span>
+                      )}
                     </td>
                     <td style={{ textAlign: 'center' }}>
-                      <span className="visit-pill asm">{r.asm_visits || 0}</span>
+                      {editingId === r.id ? (
+                        <input type="number" min="0" max="31" className="form-control" style={{ width: '60px', padding: '2px 4px', height: '24px' }} value={editForm.asm_visits} onChange={e => setEditForm({...editForm, asm_visits: parseInt(e.target.value) || 0})} />
+                      ) : (
+                        <span className="visit-pill asm">{r.asm_visits || 0}</span>
+                      )}
                     </td>
                     <td style={{ textAlign: 'center' }}>
-                      <span className="visit-pill rsm">{r.rsm_visits || 0}</span>
+                      {editingId === r.id ? (
+                        <input type="number" min="0" max="31" className="form-control" style={{ width: '60px', padding: '2px 4px', height: '24px' }} value={editForm.rsm_visits} onChange={e => setEditForm({...editForm, rsm_visits: parseInt(e.target.value) || 0})} />
+                      ) : (
+                        <span className="visit-pill rsm">{r.rsm_visits || 0}</span>
+                      )}
                     </td>
                     <td style={{ textAlign: 'center' }}>
-                      <span className="visit-pill zh">{r.zh_visits || 0}</span>
+                      {editingId === r.id ? (
+                        <input type="number" min="0" max="31" className="form-control" style={{ width: '60px', padding: '2px 4px', height: '24px' }} value={editForm.zh_visits} onChange={e => setEditForm({...editForm, zh_visits: parseInt(e.target.value) || 0})} />
+                      ) : (
+                        <span className="visit-pill zh">{r.zh_visits || 0}</span>
+                      )}
                     </td>
                     <td style={{ textAlign: 'center', fontWeight: 800 }}>
-                      {r.total_visits || 0}
+                      {editingId === r.id 
+                        ? (editForm.so_visits + editForm.asm_visits + editForm.rsm_visits + editForm.zh_visits)
+                        : (r.total_visits || 0)}
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      {editingId === r.id ? (
+                        <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                          <button className="btn btn-success" style={{ padding: '2px 6px' }} onClick={() => handleSaveEdit(r.id)} title="Save"><Save size={14}/></button>
+                          <button className="btn btn-outline" style={{ padding: '2px 6px' }} onClick={handleCancelEdit} title="Cancel"><X size={14}/></button>
+                        </div>
+                      ) : (
+                        <button className="btn btn-outline" style={{ padding: '2px 6px' }} onClick={() => handleEditClick(r)} title="Edit Targets"><Edit2 size={14}/></button>
+                      )}
                     </td>
                   </tr>
                 ))

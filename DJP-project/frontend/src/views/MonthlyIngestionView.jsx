@@ -8,7 +8,8 @@ const SCHEMAS = [
   { type: 'SBG', name: 'SBG Dealer Master & Counter Potential', templateFile: '03_SBG_Master_Template.xlsx', cols: ['Customer Code', 'Dealer Name', 'Territory Code', 'Territory Name', 'Block (Taluka)', 'Counter Potential Average (MT)', 'Zone', 'SO Code', 'SO Name', 'ASM Code', 'ASM Name', 'RSM Code', 'RSM Name', 'ZH Code', 'ZH Name', 'Status in SAP', 'Dealer Start Date'] },
   { type: 'SALES_HISTORY', name: 'Period Sales History (RSAR / ERP)', templateFile: '04_Sales_History_RSAR_Template.xlsx', cols: ['SAP Code', 'Sub Dealer Name', 'LinkedDealerCode', 'Linked Dealer Name', 'Zone', 'Monthly Sales Columns (e.g. Jan-26, Feb-26, Mar-26, Apr-26, May-26, Jun-26)'] },
   { type: 'PROSPECT_DEALERS', name: 'Prospect Dealer Intake', templateFile: '05_Prospect_Dealers_Template.xlsx', cols: ['Prospective Dealer Name', 'SFA Code', 'Zone', 'Area', 'Taluka', 'Name of SO', 'SO Emp Code', 'Potential', 'Expected Sale', 'Status'] },
-  { type: 'SFA_REPORT', name: 'SFA Visit Execution Feedback', templateFile: null, cols: ['Visit Date', 'Customer Code', 'Customer Name', 'Employee Code', 'Employee Name', 'Check In Time', 'Duration'] }
+  { type: 'SFA_REPORT', name: 'SFA Visit Execution Feedback', templateFile: null, cols: ['Visit Date', 'Customer Code', 'Customer Name', 'Employee Code', 'Employee Name', 'Check In Time', 'Duration'] },
+  { type: 'VISIT_TARGETS_OVERRIDE', name: 'Generated Visit Targets (Bulk Edit)', templateFile: null, cols: ['Customer Code', 'SO Visits', 'ASM Visits', 'RSM Visits', 'ZH Visits'] }
 ];
 
 export default function MonthlyIngestionView({ 
@@ -779,6 +780,7 @@ export default function MonthlyIngestionView({
                     <option value="SALES_HISTORY">Period Sales History (RSAR / ERP) (.xlsx)</option>
                     <option value="PJP_TRADE">Full PJP Process Trade / Generated Visit Master (.xlsx)</option>
                     <option value="SFA_REPORT">SFA Visit Execution Feedback (.xlsx)</option>
+                    <option value="VISIT_TARGETS_OVERRIDE">Generated Visit Targets (Bulk Edit) (.xlsx)</option>
                   </select>
                 </div>
 

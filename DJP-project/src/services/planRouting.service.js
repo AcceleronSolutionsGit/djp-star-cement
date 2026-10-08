@@ -174,42 +174,66 @@ export async function resolveEmployeeName(empCode, role = null) {
  * mid-handover) the most frequently occurring superior wins, so one stray row
  * cannot silently reroute a whole plan.
  *
+ * Fallback Logic: If an employee's immediate superior is missing (e.g., an SO 
+ * doesn't have an ASM in the mapping), it will recursively check the next level 
+ * up (RSM, then ZH, then Admin) until an approver is found.
+ *
  * @param {string} empCode
  * @param {string} role - the employee's own role
  */
 export async function resolveL1Approver(empCode, role) {
-  const spec = L1_OF[(role || 'SO').toUpperCase()];
-  if (!spec) return { empCode: null, name: null, role: null };
-  if (!spec.codeCol) return { empCode: null, name: spec.role === 'ADMIN' ? 'Admin' : null, role: spec.role };
+  const roleName = (role || 'SO').toUpperCase();
+  const ownCol = ROLE_CODE_COLUMN[roleName];
+  
+  let startIndex = 0;
+  if (roleName === 'SO') startIndex = 0;
+  else if (roleName === 'ASM') startIndex = 1;
+  else if (roleName === 'RSM') startIndex = 2;
+  else if (roleName === 'ZH') startIndex = 3;
+  else startIndex = 3;
 
-  const ownCol = ROLE_CODE_COLUMN[(role || 'SO').toUpperCase()];
-  const { rows, source } = await queryHierarchy(table => [
-    `SELECT ${spec.codeCol} AS code, ${spec.nameCol} AS name, COUNT(*) AS n
-     FROM ${table}
-     WHERE UPPER(TRIM(${ownCol})) = UPPER(TRIM(?)) AND ${spec.codeCol} IS NOT NULL AND TRIM(${spec.codeCol}) != ''
-     GROUP BY ${spec.codeCol}, ${spec.nameCol}
-     ORDER BY n DESC`,
-    [empCode]
-  ]);
+  const HIERARCHY_UPWARD = ['ASM', 'RSM', 'ZH', 'ADMIN'];
 
-  if (rows.length === 0) return { empCode: null, name: spec.role === 'ADMIN' ? 'Admin' : null, role: spec.role, source: null };
+  for (let i = startIndex; i < HIERARCHY_UPWARD.length; i++) {
+    const targetRole = HIERARCHY_UPWARD[i];
+    
+    if (targetRole === 'ADMIN') {
+      return { empCode: null, name: 'Admin', role: 'ADMIN', source: null };
+    }
+    
+    const codeCol = ROLE_CODE_COLUMN[targetRole];
+    const nameCol = ROLE_NAME_COLUMN[targetRole];
+    
+    const { rows, source } = await queryHierarchy(table => [
+      `SELECT ${codeCol} AS code, ${nameCol} AS name, COUNT(*) AS n
+       FROM ${table}
+       WHERE UPPER(TRIM(${ownCol})) = UPPER(TRIM(?)) AND ${codeCol} IS NOT NULL AND TRIM(${codeCol}) != ''
+       GROUP BY ${codeCol}, ${nameCol}
+       ORDER BY n DESC`,
+      [empCode]
+    ]);
 
-  const approverCode = String(rows[0].code).trim();
-  let approverName = rows[0].name ? String(rows[0].name).trim() : null;
+    if (rows.length > 0) {
+      const approverCode = String(rows[0].code).trim();
+      let approverName = rows[0].name ? String(rows[0].name).trim() : null;
 
-  if (!approverName && approverCode) {
-    const resName = await resolveEmployeeName(approverCode, spec.role);
-    if (resName?.name) approverName = resName.name;
+      if (!approverName && approverCode) {
+        const resName = await resolveEmployeeName(approverCode, targetRole);
+        if (resName?.name) approverName = resName.name;
+      }
+
+      return {
+        empCode: approverCode,
+        name: approverName,
+        role: targetRole,
+        source,
+        ambiguous: rows.length > 1,
+        candidates: rows.length > 1 ? rows.map(r => ({ empCode: r.code, name: r.name, rows: r.n })) : undefined
+      };
+    }
   }
-
-  return {
-    empCode: approverCode,
-    name: approverName,
-    role: spec.role,
-    source,
-    ambiguous: rows.length > 1,
-    candidates: rows.length > 1 ? rows.map(r => ({ empCode: r.code, name: r.name, rows: r.n })) : undefined
-  };
+  
+  return { empCode: null, name: 'Admin', role: 'ADMIN', source: null };
 }
 
 /**

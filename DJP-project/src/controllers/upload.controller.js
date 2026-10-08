@@ -10,6 +10,7 @@ import { importSfaReport } from '../imports/sfa-report.importer.js';
 import { importPjpTradeFile } from '../imports/pjp-trade.importer.js';
 import { importSBG } from '../imports/sbg.importer.js';
 import { importDealerPerformance } from '../imports/dealer-performance.importer.js';
+import { importVisitTargetsOverride } from '../imports/visit-targets-override.importer.js';
 import { dbRun, dbAll, dbGet } from '../config/database.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -127,6 +128,11 @@ export function detectUploadTypeFromWorkbook(filePath) {
             norm.some(h => h.includes('dealer name') || h.includes('customer name') || h.includes('customer code'))) {
           return 'DEALER_MAPPING';
         }
+
+        // 6. Generated Visit Targets (Bulk Edit)
+        if (norm.some(h => h.includes('so visits')) && norm.some(h => h.includes('asm visits')) && norm.some(h => h.includes('rsm visits'))) {
+          return 'VISIT_TARGETS_OVERRIDE';
+        }
       }
     }
   } catch (err) {
@@ -164,8 +170,9 @@ export async function uploadFile(req, res) {
       else if (fn.includes('mapping') || fn.includes('hierarchy') || fn.includes('dealer_map')) uploadType = 'DEALER_MAPPING';
       else if (fn.includes('prospect')) uploadType = 'PROSPECT_DEALERS';
       else if (fn.includes('rsar') || fn.includes('sale') || fn.includes('history')) uploadType = 'SALES_HISTORY';
-      else if (fn.includes('visit') || fn.includes('pjp') || fn.includes('trade')) uploadType = 'PJP_TRADE';
+      else if (fn.includes('visit') && !fn.includes('target') && !fn.includes('override') && (fn.includes('pjp') || fn.includes('trade'))) uploadType = 'PJP_TRADE';
       else if (fn.includes('sfa')) uploadType = 'SFA_REPORT';
+      else if (fn.includes('target') || fn.includes('override') || fn.includes('visits-to_be_achieved')) uploadType = 'VISIT_TARGETS_OVERRIDE';
     }
 
     if (!uploadType) {
@@ -176,7 +183,7 @@ export async function uploadFile(req, res) {
       });
     }
 
-    const validTypes = ['DEALER_MAPPING', 'SALES_HISTORY', 'PROSPECT_DEALERS', 'SBG', 'DEALER_PERFORMANCE', 'RSAR_SALES', 'SFA_REPORT', 'PJP_TRADE'];
+    const validTypes = ['DEALER_MAPPING', 'SALES_HISTORY', 'PROSPECT_DEALERS', 'SBG', 'DEALER_PERFORMANCE', 'RSAR_SALES', 'SFA_REPORT', 'PJP_TRADE', 'VISIT_TARGETS_OVERRIDE'];
     if (!validTypes.includes(uploadType)) {
       fs.unlink(req.file.path, () => {});
       return res.status(400).json({
@@ -222,6 +229,8 @@ export async function uploadFile(req, res) {
         return await importPjpTradeFile(savedFilePath, periodMonth, uploadCycle, batchCode);
       } else if (type === 'SFA_REPORT') {
         return await importSfaReport(savedFilePath, batchCode);
+      } else if (type === 'VISIT_TARGETS_OVERRIDE') {
+        return await importVisitTargetsOverride(savedFilePath, batchCode);
       }
       throw new Error(`Unknown type: ${type}`);
     };
