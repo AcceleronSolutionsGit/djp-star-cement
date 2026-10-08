@@ -206,13 +206,25 @@ export default function MonthlyIngestionView({
 
     onShowToast('Syncing SFA execution logs from live API in the background...', 'info');
     
+    let is504 = false;
     try {
       const res = await fetch(`${API_BASE}/sfa/sync`, { method: 'POST' });
       if (!res.ok) {
         if (res.status === 504) {
           // It's a timeout. NGINX dropped us but backend is still running.
-          // Don't throw an error.
+          is504 = true;
           console.log("NGINX Timeout reached, but backend is still working.");
+          // We will clear it automatically after roughly 5.5 minutes
+          setTimeout(() => {
+            clearInterval(progressInterval);
+            setProgress(100);
+            setProgressText('Sync Complete (Background tasks finished)!');
+            setTimeout(() => {
+              setProgress(0);
+              setSyncing(false);
+              loadBatches();
+            }, 2000);
+          }, 330000); // 5.5 minutes
         } else {
           let errorData;
           try { errorData = await res.json(); } catch(e) {}
@@ -224,16 +236,20 @@ export default function MonthlyIngestionView({
         clearInterval(progressInterval);
         setProgress(100);
         setProgressText('Sync Complete!');
-        setTimeout(() => setProgress(0), 2000);
+        setTimeout(() => {
+          setProgress(0);
+          setSyncing(false);
+        }, 2000);
       }
     } catch (err) {
       onShowToast(err.message || 'Failed to sync SFA data', 'error');
       clearInterval(progressInterval);
       setProgress(0);
-    } finally {
-      // If we got a 504, we intentionally don't clear the progress bar immediately 
-      // so the user knows it's still running for the remaining 5 minutes.
       setSyncing(false);
+    } finally {
+      if (!is504 && progress < 100) {
+        // If it was NOT a 504 and it didn't finish normally (e.g., error), we clear it
+      }
     }
   };
 
@@ -921,8 +937,8 @@ export default function MonthlyIngestionView({
         </div>
       )}
 
-      {/* Progress Bar Overlay for Upload / Purge */}
-      {(uploading || purging) && (
+      {/* Progress Bar Overlay for Upload / Purge / Sync */}
+      {(uploading || purging || syncing) && (
         <div className="modal-overlay" style={{ zIndex: 10000, background: 'rgba(0, 0, 0, 0.7)' }}>
           <div style={{
             background: 'white',
