@@ -292,7 +292,7 @@ export class AutoPlanGenerator {
     // approver. Without it every plan defaulted to 'SO' and an ASM's own plan
     // was routed back to an ASM for approval.
     const planRes = await dbRun(
-      `INSERT INTO sales_plans (emp_code, emp_name, period_month, cycle_code, status, emp_role) VALUES (?, ?, ?, ?, 'DRAFT', ?)`,
+      `INSERT INTO sales_plans (emp_code, emp_name, period_month, cycle_code, status, emp_role) VALUES (?, ?, ?, ?, 'PENDING_ROLLOUT', ?)`,
       [empCode, empName, periodMonth, cycleCode, resolvedRole]
     );
     const planId = planRes.insertId || planRes.lastID;

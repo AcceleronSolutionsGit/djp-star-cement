@@ -164,6 +164,28 @@ router.get('/admin/archives/summary', getArchiveSummary);
 
 // DJP Engine APIs — legacy single-shot endpoint (uses latest batches auto)
 router.post('/djp/generate-all', generateAllLegacy);
+router.put('/djp/plans/rollout', async (req, res) => {
+  const { dbRun, dbGet } = await import('../config/database.js');
+  try {
+    const { periodMonth, cycleCode } = req.body;
+    let query = `UPDATE sales_plans SET status = 'DRAFT' WHERE status = 'PENDING_ROLLOUT'`;
+    let params = [];
+    if (periodMonth) {
+      query += ` AND period_month = ?`;
+      params.push(periodMonth);
+    }
+    if (cycleCode) {
+      query += ` AND cycle_code = ?`;
+      params.push(cycleCode);
+    }
+    
+    const result = await dbRun(query, params);
+    res.json({ message: 'Plans rolled out successfully', count: result.changes });
+  } catch (err) {
+    console.error('Failed to rollout plans:', err);
+    res.status(500).json({ error: 'Failed to rollout plans' });
+  }
+});
 router.get('/djp/dealer-targets', getDealerVisitTargets);
 router.put('/djp/dealer-targets/:id', async (req, res) => {
   const { dbRun } = await import('../config/database.js');

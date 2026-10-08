@@ -18,7 +18,8 @@ import {
   Calendar,
   Check,
   Layers,
-  FileCheck
+  FileCheck,
+  Rocket
 } from 'lucide-react';
 
 export default function PlanApprovalsView({ onShowToast }) {
@@ -98,6 +99,18 @@ export default function PlanApprovalsView({ onShowToast }) {
       loadPlans();
     } catch (err) {
       onShowToast(err.message || 'Failed to update plan approval', 'error');
+    }
+  };
+
+  const handleRolloutPlans = async () => {
+    if (!window.confirm("Are you sure you want to rollout all PENDING_ROLLOUT plans? This will make them visible to the Officers as DRAFT.")) return;
+    try {
+      const pMonth = periodFilter !== 'ALL' ? periodFilter : undefined;
+      const res = await api.rolloutPlans(pMonth);
+      onShowToast(res.message || 'Plans rolled out', 'success');
+      loadPlans();
+    } catch (err) {
+      onShowToast(err.message || 'Failed to rollout plans', 'error');
     }
   };
 
@@ -316,6 +329,17 @@ export default function PlanApprovalsView({ onShowToast }) {
           </div>
 
           <div style={{ display: 'flex', gap: '8px' }}>
+            {plans.some(p => p.status === 'PENDING_ROLLOUT') && (
+              <button
+                className="btn btn-success"
+                onClick={handleRolloutPlans}
+                style={{ height: '36px', padding: '0 14px', fontSize: '0.82rem', display: 'flex', gap: '6px', alignItems: 'center' }}
+                title="Rollout generated plans to officers"
+              >
+                <Rocket size={14} />
+                <span>Rollout Pending Plans</span>
+              </button>
+            )}
             {selectedPlanIds.length > 0 && (
               <button
                 className="btn btn-danger-outline"
@@ -374,6 +398,7 @@ export default function PlanApprovalsView({ onShowToast }) {
               options={[
                 { value: 'ALL', label: 'All Statuses' },
                 { value: 'DRAFT', label: 'Draft (Editable)' },
+                { value: 'PENDING_ROLLOUT', label: 'Pending Rollout' },
                 { value: 'SUBMITTED', label: 'Submitted' },
                 { value: 'APPROVED', label: 'Approved' },
                 { value: 'REJECTED', label: 'Rejected' }

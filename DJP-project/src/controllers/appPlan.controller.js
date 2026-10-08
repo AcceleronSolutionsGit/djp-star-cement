@@ -161,7 +161,7 @@ export async function listMyPlans(req, res) {
     if (!empCode) return res.status(400).json({ error: 'empCode is required in the path.' });
 
     const { month, cycle, status } = req.query;
-    let where = 'UPPER(TRIM(sp.emp_code)) = UPPER(TRIM(?))';
+    let where = "UPPER(TRIM(sp.emp_code)) = UPPER(TRIM(?)) AND sp.status != 'PENDING_ROLLOUT'";
     const params = [empCode];
     if (month)  { where += ' AND sp.period_month = ?'; params.push(month); }
     if (cycle)  { where += ' AND sp.cycle_code = ?';   params.push(String(cycle).toUpperCase()); }
@@ -229,7 +229,7 @@ export async function getMySummary(req, res) {
     const { month } = req.query;
 
     const params = [empCode];
-    let where = 'UPPER(TRIM(emp_code)) = UPPER(TRIM(?))';
+    let where = "UPPER(TRIM(emp_code)) = UPPER(TRIM(?)) AND status != 'PENDING_ROLLOUT'";
     if (month) { where += ' AND period_month = ?'; params.push(month); }
 
     const byStatus = await dbAll(

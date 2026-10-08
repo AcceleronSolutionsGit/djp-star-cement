@@ -216,6 +216,18 @@ export const api = {
     return readJson(res, 'C2 regeneration failed');
   },
 
+  // Rollout Plans
+  rolloutPlans: async (periodMonth, cycleCode) => {
+    const res = await fetchWithAuth(`${API_BASE}/djp/plans/rollout`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ periodMonth, cycleCode })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to rollout plans');
+    return data;
+  },
+
   // PJP Calculation Only
   calculatePjp: async (periodMonth, cycleCode) => {
     if (!periodMonth || !cycleCode) {
