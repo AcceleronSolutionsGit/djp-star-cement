@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Download, Search, ChevronLeft, ChevronRight, AlertTriangle,
-  Eye, EyeOff, RefreshCw, Table2, Edit2, Save, X
+  Eye, EyeOff, RefreshCw, Table2, Edit2, Save, X, Upload
 } from 'lucide-react';
 import { api, API_BASE } from '../services/api';
 
@@ -60,6 +60,8 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
   const [query, setQuery]       = useState('');
   const [showHidden, setShowHidden] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = React.useRef(null);
   
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
@@ -87,6 +89,42 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
       load();
     } catch (err) {
       onShowToast?.(err.message || 'Failed to update', 'error');
+    }
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (!window.confirm(`Upload ${file.name} to apply edits? This will update the underlying target records.`)) {
+      e.target.value = '';
+      return;
+    }
+    
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const token = localStorage.getItem('token');
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+      
+      const res = await fetch(`${API_BASE}/djp/upload-master-edit`, {
+        method: 'POST',
+        body: formData,
+        headers
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed');
+      
+      onShowToast?.(data.message || 'Master records updated successfully', 'success');
+      load(); // refresh data
+    } catch (err) {
+      onShowToast?.(err.message, 'error');
+    } finally {
+      setUploading(false);
+      e.target.value = '';
     }
   };
 
@@ -220,11 +258,23 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
           {showHidden ? 'Hide column H' : 'Show hidden column'}
         </button>
 
-        <button className="ms-btn" onClick={load} disabled={loading}>
+        <button className="ms-btn" onClick={load} disabled={loading || uploading}>
           <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
         </button>
 
-        <button className="ms-btn primary" onClick={download} disabled={downloading || !data}>
+        <input 
+          type="file" 
+          ref={fileInputRef} 
+          style={{ display: 'none' }} 
+          accept=".xlsx,.xls" 
+          onChange={handleFileUpload} 
+        />
+        
+        <button className="ms-btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+          <Upload size={14} /> {uploading ? 'Uploading…' : 'Upload Edited'}
+        </button>
+
+        <button className="ms-btn primary" onClick={download} disabled={downloading || !data || uploading}>
           <Download size={14} /> {downloading ? 'Preparing…' : 'Download M.xlsx'}
         </button>
       </div>

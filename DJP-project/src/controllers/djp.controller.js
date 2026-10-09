@@ -1206,3 +1206,73 @@ export async function exportSfaLogsExcel(req, res) {
     res.status(500).json({ error: 'Failed to export SFA Logs' });
   }
 }
+
+export async function uploadMasterEdit(req, res) {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file provided' });
+    
+    const workbook = XLSX.readFile(req.file.path);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    
+    // Range 3 skips the first 3 rows (0-indexed 0,1,2). Row 4 is the header row.
+    const rows = XLSX.utils.sheet_to_json(worksheet, { range: 3 });
+
+    const headerMap = {};
+    for (const c of MASTER_COLUMNS) {
+      if (!c.header) continue;
+      const normHeader = c.header.replace(/[\r\n]+/g, ' ').trim().toLowerCase();
+      headerMap[normHeader] = c.key;
+    }
+    
+    let updatedCount = 0;
+    
+    for (const row of rows) {
+      let sapCode = null;
+      const updates = {};
+      
+      for (const [key, value] of Object.entries(row)) {
+        const normKey = key.replace(/[\r\n]+/g, ' ').trim().toLowerCase();
+        const dbKey = headerMap[normKey];
+        if (dbKey) {
+          if (dbKey === 'customer_code') {
+            sapCode = String(value).trim();
+          } else {
+            if (['id', 'period_month', 'cycle_code', 'dealer_name'].includes(dbKey)) continue;
+            updates[dbKey] = value;
+          }
+        }
+      }
+      
+      if (!sapCode) continue;
+      
+      const latest = await dbGet('SELECT id, period_month FROM dealer_visit_targets WHERE sap_code = ? ORDER BY period_month DESC LIMIT 1', [sapCode]);
+      if (latest) {
+         const keys = Object.keys(updates);
+         if (keys.length === 0) continue;
+         
+         const setClauses = keys.map(k => `${k} = ?`).join(', ');
+         const values = keys.map(k => updates[k]);
+         values.push(sapCode, latest.period_month);
+         
+         await dbAll(`UPDATE dealer_visit_targets SET ${setClauses} WHERE sap_code = ? AND period_month = ?`, values);
+         
+         if ('so_visits' in updates || 'asm_visits' in updates || 'rsm_visits' in updates || 'zh_visits' in updates) {
+            const targetRow = await dbGet('SELECT id, so_visits, asm_visits, rsm_visits, zh_visits FROM dealer_visit_targets WHERE id = ?', [latest.id]);
+            if (targetRow) {
+               const total = (parseFloat(targetRow.so_visits)||0) + (parseFloat(targetRow.asm_visits)||0) + (parseFloat(targetRow.rsm_visits)||0) + (parseFloat(targetRow.zh_visits)||0);
+               await dbAll('UPDATE dealer_visit_targets SET total_visits = ? WHERE id = ?', [total, targetRow.id]);
+            }
+         }
+         
+         updatedCount++;
+      }
+    }
+    
+    res.json({ message: `Successfully updated ${updatedCount} records from the master sheet.` });
+  } catch (err) {
+    console.error('Failed to process uploaded master sheet:', err);
+    res.status(500).json({ error: 'Failed to process the uploaded Master Sheet' });
+  }
+}
+

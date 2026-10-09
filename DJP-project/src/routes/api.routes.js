@@ -236,6 +236,11 @@ router.get('/djp/plan', getDjpPlan);
 // The Master sheet on screen — same 42 columns as the M.xlsx download
 router.get('/djp/master-view', getMasterView);
 
+router.post('/djp/upload-master-edit', authMiddleware, uploadMiddleware.single('file'), async (req, res) => {
+  const { uploadMasterEdit } = await import('../controllers/djp.controller.js');
+  return uploadMasterEdit(req, res);
+});
+
 // Generation Run APIs (batch-isolated)
 router.post('/generation/create', createGenerationRun);
 router.post('/generation/run/:code', executeGenerationRun);
