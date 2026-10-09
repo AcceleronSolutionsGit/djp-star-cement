@@ -189,25 +189,42 @@ router.put('/djp/plans/rollout', async (req, res) => {
 });
 router.get('/djp/dealer-targets', getDealerVisitTargets);
 router.put('/djp/dealer-targets/:id', async (req, res) => {
-  const { dbRun } = await import('../config/database.js');
+  const { dbRun, dbGet } = await import('../config/database.js');
   try {
     const { id } = req.params;
-    const { so_visits, asm_visits, rsm_visits, zh_visits } = req.body;
+    const body = { ...req.body };
+    delete body.id; // ensure ID is not updated
     
-    // Recalculate total_visits
-    const total_visits = (so_visits || 0) + (asm_visits || 0) + (rsm_visits || 0) + (zh_visits || 0);
+    if (Object.keys(body).length === 0) {
+      return res.json({ message: 'No fields to update' });
+    }
+
+    const setClauses = [];
+    const values = [];
+    for (const [key, value] of Object.entries(body)) {
+      setClauses.push(`${key} = ?`);
+      values.push(value);
+    }
+    values.push(id);
 
     await dbRun(
-      `UPDATE dealer_visit_targets 
-       SET so_visits = ?, asm_visits = ?, rsm_visits = ?, zh_visits = ?, total_visits = ?
-       WHERE id = ?`,
-      [so_visits, asm_visits, rsm_visits, zh_visits, total_visits, id]
+      `UPDATE dealer_visit_targets SET ${setClauses.join(', ')} WHERE id = ?`,
+      values
     );
 
-    res.json({ message: 'Visit targets updated successfully' });
+    // After updating, recalculate total_visits if any visit count was changed
+    if ('so_visits' in body || 'asm_visits' in body || 'rsm_visits' in body || 'zh_visits' in body) {
+      const row = await dbGet('SELECT so_visits, asm_visits, rsm_visits, zh_visits FROM dealer_visit_targets WHERE id = ?', [id]);
+      if (row) {
+        const total = (row.so_visits || 0) + (row.asm_visits || 0) + (row.rsm_visits || 0) + (row.zh_visits || 0);
+        await dbRun('UPDATE dealer_visit_targets SET total_visits = ? WHERE id = ?', [total, id]);
+      }
+    }
+
+    res.json({ message: 'Target updated successfully' });
   } catch (err) {
-    console.error('Failed to update visit targets:', err);
-    res.status(500).json({ error: 'Failed to update visit targets' });
+    console.error('Failed to update visit target:', err);
+    res.status(500).json({ error: 'Failed to update visit target' });
   }
 });
 router.get('/djp/export-pjp-trade', exportPjpTradeExcel);

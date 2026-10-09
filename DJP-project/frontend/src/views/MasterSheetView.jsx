@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Download, Search, ChevronLeft, ChevronRight, AlertTriangle,
-  Eye, EyeOff, RefreshCw, Table2
+  Eye, EyeOff, RefreshCw, Table2, Edit2, Save, X
 } from 'lucide-react';
-import { api } from '../services/api';
+import { api, API_BASE } from '../services/api';
 
 /**
  * The Master sheet, on screen exactly as it appears in the M.xlsx download.
@@ -60,6 +60,35 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
   const [query, setQuery]       = useState('');
   const [showHidden, setShowHidden] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+
+  const handleEditClick = (row) => {
+    setEditingId(row.id);
+    setEditForm({ ...row });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+  };
+
+  const handleSaveEdit = async (id) => {
+    try {
+      const res = await fetch(`${API_BASE}/djp/dealer-targets/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editForm)
+      });
+      if (!res.ok) throw new Error('Failed to save');
+      
+      onShowToast?.('Master record updated', 'success');
+      setEditingId(null);
+      load();
+    } catch (err) {
+      onShowToast?.(err.message || 'Failed to update', 'error');
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -216,6 +245,7 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
                 {/* spreadsheet column letters */}
                 <tr className="ms-colrow">
                   <th className="ms-rownum" />
+                  <th className="ms-action" style={{ minWidth: 60 }}>Act</th>
                   {columns.map(c => (
                     <th key={`L-${c.col}`} className={c.hidden ? 'ms-hiddencol' : ''}>{c.col}</th>
                   ))}
@@ -223,6 +253,7 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
                 {/* row 3 — source annotations */}
                 <tr className="ms-srcrow">
                   <th className="ms-rownum">3</th>
+                  <th />
                   {columns.map(c => (
                     <th key={`S-${c.col}`} className={c.hidden ? 'ms-hiddencol' : ''}>{c.source || ''}</th>
                   ))}
@@ -230,6 +261,7 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
                 {/* row 4 — headers */}
                 <tr className="ms-hdrrow">
                   <th className="ms-rownum">4</th>
+                  <th />
                   {columns.map(c => (
                     <th key={`H-${c.col}`}
                         style={{ minWidth: Math.round(Math.max(c.width, 6) * 7.2) }}
@@ -244,12 +276,39 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
               <tbody>
                 {data.rows.map((row, i) => {
                   const sheetRow = data.first_data_row + (data.page - 1) * data.page_size + i;
+                  const isEditing = editingId === row.id;
+                  
                   return (
                     <tr key={`${row.customer_code}-${i}`}>
                       <td className="ms-rownum">{sheetRow}</td>
+                      <td style={{ textAlign: 'center', padding: '0 4px' }}>
+                        {isEditing ? (
+                          <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                            <button className="ms-btn" style={{ padding: '2px 4px', background: 'var(--color-success)', color: 'white', border: 0 }} onClick={() => handleSaveEdit(row.id)} title="Save"><Save size={14}/></button>
+                            <button className="ms-btn" style={{ padding: '2px 4px' }} onClick={handleCancelEdit} title="Cancel"><X size={14}/></button>
+                          </div>
+                        ) : (
+                          <button className="ms-btn" style={{ padding: '2px 6px' }} onClick={() => handleEditClick(row)} title="Edit Row"><Edit2 size={14}/></button>
+                        )}
+                      </td>
                       {columns.map(c => {
                         const v = row[c.key];
                         const text = formatCell(v, c);
+                        
+                        if (isEditing) {
+                          // Disable edit for ID and computed styling things to prevent breaking
+                          const readOnly = ['id', 'period_month', 'cycle_code', 'customer_code', 'dealer_name'].includes(c.key);
+                          return (
+                            <td key={c.col} className={c.hidden ? 'ms-hiddencol' : ''}>
+                              <input 
+                                style={{ width: '100%', padding: '2px 4px', height: '24px', minWidth: 60, border: '1px solid #ccc', borderRadius: 4 }}
+                                value={editForm[c.key] === null || editForm[c.key] === undefined ? '' : editForm[c.key]}
+                                disabled={readOnly}
+                                onChange={e => setEditForm({ ...editForm, [c.key]: e.target.value })}
+                              />
+                            </td>
+                          );
+                        }
 
                         if (c.key === 'final_category' && text) {
                           const tone = CAT_TONE[text] || { bg: '#EFEFEF', fg: '#555' };
