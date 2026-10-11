@@ -170,6 +170,29 @@ export async function importProspectDealers(filePath, batchCode = null) {
       }
     }
 
+    // Fallback: if ZH or RSM are still unresolved, look up by Area / Branch from the uploaded file.
+    // This ensures prospect dealers inherit the correct hierarchy from the Dealer Mapping for their area.
+    if ((!zhName || !rsmName) && area) {
+      const areaMapping = await dbGet(
+        `SELECT rsm_name, rsm_code, zh_name, zh_code, asm_name, asm_code, so_name, so_emp_code
+           FROM master_dealer_so_mapping
+          WHERE (LOWER(TRIM(area)) = LOWER(TRIM(?)) OR LOWER(TRIM(territory_name)) = LOWER(TRIM(?)))
+            AND rsm_name IS NOT NULL
+          LIMIT 1`,
+        [area, area]
+      );
+      if (areaMapping) {
+        if (!rsmName) { rsmName = areaMapping.rsm_name; rsmCode = areaMapping.rsm_code; }
+        if (!zhName)  { zhName  = areaMapping.zh_name;  zhCode  = areaMapping.zh_code;  }
+        if (!asmName) { asmName = areaMapping.asm_name; asmCode = areaMapping.asm_code; }
+        if (!soName && areaMapping.so_name) soName = areaMapping.so_name;
+        if (!soEmpCode && areaMapping.so_emp_code) soEmpCode = areaMapping.so_emp_code;
+        console.log(`[PROSPECT_DEALERS] Resolved ZH/RSM for "${prospectName}" via area="${area}" → ZH: ${zhName}, RSM: ${rsmName}`);
+      } else {
+        warnings.push({ row: i + 1, message: `Could not resolve ZH/RSM for prospect "${prospectName}" — area "${area}" not found in Dealer Mapping.` });
+      }
+    }
+
     const matchResult = await matchAndUpsertCanonicalDealer({
       dealerType: 'PROSPECTIVE',
       rawSapCode: null, // Prospects never have SAP codes
