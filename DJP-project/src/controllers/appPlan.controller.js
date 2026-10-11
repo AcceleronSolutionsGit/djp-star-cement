@@ -27,6 +27,7 @@ import {
   resolveL1Approver,
   MAX_RECTIFICATIONS
 } from '../services/planRouting.service.js';
+import { getUnplannedVisits } from '../services/unplannedVisits.service.js';
 
 const HARD_DAILY_CAP = 8;
 
@@ -1640,6 +1641,10 @@ export async function getMyAdherence(req, res) {
         String(x.planned_dates[0] || '').localeCompare(String(y.planned_dates[0] || '')) ||
         String(x.dealer_name).localeCompare(String(y.dealer_name)));
 
+    const myUnplanned = (a.diagnostics.unplanned_detail || []).filter(u =>
+      same(u.employee_code, empCode) || same(u.employee_name, mine?.emp_name)
+    );
+
     res.json({
       emp_code: empCode,
       emp_name: mine?.emp_name || null,
@@ -1664,11 +1669,50 @@ export async function getMyAdherence(req, res) {
         raw_pct:    pct1(mine.adherence_pct),
         over_visited: mine.adhered > mine.mtd_planned
       } : null,
+      unplanned_count: myUnplanned.length,
+      unplanned_visits: myUnplanned,
       dealers,
       method: 'MTD due = planned x elapsed fraction of the cycle; capped adherence never exceeds 100%'
     });
   } catch (err) {
     console.error('[getMyAdherence]', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/**
+ * GET /app/officers/:empCode/unplanned-visits
+ * Dedicated list of unplanned visits made by this officer
+ */
+export async function getMyUnplannedVisits(req, res) {
+  try {
+    const empCode = norm(req.params.empCode);
+    const { month, startDate, endDate, search, limit = 100, offset = 0 } = req.query;
+
+    // T-1 Day enforcement: app only views finalized logs up to T-1 day (yesterday)
+    const now = new Date();
+    const tMinus1Date = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    const tMinus1 = tMinus1Date.toISOString().split('T')[0];
+    const effectiveEndDate = (endDate && endDate < tMinus1) ? endDate : tMinus1;
+
+    const result = await getUnplannedVisits({
+      employeeCode: empCode,
+      periodMonth: month,
+      startDate,
+      endDate: effectiveEndDate,
+      search,
+      limit,
+      offset
+    });
+    res.json({
+      success: true,
+      emp_code: empCode,
+      synced_till: tMinus1,
+      total: result.total,
+      unplanned_visits: result.visits
+    });
+  } catch (err) {
+    console.error('[getMyUnplannedVisits]', err);
     res.status(500).json({ error: err.message });
   }
 }

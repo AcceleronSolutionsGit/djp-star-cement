@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   ClipboardList, Search, RefreshCw, X, CalendarDays, AlertTriangle,
   CheckCircle2, Activity, Users, Download, GitCompare, ArrowUp, ArrowDown,
-  PlusCircle, MinusCircle, History
+  PlusCircle, MinusCircle, History, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -61,6 +61,96 @@ function ChangeChip({ change }) {
   );
 }
 
+function PaginationControls({
+  page,
+  totalPages,
+  totalItems,
+  pageSize,
+  onPageChange,
+  onPageSizeChange,
+  pageSizeOptions = [10, 25, 50, 100],
+  itemName = 'records'
+}) {
+  const startItem = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
+  const endItem = Math.min(page * pageSize, totalItems);
+
+  const getPageNumbers = () => {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    const pages = [1];
+    if (page > 3) pages.push('...');
+    const start = Math.max(2, page - 1);
+    const end = Math.min(totalPages - 1, page + 1);
+    for (let i = start; i <= end; i++) pages.push(i);
+    if (page < totalPages - 2) pages.push('...');
+    pages.push(totalPages);
+    return pages;
+  };
+
+  return (
+    <div className="op-pagination">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span>
+          Showing <strong>{startItem}</strong>–<strong>{endItem}</strong> of <strong>{totalItems}</strong> {itemName}
+        </span>
+        {onPageSizeChange && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '.78rem' }}>
+            <span>Per page:</span>
+            <select
+              className="form-control"
+              style={{ width: 'auto', padding: '3px 8px', height: '28px', fontSize: '.78rem' }}
+              value={pageSize}
+              onChange={e => onPageSizeChange(Number(e.target.value))}
+            >
+              {pageSizeOptions.map(sz => (
+                <option key={sz} value={sz}>{sz}</option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <button
+          type="button"
+          className="op-page-btn"
+          disabled={page <= 1}
+          onClick={() => onPageChange(page - 1)}
+          title="Previous Page"
+        >
+          <ChevronLeft size={14} /> Prev
+        </button>
+
+        {getPageNumbers().map((p, idx) => (
+          p === '...' ? (
+            <span key={`ell-${idx}`} style={{ padding: '0 6px', color: 'var(--text-tertiary)' }}>…</span>
+          ) : (
+            <button
+              key={p}
+              type="button"
+              className={`op-page-btn ${page === p ? 'active' : ''}`}
+              onClick={() => onPageChange(p)}
+            >
+              {p}
+            </button>
+          )
+        ))}
+
+        <button
+          type="button"
+          className="op-page-btn"
+          disabled={page >= totalPages}
+          onClick={() => onPageChange(page + 1)}
+          title="Next Page"
+        >
+          Next <ChevronRight size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Kpi({ label, value, sub, tone }) {
   return (
     <div className="kpi-card">
@@ -86,7 +176,7 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  // ── adherence tab ──────────────────────────────────────────────────────────
+  // ── adherence tab & pagination ──────────────────────────────────────────────
   const [adh, setAdh] = useState(null);
   const [adhLoading, setAdhLoading] = useState(false);
   const [regenLoading, setRegenLoading] = useState(false);
@@ -94,6 +184,25 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
   const [expandedEmp, setExpandedEmp] = useState(null);
   const [adhCycle, setAdhCycle] = useState('C1');
   const [asOn, setAsOn] = useState('');   // blank = engine default (15th for C1, month end otherwise)
+  const [showUnplanned, setShowUnplanned] = useState(false);
+  const [adhViewMode, setAdhViewMode] = useState('officer'); // 'officer' | 'dealer'
+  const [adhOfficerSearch, setAdhOfficerSearch] = useState('');
+  const [adhRoleFilter, setAdhRoleFilter] = useState('ALL');
+  const [adhBandFilter, setAdhBandFilter] = useState('ALL');
+  const [adhPage, setAdhPage] = useState(1);
+  const [adhPageSize, setAdhPageSize] = useState(10);
+  const [adhDealerSearch, setAdhDealerSearch] = useState('');
+  const [adhDealerPage, setAdhDealerPage] = useState(1);
+  const [adhDealerPageSize, setAdhDealerPageSize] = useState(15);
+
+  // ── unplanned visits tab & pagination ───────────────────────────────────────
+  const [unplannedList, setUnplannedList] = useState([]);
+  const [unplannedTotal, setUnplannedTotal] = useState(0);
+  const [unplannedLoading, setUnplannedLoading] = useState(false);
+  const [unplannedOfficerFilter, setUnplannedOfficerFilter] = useState('ALL');
+  const [unplannedSearch, setUnplannedSearch] = useState('');
+  const [unplannedPage, setUnplannedPage] = useState(1);
+  const [unplannedPageSize, setUnplannedPageSize] = useState(15);
 
   // ── C2 review tab ──────────────────────────────────────────────────────────
   const [regens, setRegens] = useState(null);
@@ -101,6 +210,99 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
   const [regenViewLoading, setRegenViewLoading] = useState(false);
   const [expandedOfficer, setExpandedOfficer] = useState(null);
   const [changeFilter, setChangeFilter] = useState('ALL');
+
+  // Adherence filtered & paginated officers
+  const filteredOfficers = useMemo(() => {
+    if (!adh?.by_employee) return [];
+    return adh.by_employee.filter(e => {
+      if (adhRoleFilter !== 'ALL' && e.role !== adhRoleFilter) return false;
+      if (adhBandFilter === 'CRITICAL' && e.capped_pct >= 70) return false;
+      if (adhBandFilter === 'GOOD' && (e.capped_pct < 70 || e.capped_pct >= 100)) return false;
+      if (adhBandFilter === 'FULL' && e.capped_pct < 100) return false;
+      if (adhOfficerSearch.trim()) {
+        const q = adhOfficerSearch.toLowerCase();
+        const matchName = (e.emp_name || '').toLowerCase().includes(q);
+        const matchCode = (e.emp_code || '').toLowerCase().includes(q);
+        if (!matchName && !matchCode) return false;
+      }
+      return true;
+    });
+  }, [adh, adhRoleFilter, adhBandFilter, adhOfficerSearch]);
+
+  const totalOfficerPages = Math.max(1, Math.ceil(filteredOfficers.length / adhPageSize));
+  const paginatedOfficers = useMemo(() => {
+    const start = (adhPage - 1) * adhPageSize;
+    return filteredOfficers.slice(start, start + adhPageSize);
+  }, [filteredOfficers, adhPage, adhPageSize]);
+
+  // Adherence filtered & paginated dealers
+  const filteredAdhDealers = useMemo(() => {
+    if (!adh?.by_dealer) return [];
+    if (!adhDealerSearch.trim()) return adh.by_dealer;
+    const q = adhDealerSearch.toLowerCase();
+    return adh.by_dealer.filter(d =>
+      (d.dealer_name || '').toLowerCase().includes(q) ||
+      (d.sap_code || '').toLowerCase().includes(q) ||
+      (d.emp_name || '').toLowerCase().includes(q) ||
+      (d.emp_code || '').toLowerCase().includes(q)
+    );
+  }, [adh, adhDealerSearch]);
+
+  const totalDealerPages = Math.max(1, Math.ceil(filteredAdhDealers.length / adhDealerPageSize));
+  const paginatedAdhDealers = useMemo(() => {
+    const start = (adhDealerPage - 1) * adhDealerPageSize;
+    return filteredAdhDealers.slice(start, start + adhDealerPageSize);
+  }, [filteredAdhDealers, adhDealerPage, adhDealerPageSize]);
+
+  // Load unplanned visits for admin tab
+  const loadAdminUnplannedVisits = async () => {
+    setUnplannedLoading(true);
+    try {
+      const res = await api.getUnplannedVisits({
+        periodMonth: month,
+        employeeCode: unplannedOfficerFilter,
+        search: unplannedSearch,
+        limit: unplannedPageSize,
+        offset: (unplannedPage - 1) * unplannedPageSize
+      });
+      setUnplannedList(res.visits || []);
+      setUnplannedTotal(res.total || 0);
+    } catch (err) {
+      onShowToast?.(err.message || 'Failed to fetch unplanned visits', 'error');
+      setUnplannedList([]);
+      setUnplannedTotal(0);
+    } finally {
+      setUnplannedLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (tab === 'unplanned') {
+      loadAdminUnplannedVisits();
+    }
+    // eslint-disable-next-line
+  }, [tab, month, unplannedOfficerFilter, unplannedPage, unplannedPageSize]);
+
+  const exportUnplannedCsv = () => {
+    if (!unplannedList.length) {
+      onShowToast?.('No unplanned visits to export', 'error');
+      return;
+    }
+    const head = 'Visit Date,Employee Code,Employee Name,Customer Code,Mapped SAP Code,Customer Name,Customer Type,Route,Branch,Check In,Check Out,Duration,Status,Plan Type,Reason,Remarks\n';
+    const body = unplannedList.map(u => [
+      u.visit_date, u.employee_code, `"${u.employee_name || ''}"`,
+      u.customer_code, u.mapped_sap_code || '', `"${u.customer_name || ''}"`,
+      u.customer_type || '', `"${u.route || ''}"`, `"${u.branch || ''}"`,
+      u.check_in_time || '', u.check_out_time || '', u.duration || '',
+      u.visit_status || '', 'UNPLANNED', `"${u.reason || ''}"`, `"${(u.remarks || '').replace(/"/g, '""')}"`
+    ].join(',')).join('\n');
+    const blob = new Blob([head + body], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `Unplanned_Visits_${month}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
 
   const loadPlans = async () => {
     setLoading(true);
@@ -253,6 +455,18 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                        padding:9px 14px; background:var(--bg-hover); font-weight:700; font-size:.82rem; }
         .op-visit { display:flex; justify-content:space-between; align-items:center; gap:12px;
                     padding:9px 14px; border-top:1px solid var(--border-subtle); font-size:.82rem; }
+        .op-pagination { display:flex; align-items:center; justify-content:space-between;
+                         padding:12px 16px; border-top:1px solid var(--border-subtle);
+                         font-size:.82rem; color:var(--text-secondary); flex-wrap:wrap; gap:12px; }
+        .op-page-btn { padding:4px 10px; border:1px solid var(--border); background:var(--card-bg, #fff);
+                       color:var(--text-primary); border-radius:var(--radius-sm, 6px); cursor:pointer;
+                       font-size:.78rem; font-weight:500; display:inline-flex; align-items:center; gap:3px; }
+        .op-page-btn:hover:not(:disabled) { background:var(--bg-hover); border-color:var(--border-strong, #ccc); }
+        .op-page-btn:disabled { opacity:.4; cursor:not-allowed; }
+        .op-page-btn.active { background:var(--star-red); color:#fff; border-color:var(--star-red); font-weight:700; }
+        .subview-toggle { display:inline-flex; border:1px solid var(--border); border-radius:var(--radius-md); overflow:hidden; }
+        .subview-btn { padding:5px 12px; background:var(--card-bg, #fff); border:none; cursor:pointer; font-size:.78rem; font-weight:600; color:var(--text-secondary); }
+        .subview-btn.active { background:var(--star-red); color:#fff; }
       `}</style>
 
       <div className="op-tabs">
@@ -261,6 +475,21 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
         </button>
         <button className={`op-tab ${tab === 'adherence' ? 'active' : ''}`} onClick={() => setTab('adherence')}>
           <Activity size={16} /> Adherence
+        </button>
+        <button className={`op-tab ${tab === 'unplanned' ? 'active' : ''}`} onClick={() => setTab('unplanned')}>
+          <AlertTriangle size={16} /> Unplanned Visits
+          {unplannedTotal > 0 && (
+            <span style={{
+              background: 'var(--color-warning-bg, #FEF3C7)',
+              color: '#B45309',
+              padding: '1px 7px',
+              borderRadius: 999,
+              fontSize: '.7rem',
+              fontWeight: 700
+            }}>
+              {unplannedTotal}
+            </span>
+          )}
         </button>
         <button className={`op-tab ${tab === 'c2' ? 'active' : ''}`} onClick={() => setTab('c2')}>
           <GitCompare size={16} /> C2 Review
@@ -539,8 +768,44 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                     )}
                     {adh.diagnostics.unplanned_visits > 0 && (
                       <div style={{ marginTop: adh.diagnostics.unresolved_visits > 0 ? 6 : 0 }}>
-                        <strong>{adh.diagnostics.unplanned_visits} visit(s)</strong> were made to dealers
-                        not on that person's plan.
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                          <div>
+                            <strong>{adh.diagnostics.unplanned_visits} visit(s)</strong> were made to dealers
+                            not on that person's plan.
+                          </div>
+                          <button
+                            type="button"
+                            className="btn btn-outline"
+                            onClick={() => setShowUnplanned(!showUnplanned)}
+                            style={{ fontSize: '.74rem', padding: '2px 10px', height: 'auto', background: 'white' }}
+                          >
+                            {showUnplanned ? 'Hide Unplanned Visits' : `View Unplanned Visits (${adh.diagnostics.unplanned_visits})`}
+                          </button>
+                        </div>
+                        {showUnplanned && adh.diagnostics.unplanned_detail && adh.diagnostics.unplanned_detail.length > 0 && (
+                          <div style={{ marginTop: 8, maxHeight: 220, overflowY: 'auto', background: 'white', borderRadius: 6, border: '1px solid var(--border-color)', padding: 8 }}>
+                            <table style={{ width: '100%', fontSize: '.75rem', borderCollapse: 'collapse' }}>
+                              <thead>
+                                <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
+                                  <th style={{ textAlign: 'left', padding: '4px 6px' }}>Date</th>
+                                  <th style={{ textAlign: 'left', padding: '4px 6px' }}>Officer</th>
+                                  <th style={{ textAlign: 'left', padding: '4px 6px' }}>Customer Code</th>
+                                  <th style={{ textAlign: 'left', padding: '4px 6px' }}>Customer Name</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {adh.diagnostics.unplanned_detail.map((u, i) => (
+                                  <tr key={u.customer_code + u.visit_date + i} style={{ borderBottom: '1px solid var(--bg-hover)' }}>
+                                    <td style={{ padding: '4px 6px', fontFamily: 'var(--font-mono)' }}>{u.visit_date}</td>
+                                    <td style={{ padding: '4px 6px' }}>{u.employee_name || u.employee_code}</td>
+                                    <td style={{ padding: '4px 6px', fontFamily: 'var(--font-mono)' }}>{u.customer_code}</td>
+                                    <td style={{ padding: '4px 6px' }}>{u.customer_name}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
                       </div>
                     )}
                   </span>
@@ -603,90 +868,269 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
               </div>
 
               <div className="content-card">
-                <div className="card-title-bar">
+                <div className="card-title-bar" style={{ flexWrap: 'wrap', gap: 12 }}>
                   <div>
-                    <div className="card-title">Adherence by officer</div>
-                    <div className="card-subtitle">lowest first · click a row for the missed dealers</div>
+                    <div className="card-title">
+                      Adherence Diagnostics ({adhViewMode === 'officer' ? `${filteredOfficers.length} Officers` : `${filteredAdhDealers.length} Dealers`})
+                    </div>
+                    <div className="card-subtitle">
+                      {adhViewMode === 'officer'
+                        ? 'Sorted by adherence % · click an officer row for missed dealers'
+                        : 'Granular dealer targets vs actual visits across routes'}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div className="subview-toggle">
+                      <button
+                        type="button"
+                        className={`subview-btn ${adhViewMode === 'officer' ? 'active' : ''}`}
+                        onClick={() => { setAdhViewMode('officer'); setAdhPage(1); }}
+                      >
+                        By Officer ({adh.by_employee?.length || 0})
+                      </button>
+                      <button
+                        type="button"
+                        className={`subview-btn ${adhViewMode === 'dealer' ? 'active' : ''}`}
+                        onClick={() => { setAdhViewMode('dealer'); setAdhDealerPage(1); }}
+                      >
+                        By Dealer ({adh.by_dealer?.length || 0})
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <div className="table-responsive">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Officer</th><th>Role</th>
-                        <th style={{ textAlign: 'right' }}>Planned</th>
-                        <th style={{ textAlign: 'right' }}>MTD due</th>
-                        <th style={{ textAlign: 'right' }}>Adhered</th>
-                        <th style={{ textAlign: 'right' }}>Pending</th>
-                        <th style={{ width: 180 }}>Adherence (capped)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {adh.by_employee.map(e => (
-                        <React.Fragment key={`${e.role}-${e.emp_code}`}>
-                          <tr className="op-row" onClick={() => setExpandedEmp(expandedEmp === e.emp_code ? null : e.emp_code)}>
-                            <td>
-                              <div style={{ fontWeight: 600 }}>{e.emp_name || e.emp_code}</div>
-                              <div style={{ fontSize: '.72rem', color: 'var(--text-tertiary)' }}>{e.emp_code}</div>
-                            </td>
-                            <td>{e.role}</td>
-                            <td style={{ textAlign: 'right' }}>{e.planned_visits}</td>
-                            <td style={{ textAlign: 'right' }}>{e.mtd_due}</td>
-                            <td style={{ textAlign: 'right', color: 'var(--color-success)', fontWeight: 600 }}>
-                              {e.adhered}
-                              {e.adhered !== e.adhered_capped && (
-                                <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}> ({e.adhered_capped})</span>
-                              )}
-                            </td>
-                            <td style={{ textAlign: 'right', color: e.pending < 0 ? 'var(--color-info)' : 'var(--color-danger)', fontWeight: 600 }}>
-                              {e.pending}
-                            </td>
-                            <td>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                                <div className="op-bar" style={{ flex: 1 }}>
-                                  <i style={{
-                                    width: `${Math.min(100, e.capped_pct)}%`,
-                                    background: e.capped_pct >= 70 ? 'var(--color-success)'
-                                              : e.capped_pct >= 40 ? 'var(--color-warning)'
-                                              : 'var(--color-danger)'
-                                  }} />
-                                </div>
-                                <span style={{ fontWeight: 700, fontSize: '.82rem', minWidth: 46, textAlign: 'right' }}>
-                                  {e.capped_pct}%
-                                </span>
-                              </div>
-                            </td>
+
+                {adhViewMode === 'officer' && (
+                  <>
+                    <div style={{ display: 'flex', gap: 10, padding: '12px 16px', background: 'var(--bg-hover)', borderBottom: '1px solid var(--border-subtle)', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <div className="input-with-icon" style={{ flex: '1 1 200px', minWidth: 180 }}>
+                        <Search size={14} className="input-icon" />
+                        <input
+                          className="form-control"
+                          placeholder="Search officer name or code..."
+                          style={{ height: 32, fontSize: '.8rem' }}
+                          value={adhOfficerSearch}
+                          onChange={e => { setAdhOfficerSearch(e.target.value); setAdhPage(1); }}
+                        />
+                        {adhOfficerSearch && (
+                          <button
+                            type="button"
+                            onClick={() => { setAdhOfficerSearch(''); setAdhPage(1); }}
+                            style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)' }}
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+
+                      <select
+                        className="form-control"
+                        style={{ width: 'auto', height: 32, fontSize: '.8rem' }}
+                        value={adhRoleFilter}
+                        onChange={e => { setAdhRoleFilter(e.target.value); setAdhPage(1); }}
+                      >
+                        <option value="ALL">All Roles</option>
+                        {['SO', 'TSO', 'ASM', 'RSM', 'ZH'].map(r => (
+                          <option key={r} value={r}>{r}</option>
+                        ))}
+                      </select>
+
+                      <select
+                        className="form-control"
+                        style={{ width: 'auto', height: 32, fontSize: '.8rem' }}
+                        value={adhBandFilter}
+                        onChange={e => { setAdhBandFilter(e.target.value); setAdhPage(1); }}
+                      >
+                        <option value="ALL">All Adherence Levels</option>
+                        <option value="CRITICAL">Critical (&lt; 70%)</option>
+                        <option value="GOOD">Normal (70% – 99%)</option>
+                        <option value="FULL">Complete / Over (&gt;= 100%)</option>
+                      </select>
+
+                      <div style={{ marginLeft: 'auto', fontSize: '.78rem', color: 'var(--text-secondary)' }}>
+                        Showing {paginatedOfficers.length} of {filteredOfficers.length} officers
+                      </div>
+                    </div>
+
+                    <div className="table-responsive">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Officer</th><th>Role</th>
+                            <th style={{ textAlign: 'right' }}>Planned</th>
+                            <th style={{ textAlign: 'right' }}>MTD due</th>
+                            <th style={{ textAlign: 'right' }}>Adhered</th>
+                            <th style={{ textAlign: 'right' }}>Pending</th>
+                            <th style={{ width: 180 }}>Adherence (capped)</th>
                           </tr>
-                          {expandedEmp === e.emp_code && e.missed_dealers.length > 0 && (
-                            <tr>
-                              <td colSpan={7} style={{ background: 'var(--bg-hover)', padding: '12px 18px' }}>
-                                <div style={{ fontSize: '.76rem', fontWeight: 700, marginBottom: 7, color: 'var(--text-secondary)' }}>
-                                  Missed dealers — these get priority in C2
-                                </div>
-                                {e.missed_dealers.map(d => (
-                                  <div key={d.sap_code} style={{ fontSize: '.8rem', padding: '3px 0' }}>
-                                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)', marginRight: 8 }}>
-                                      {d.sap_code}
+                        </thead>
+                        <tbody>
+                          {paginatedOfficers.map(e => (
+                            <React.Fragment key={`${e.role}-${e.emp_code}`}>
+                              <tr className="op-row" onClick={() => setExpandedEmp(expandedEmp === e.emp_code ? null : e.emp_code)}>
+                                <td>
+                                  <div style={{ fontWeight: 600 }}>{e.emp_name || e.emp_code}</div>
+                                  <div style={{ fontSize: '.72rem', color: 'var(--text-tertiary)' }}>{e.emp_code}</div>
+                                </td>
+                                <td>{e.role}</td>
+                                <td style={{ textAlign: 'right' }}>{e.planned_visits}</td>
+                                <td style={{ textAlign: 'right' }}>{e.mtd_due}</td>
+                                <td style={{ textAlign: 'right', color: 'var(--color-success)', fontWeight: 600 }}>
+                                  {e.adhered}
+                                  {e.adhered !== e.adhered_capped && (
+                                    <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}> ({e.adhered_capped})</span>
+                                  )}
+                                </td>
+                                <td style={{ textAlign: 'right', color: e.pending < 0 ? 'var(--color-info)' : 'var(--color-danger)', fontWeight: 600 }}>
+                                  {e.pending}
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                                    <div className="op-bar" style={{ flex: 1 }}>
+                                      <i style={{
+                                        width: `${Math.min(100, e.capped_pct)}%`,
+                                        background: e.capped_pct >= 70 ? 'var(--color-success)'
+                                                  : e.capped_pct >= 40 ? 'var(--color-warning)'
+                                                  : 'var(--color-danger)'
+                                      }} />
+                                    </div>
+                                    <span style={{ fontWeight: 700, fontSize: '.82rem', minWidth: 46, textAlign: 'right' }}>
+                                      {e.capped_pct}%
                                     </span>
-                                    {d.name}
-                                    {d.planned_date && (
-                                      <span style={{ color: 'var(--text-tertiary)', marginLeft: 8 }}>planned {d.planned_date}</span>
-                                    )}
                                   </div>
-                                ))}
+                                </td>
+                              </tr>
+                              {expandedEmp === e.emp_code && e.missed_dealers.length > 0 && (
+                                <tr>
+                                  <td colSpan={7} style={{ background: 'var(--bg-hover)', padding: '12px 18px' }}>
+                                    <div style={{ fontSize: '.76rem', fontWeight: 700, marginBottom: 7, color: 'var(--text-secondary)' }}>
+                                      Missed dealers ({e.missed_dealers.length}) — these get priority in C2
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 8 }}>
+                                      {e.missed_dealers.map(d => (
+                                        <div key={d.sap_code} style={{ fontSize: '.8rem', padding: '6px 10px', background: 'var(--card-bg, #fff)', border: '1px solid var(--border-subtle)', borderRadius: 4 }}>
+                                          <div style={{ fontWeight: 600 }}>{d.name}</div>
+                                          <div style={{ fontSize: '.72rem', color: 'var(--text-tertiary)' }}>
+                                            SAP: <span style={{ fontFamily: 'var(--font-mono)' }}>{d.sap_code}</span>
+                                            {d.planned_date && <span style={{ marginLeft: 8 }}>Planned: {d.planned_date}</span>}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          ))}
+                          {filteredOfficers.length === 0 && (
+                            <tr><td colSpan={7} style={{ textAlign: 'center', padding: 36, color: 'var(--text-tertiary)' }}>
+                              No officers found matching search/filter criteria.
+                            </td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <PaginationControls
+                      page={adhPage}
+                      totalPages={totalOfficerPages}
+                      totalItems={filteredOfficers.length}
+                      pageSize={adhPageSize}
+                      onPageChange={setAdhPage}
+                      onPageSizeChange={sz => { setAdhPageSize(sz); setAdhPage(1); }}
+                      pageSizeOptions={[10, 25, 50, 100]}
+                      itemName="officers"
+                    />
+                  </>
+                )}
+
+                {adhViewMode === 'dealer' && (
+                  <>
+                    <div style={{ display: 'flex', gap: 10, padding: '12px 16px', background: 'var(--bg-hover)', borderBottom: '1px solid var(--border-subtle)', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <div className="input-with-icon" style={{ flex: '1 1 250px', minWidth: 200 }}>
+                        <Search size={14} className="input-icon" />
+                        <input
+                          className="form-control"
+                          placeholder="Search dealer name, SAP code, officer..."
+                          style={{ height: 32, fontSize: '.8rem' }}
+                          value={adhDealerSearch}
+                          onChange={e => { setAdhDealerSearch(e.target.value); setAdhDealerPage(1); }}
+                        />
+                        {adhDealerSearch && (
+                          <button
+                            type="button"
+                            onClick={() => { setAdhDealerSearch(''); setAdhDealerPage(1); }}
+                            style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)' }}
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+
+                      <div style={{ marginLeft: 'auto', fontSize: '.78rem', color: 'var(--text-secondary)' }}>
+                        Showing {paginatedAdhDealers.length} of {filteredAdhDealers.length} dealers
+                      </div>
+                    </div>
+
+                    <div className="table-responsive">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Dealer</th><th>Assigned Officer</th><th>Cycle</th>
+                            <th style={{ textAlign: 'right' }}>Planned</th>
+                            <th style={{ textAlign: 'right' }}>MTD due</th>
+                            <th style={{ textAlign: 'right' }}>Adhered</th>
+                            <th style={{ textAlign: 'right' }}>Pending</th>
+                            <th style={{ width: 140 }}>Adherence</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {paginatedAdhDealers.map((d, idx) => (
+                            <tr key={`${d.sap_code}-${d.cycle}-${idx}`}>
+                              <td>
+                                <div style={{ fontWeight: 600 }}>{d.dealer_name}</div>
+                                <div style={{ fontSize: '.72rem', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>SAP: {d.sap_code}</div>
+                              </td>
+                              <td>
+                                <div style={{ fontSize: '.82rem' }}>{d.emp_name || d.emp_code}</div>
+                                <div style={{ fontSize: '.7rem', color: 'var(--text-tertiary)' }}>{d.emp_code} ({d.role})</div>
+                              </td>
+                              <td>{d.cycle}</td>
+                              <td style={{ textAlign: 'right' }}>{d.planned}</td>
+                              <td style={{ textAlign: 'right' }}>{d.mtd_due}</td>
+                              <td style={{ textAlign: 'right', color: 'var(--color-success)', fontWeight: 600 }}>{d.adhered}</td>
+                              <td style={{ textAlign: 'right', color: d.pending < 0 ? 'var(--color-info)' : 'var(--color-danger)' }}>{d.pending}</td>
+                              <td>
+                                <span style={{
+                                  fontWeight: 700,
+                                  color: d.capped_pct >= 100 ? 'var(--color-success)' : d.capped_pct >= 50 ? 'var(--color-warning)' : 'var(--color-danger)'
+                                }}>
+                                  {d.capped_pct}%
+                                </span>
                               </td>
                             </tr>
+                          ))}
+                          {filteredAdhDealers.length === 0 && (
+                            <tr><td colSpan={8} style={{ textAlign: 'center', padding: 36, color: 'var(--text-tertiary)' }}>
+                              No dealers found matching the search criteria.
+                            </td></tr>
                           )}
-                        </React.Fragment>
-                      ))}
-                      {adh.by_employee.length === 0 && (
-                        <tr><td colSpan={7} style={{ textAlign: 'center', padding: 36, color: 'var(--text-tertiary)' }}>
-                          No plans found for {adh.period_month} {adh.cycles.join(' + ')}.
-                        </td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <PaginationControls
+                      page={adhDealerPage}
+                      totalPages={totalDealerPages}
+                      totalItems={filteredAdhDealers.length}
+                      pageSize={adhDealerPageSize}
+                      onPageChange={setAdhDealerPage}
+                      onPageSizeChange={sz => { setAdhDealerPageSize(sz); setAdhDealerPage(1); }}
+                      pageSizeOptions={[15, 30, 50, 100]}
+                      itemName="dealers"
+                    />
+                  </>
+                )}
               </div>
             </>
           )}
@@ -697,6 +1141,227 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
               <div>Upload the SFA visit report on the ingestion screen, then run the check.</div>
             </div>
           )}
+        </>
+      )}
+
+      {/* ═══════════════════════════ UNPLANNED VISITS ═══════════════════════════ */}
+      {tab === 'unplanned' && (
+        <>
+          <div className="filter-card">
+            <div className="filter-grid">
+              <div className="form-group">
+                <label className="form-label">Month</label>
+                <input
+                  type="month"
+                  className="form-control"
+                  value={month}
+                  onChange={e => { setMonth(e.target.value); setUnplannedPage(1); }}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Officer</label>
+                <select
+                  className="form-control"
+                  value={unplannedOfficerFilter}
+                  onChange={e => { setUnplannedOfficerFilter(e.target.value); setUnplannedPage(1); }}
+                >
+                  <option value="ALL">All Officers</option>
+                  {(adh?.by_employee || []).map(e => (
+                    <option key={e.emp_code} value={e.emp_code}>
+                      {e.emp_name ? `${e.emp_name} (${e.emp_code})` : e.emp_code}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Search</label>
+                <div className="input-with-icon">
+                  <Search size={14} className="input-icon" />
+                  <input
+                    className="form-control"
+                    placeholder="Customer code, name, route, branch..."
+                    value={unplannedSearch}
+                    onChange={e => setUnplannedSearch(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        setUnplannedPage(1);
+                        loadAdminUnplannedVisits();
+                      }
+                    }}
+                  />
+                  {unplannedSearch && (
+                    <button
+                      type="button"
+                      onClick={() => { setUnplannedSearch(''); setUnplannedPage(1); }}
+                      style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)' }}
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => { setUnplannedPage(1); loadAdminUnplannedVisits(); }}
+                  disabled={unplannedLoading}
+                >
+                  <RefreshCw size={15} className={unplannedLoading ? 'spin' : ''} /> Refresh
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={exportUnplannedCsv}
+                  disabled={unplannedList.length === 0}
+                >
+                  <Download size={15} /> Export CSV
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, flexWrap: 'wrap', gap: 8, fontSize: '.78rem' }}>
+              <span style={{ color: 'var(--text-tertiary)' }}>
+                Visits made to dealers or counters outside the officer's scheduled DJP monthly plan.
+              </span>
+              <span style={{
+                background: 'var(--color-info-bg, #E0F2FE)',
+                color: 'var(--color-info, #0369A1)',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                fontWeight: 600
+              }}>
+                Cutoff: Strictly synced up to T-1 day (yesterday)
+              </span>
+            </div>
+          </div>
+
+          <div className="kpi-grid">
+            <Kpi
+              label="Total Unplanned Visits"
+              value={unplannedTotal}
+              sub={`for month ${month}`}
+              tone={unplannedTotal > 0 ? 'var(--color-warning)' : 'var(--color-success)'}
+            />
+            <Kpi
+              label="Sync Window"
+              value="Till T-1 Day"
+              sub="Protects against intraday incomplete logs"
+              tone="var(--color-info)"
+            />
+            <Kpi
+              label="Plan Classification"
+              value="Unplanned"
+              sub="Dealer not on officer's target plan"
+            />
+          </div>
+
+          <div className="content-card">
+            <div className="card-title-bar">
+              <div>
+                <div className="card-title">Unplanned Visits Log</div>
+                <div className="card-subtitle">
+                  {unplannedLoading ? 'Loading…' : `${unplannedTotal} visit(s) identified outside scheduled plans`}
+                </div>
+              </div>
+            </div>
+
+            <div className="table-responsive">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Visit Date</th>
+                    <th>Officer</th>
+                    <th>Customer Code</th>
+                    <th>Customer Name</th>
+                    <th>Area / Branch</th>
+                    <th>Route</th>
+                    <th>Check In / Out</th>
+                    <th>Duration</th>
+                    <th>Plan Type</th>
+                    <th>Reason</th>
+                    <th>Remarks</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {unplannedList.map((u, i) => (
+                    <tr key={u.id || i}>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '.78rem', whiteSpace: 'nowrap' }}>
+                        {u.visit_date}
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{u.employee_name || u.employee_code}</div>
+                        <div style={{ fontSize: '.72rem', color: 'var(--text-tertiary)' }}>{u.employee_code}</div>
+                      </td>
+                      <td>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: '.78rem' }}>
+                          {u.customer_code}
+                        </div>
+                        {u.mapped_sap_code && (
+                          <div style={{ fontSize: '.7rem', color: 'var(--text-tertiary)' }}>
+                            SAP: {u.mapped_sap_code}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{u.customer_name}</div>
+                        {u.customer_type && (
+                          <span style={{ fontSize: '.7rem', color: 'var(--text-secondary)' }}>
+                            {u.customer_type}
+                          </span>
+                        )}
+                      </td>
+                      <td>{u.branch || '—'}</td>
+                      <td>{u.route || '—'}</td>
+                      <td style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>
+                        {u.check_in_time ? `${u.check_in_time} → ${u.check_out_time || '—'}` : '—'}
+                      </td>
+                      <td style={{ fontSize: '.78rem' }}>{u.duration || '—'}</td>
+                      <td>
+                        <span style={{
+                          background: 'var(--color-warning-bg, #FEF3C7)',
+                          color: '#B45309',
+                          padding: '3px 8px',
+                          borderRadius: 4,
+                          fontSize: '.72rem',
+                          fontWeight: 700
+                        }}>
+                          Unplanned
+                        </span>
+                      </td>
+                      <td style={{ fontSize: '.78rem', color: 'var(--text-secondary)' }}>
+                        {u.reason || "Dealer not on officer's plan"}
+                      </td>
+                      <td style={{ fontSize: '.78rem', color: 'var(--text-tertiary)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={u.remarks || ''}>
+                        {u.remarks || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                  {!unplannedLoading && unplannedList.length === 0 && (
+                    <tr>
+                      <td colSpan={11} style={{ textAlign: 'center', padding: 48, color: 'var(--text-tertiary)' }}>
+                        No unplanned visits found for {month}. All visits adhered to beat plans!
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <PaginationControls
+              page={unplannedPage}
+              totalPages={Math.max(1, Math.ceil(unplannedTotal / unplannedPageSize))}
+              totalItems={unplannedTotal}
+              pageSize={unplannedPageSize}
+              onPageChange={setUnplannedPage}
+              onPageSizeChange={sz => { setUnplannedPageSize(sz); setUnplannedPage(1); }}
+              pageSizeOptions={[15, 30, 50, 100]}
+              itemName="unplanned visits"
+            />
+          </div>
         </>
       )}
 

@@ -446,11 +446,21 @@ export async function getSalesHistory(req, res) {
  */
 export async function getVisitExecutionLogs(req, res) {
   try {
-    const { search, visitDate, employeeName, branch, route, visitStatus, customerType, limit = 50, offset = 0 } = req.query;
+    const { search, visitDate, employeeName, branch, route, visitStatus, customerType, planType, limit = 50, offset = 0 } = req.query;
     let sql = 'SELECT * FROM visit_execution_logs WHERE 1=1';
     let countSql = 'SELECT COUNT(*) as total FROM visit_execution_logs WHERE 1=1';
     const params = [];
     const countParams = [];
+
+    if (planType && planType !== 'ALL') {
+      if (planType === 'UNPLANNED') {
+        sql += ' AND is_unplanned = 1';
+        countSql += ' AND is_unplanned = 1';
+      } else if (planType === 'PLANNED') {
+        sql += ' AND (is_unplanned = 0 OR is_unplanned IS NULL)';
+        countSql += ' AND (is_unplanned = 0 OR is_unplanned IS NULL)';
+      }
+    }
 
     if (visitDate && visitDate !== 'ALL') {
       sql += ' AND visit_date = ?';

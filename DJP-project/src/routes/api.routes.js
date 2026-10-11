@@ -75,6 +75,7 @@ import {
   getTeamCounterAdherence,
   getTeamDailyAdherence,
   getMyAdherence,
+  getMyUnplannedVisits,
   punchVisit,
   getTeamAdherence,
   listC2Regenerations,
@@ -297,6 +298,7 @@ router.delete('/app/officers/:empCode/plans/:planId/visits/:detailId', removeVis
 router.post  ('/app/officers/:empCode/plans/:planId/submit',       submitMyPlan);
 
 router.get   ('/app/officers/:empCode/adherence',                  getMyAdherence);
+router.get   ('/app/officers/:empCode/unplanned-visits',           getMyUnplannedVisits);
 router.post  ('/app/officers/:empCode/visits/punch',                punchVisit);
 router.get   ('/app/approvers/:empCode/team-adherence',            getTeamAdherence);
 router.get   ('/app/approvers/:empCode/inbox',                     getApprovalInbox);
@@ -326,9 +328,20 @@ router.get('/templates/:name', downloadTemplate);
 
 // SFA Auto-Sync API
 import { syncSfaDataFromApi } from '../services/sfaSync.service.js';
+import { getUnplannedVisits } from '../services/unplannedVisits.service.js';
+
 router.post('/sfa/sync', async (req, res) => {
   const result = await syncSfaDataFromApi();
   res.json(result);
+});
+
+router.get('/sfa/unplanned-visits', async (req, res) => {
+  try {
+    const result = await getUnplannedVisits(req.query);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

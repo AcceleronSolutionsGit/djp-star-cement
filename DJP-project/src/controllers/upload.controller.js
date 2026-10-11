@@ -11,6 +11,7 @@ import { importPjpTradeFile } from '../imports/pjp-trade.importer.js';
 import { importSBG } from '../imports/sbg.importer.js';
 import { importDealerPerformance } from '../imports/dealer-performance.importer.js';
 import { importVisitTargetsOverride } from '../imports/visit-targets-override.importer.js';
+import { reconcileUnplannedVisits } from '../services/unplannedVisits.service.js';
 import { dbRun, dbAll, dbGet } from '../config/database.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -293,6 +294,15 @@ export async function uploadFile(req, res) {
     // adherence data. This runs asynchronously so the upload response is fast.
     let sfaFeedbackTriggered = false;
     if (uploadType === 'SFA_REPORT' && batchStatus !== 'FAILED') {
+      try {
+        const rec = await reconcileUnplannedVisits({ batchCode });
+        extraInfo.unplannedCount = rec.unplannedVisitsCount;
+        extraInfo.plannedCount = rec.plannedVisitsCount;
+        extraInfo.unplannedVisits = rec.unplannedVisits;
+      } catch (e) {
+        console.warn('[UPLOAD] Unplanned reconciliation warning:', e.message);
+      }
+
       // Determine plan period from existing C1 plans or latest dealer_visit_targets
       const latestPeriod = await dbGet(
         `SELECT period_month FROM dealer_visit_targets ORDER BY period_month DESC LIMIT 1`

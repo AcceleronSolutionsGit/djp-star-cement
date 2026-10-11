@@ -15,7 +15,7 @@ if (!fs.existsSync(uploadDir)) {
 // 1. DEALER MAPPING SAMPLE
 // ──────────────────────────────────────────────
 const mappingHeaders = [
-  'Zone', 'Cust Type', 'Area', 'Block', 'ZONAL HEAD', 'RSM', 'ASM', 'SO/SE NAME', 'DEALER NAME', 'Customer CODE'
+  'Zone', 'Cust Type', 'Area / Branch', 'Block', 'ZONAL HEAD', 'RSM', 'ASM', 'SO/SE NAME', 'DEALER NAME', 'Customer CODE'
 ];
 
 const mappingRows = [

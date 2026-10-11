@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../services/api';
-import { Activity, RefreshCw, BarChart2, CheckCircle, Clock } from 'lucide-react';
+import { Activity, RefreshCw, BarChart2, CheckCircle, Clock, Search, ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 export default function AnalyticsDashboardView({ onShowToast }) {
   const [stats, setStats] = useState(null);
@@ -8,6 +8,9 @@ export default function AnalyticsDashboardView({ onShowToast }) {
   const [loading, setLoading] = useState(true);
   const [lastSync, setLastSync] = useState(new Date());
   const [expandedEmp, setExpandedEmp] = useState(null);
+  const [officerSearch, setOfficerSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const loadData = async () => {
     setLoading(true);
@@ -34,6 +37,23 @@ export default function AnalyticsDashboardView({ onShowToast }) {
     }, 60000);
     return () => clearInterval(interval);
   }, []);
+
+  const filteredEmployees = useMemo(() => {
+    if (!adherence?.by_employee) return [];
+    if (!officerSearch.trim()) return adherence.by_employee;
+    const q = officerSearch.toLowerCase();
+    return adherence.by_employee.filter(e =>
+      (e.emp_name || '').toLowerCase().includes(q) ||
+      (e.emp_code || '').toLowerCase().includes(q) ||
+      (e.role || '').toLowerCase().includes(q)
+    );
+  }, [adherence, officerSearch]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredEmployees.length / pageSize));
+  const paginatedEmployees = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredEmployees.slice(start, start + pageSize);
+  }, [filteredEmployees, page, pageSize]);
 
   return (
     <div style={{ padding: 20 }}>
@@ -103,10 +123,32 @@ export default function AnalyticsDashboardView({ onShowToast }) {
         </div>
 
         <div className="content-card" style={{ marginTop: 20 }}>
-          <div className="card-title-bar">
+          <div className="card-title-bar" style={{ flexWrap: 'wrap', gap: 12 }}>
             <div>
-              <div className="card-title">Adherence by officer</div>
+              <div className="card-title">Adherence by Officer ({filteredEmployees.length})</div>
               <div className="card-subtitle">lowest first · click a row for the missed dealers</div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div className="input-with-icon" style={{ minWidth: 220 }}>
+                <Search size={14} className="input-icon" />
+                <input
+                  className="form-control"
+                  placeholder="Search officer name, code, role..."
+                  style={{ height: 32, fontSize: '.8rem' }}
+                  value={officerSearch}
+                  onChange={e => { setOfficerSearch(e.target.value); setPage(1); }}
+                />
+                {officerSearch && (
+                  <button
+                    type="button"
+                    onClick={() => { setOfficerSearch(''); setPage(1); }}
+                    style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)' }}
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
           <div className="table-responsive">
@@ -122,7 +164,7 @@ export default function AnalyticsDashboardView({ onShowToast }) {
                 </tr>
               </thead>
               <tbody>
-                {adherence.by_employee && adherence.by_employee.map(e => (
+                {paginatedEmployees.map(e => (
                   <React.Fragment key={`${e.role}-${e.emp_code}`}>
                     <tr className="op-row" onClick={() => setExpandedEmp(expandedEmp === e.emp_code ? null : e.emp_code)}>
                       <td>
@@ -179,13 +221,43 @@ export default function AnalyticsDashboardView({ onShowToast }) {
                     )}
                   </React.Fragment>
                 ))}
-                {(!adherence.by_employee || adherence.by_employee.length === 0) && (
+                {filteredEmployees.length === 0 && (
                   <tr><td colSpan={7} style={{ textAlign: 'center', padding: 36, color: 'var(--text-tertiary)' }}>
-                    No plans found for {adherence.period_month}.
+                    No officers found matching search criteria.
                   </td></tr>
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--border-subtle)', fontSize: '.82rem' }}>
+            <span>
+              Showing {filteredEmployees.length === 0 ? 0 : (page - 1) * pageSize + 1}–{Math.min(page * pageSize, filteredEmployees.length)} of {filteredEmployees.length} officers
+            </span>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                style={{ padding: '3px 10px', height: '28px', fontSize: '.78rem' }}
+                disabled={page <= 1}
+                onClick={() => setPage(page - 1)}
+              >
+                <ChevronLeft size={13} /> Prev
+              </button>
+              <span style={{ padding: '0 8px', fontWeight: 600 }}>
+                Page {page} of {totalPages}
+              </span>
+              <button
+                type="button"
+                className="btn btn-outline"
+                style={{ padding: '3px 10px', height: '28px', fontSize: '.78rem' }}
+                disabled={page >= totalPages}
+                onClick={() => setPage(page + 1)}
+              >
+                Next <ChevronRight size={13} />
+              </button>
+            </div>
           </div>
         </div>
       </>

@@ -546,11 +546,27 @@ export const api = {
     if (params.route && params.route !== 'ALL') query.append('route', params.route);
     if (params.visitStatus && params.visitStatus !== 'ALL') query.append('visitStatus', params.visitStatus);
     if (params.customerType && params.customerType !== 'ALL') query.append('customerType', params.customerType);
+    if (params.planType && params.planType !== 'ALL') query.append('planType', params.planType);
     query.append('limit', params.limit || 50);
     query.append('offset', params.offset || 0);
 
     const res = await fetchWithAuth(`${API_BASE}/master/visit-logs?${query.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch visit logs');
+    return res.json();
+  },
+
+  getUnplannedVisits: async (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.startDate) query.append('startDate', params.startDate);
+    if (params.endDate) query.append('endDate', params.endDate);
+    if (params.periodMonth) query.append('periodMonth', params.periodMonth);
+    if (params.employeeCode && params.employeeCode !== 'ALL') query.append('employeeCode', params.employeeCode);
+    query.append('limit', params.limit || 100);
+    query.append('offset', params.offset || 0);
+
+    const res = await fetchWithAuth(`${API_BASE}/sfa/unplanned-visits?${query.toString()}`);
+    if (!res.ok) throw new Error('Failed to fetch unplanned visits');
     return res.json();
   }
 };

@@ -282,6 +282,7 @@ export default function MasterDataRepositoryView({ onShowToast }) {
     route: 'ALL',
     visitStatus: 'ALL',
     customerType: 'ALL',
+    planType: 'ALL',
     search: ''
   });
 
@@ -417,6 +418,7 @@ export default function MasterDataRepositoryView({ onShowToast }) {
           route: sfaFilters.route,
           visitStatus: sfaFilters.visitStatus,
           customerType: sfaFilters.customerType,
+          planType: sfaFilters.planType,
           limit: pageSize,
           offset
         });
@@ -499,7 +501,7 @@ export default function MasterDataRepositoryView({ onShowToast }) {
     } else if (activeTab === 'SALES_HISTORY') {
       setSalesFilters({ period: 'ALL', zone: 'ALL', search: '' });
     } else if (activeTab === 'SFA_REPORT') {
-      setSfaFilters({ visitDate: 'ALL', employeeName: 'ALL', branch: 'ALL', route: 'ALL', visitStatus: 'ALL', customerType: 'ALL', search: '' });
+      setSfaFilters({ visitDate: 'ALL', employeeName: 'ALL', branch: 'ALL', route: 'ALL', visitStatus: 'ALL', customerType: 'ALL', planType: 'ALL', search: '' });
     } else if (activeTab === 'DEALER_PERFORMANCE') {
       setDpFilters({ period: 'ALL', zone: 'ALL', region: 'ALL', area: 'ALL', search: '' });
     }
@@ -813,6 +815,7 @@ export default function MasterDataRepositoryView({ onShowToast }) {
               <FilterSelect options={filterOptions.logBranches} value={sfaFilters.branch} onChange={v => { setSfaFilters(prev => ({ ...prev, branch: v })); setPage(1); }} placeholder="Branches" width="130px" />
               <FilterSelect options={filterOptions.logRoutes} value={sfaFilters.route} onChange={v => { setSfaFilters(prev => ({ ...prev, route: v })); setPage(1); }} placeholder="Routes" width="140px" />
               <FilterSelect options={filterOptions.logStatuses} value={sfaFilters.visitStatus} onChange={v => { setSfaFilters(prev => ({ ...prev, visitStatus: v })); setPage(1); }} placeholder="Statuses" width="130px" />
+              <FilterSelect options={['UNPLANNED', 'PLANNED']} value={sfaFilters.planType} onChange={v => { setSfaFilters(prev => ({ ...prev, planType: v })); setPage(1); }} placeholder="Plan Type" width="130px" />
 
               <div style={{ position: 'relative', width: '220px', minWidth: '220px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '3px' }}>
                 <label style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Search</label>
@@ -1020,7 +1023,7 @@ export default function MasterDataRepositoryView({ onShowToast }) {
                   <th>SFA CODE</th>
                   <th>Customer Name</th>
                   <th>Cust Type</th>
-                  <th>Branch Name</th>
+                  <th>Area / Branch</th>
                   <th>SO CODE</th>
                   <th>SO NAME</th>
                   <th>ASM CODE</th>
@@ -1044,7 +1047,7 @@ export default function MasterDataRepositoryView({ onShowToast }) {
                       <td><code style={{ color: 'var(--star-red)' }}>{m.sfa_code || '-'}</code></td>
                       <td><strong>{m.dealer_name}</strong></td>
                       <td><span className="badge badge-needgrow">{m.dealer_type || 'DEALER'}</span></td>
-                      <td>{m.branch || '-'}</td>
+                      <td>{m.area || m.branch || '-'}</td>
                       <td><code>{m.so_emp_code || '-'}</code></td>
                       <td><b>{m.so_name || '-'}</b></td>
                       <td><code>{m.asm_code || '-'}</code></td>
@@ -1151,6 +1154,7 @@ export default function MasterDataRepositoryView({ onShowToast }) {
                 <tr>
                   <th>#</th>
                   <th>Visit Date</th>
+                  <th>Plan Type</th>
                   <th>Customer Code</th>
                   <th>Customer Name</th>
                   <th>Customer Type</th>
@@ -1166,9 +1170,9 @@ export default function MasterDataRepositoryView({ onShowToast }) {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan="13" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading SFA Visit Feedback Logs...</td></tr>
+                  <tr><td colSpan="14" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading SFA Visit Feedback Logs...</td></tr>
                 ) : currentDataset.items.length === 0 ? (
-                  <tr><td colSpan="13" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No visit log records found matching filters.</td></tr>
+                  <tr><td colSpan="14" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No visit log records found matching filters.</td></tr>
                 ) : (
                   currentDataset.items.map((v, idx) => {
                     let displayDate = v.visit_date;
@@ -1183,6 +1187,35 @@ export default function MasterDataRepositoryView({ onShowToast }) {
                       <tr key={v.id || idx}>
                         <td>{(page - 1) * pageSize + idx + 1}</td>
                         <td><b>{displayDate}</b></td>
+                        <td>
+                          {v.is_unplanned ? (
+                            <span style={{
+                              display: 'inline-block',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              background: '#FEF3C7',
+                              color: '#B45309',
+                              border: '1px solid #FCD34D'
+                            }}>
+                              Unplanned
+                            </span>
+                          ) : (
+                            <span style={{
+                              display: 'inline-block',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              fontSize: '0.72rem',
+                              fontWeight: 600,
+                              background: '#DCFCE7',
+                              color: '#15803D',
+                              border: '1px solid #86EFAC'
+                            }}>
+                              Planned
+                            </span>
+                          )}
+                        </td>
                         <td><code>{v.customer_code}</code></td>
                         <td><strong>{v.customer_name || '-'}</strong></td>
                         <td><span className="badge badge-needgrow">{v.customer_type || 'DEALER'}</span></td>

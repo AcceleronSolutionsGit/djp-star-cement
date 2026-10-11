@@ -111,7 +111,7 @@ export default function TerritoryMappingView({ onShowToast }) {
                 <th>SFA CODE</th>
                 <th>Customer Name</th>
                 <th>Cust Type</th>
-                <th>Branch Name</th>
+                <th>Area / Branch</th>
                 <th>SO CODE</th>
                 <th>SO NAME</th>
                 <th>ASM CODE</th>
@@ -143,7 +143,7 @@ export default function TerritoryMappingView({ onShowToast }) {
                     <td><code style={{ color: 'var(--star-red)' }}>{m.sfa_code || '-'}</code></td>
                     <td><strong>{m.dealer_name}</strong></td>
                     <td><span className="badge badge-needgrow">{m.dealer_type || 'DEALER'}</span></td>
-                    <td>{m.branch || '-'}</td>
+                    <td>{m.area || m.branch || '-'}</td>
                     <td><code>{m.so_emp_code || '-'}</code></td>
                     <td><b>{m.so_name || '-'}</b></td>
                     <td><code>{m.asm_code || '-'}</code></td>

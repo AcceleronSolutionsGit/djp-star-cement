@@ -1156,6 +1156,11 @@ export async function getMasterView(req, res) {
 
 export async function exportSfaLogsExcel(req, res) {
   try {
+    // Calculate T-1 Day (yesterday relative to current execution date)
+    const now = new Date();
+    const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    const tMinus1 = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+
     const rows = await dbAll(`
       SELECT 
         v.visit_date, 
@@ -1172,14 +1177,18 @@ export async function exportSfaLogsExcel(req, res) {
         v.duration, 
         v.visit_status, 
         v.purpose_of_visit, 
-        v.remarks 
+        v.remarks,
+        v.is_unplanned
       FROM visit_execution_logs v
       LEFT JOIN master_dealers d ON d.sfa_code = v.customer_code
+      WHERE v.visit_date <= ?
       ORDER BY v.visit_date DESC LIMIT 50000
-    `);
+    `, [tMinus1]);
+
     const XLSX = await import('xlsx');
     const worksheet = XLSX.utils.json_to_sheet(rows.map(r => ({
-      'Date of Visit': r.visit_date,
+      'Date of Visit': String(r.visit_date || '').slice(0, 10),
+      'Plan Type': (r.is_unplanned === 1 || r.is_unplanned === true) ? 'Unplanned' : 'Planned',
       'SFA Customer Code': r.sfa_code,
       'Mapped SAP Code': r.mapped_sap_code || 'Unmapped',
       'Customer Name': r.customer_name,
@@ -1198,7 +1207,7 @@ export async function exportSfaLogsExcel(req, res) {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'SFA Logs');
     const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-    res.setHeader('Content-Disposition', 'attachment; filename="SFA_Logs_Export_Mapped.xlsx"');
+    res.setHeader('Content-Disposition', `attachment; filename="SFA_Report_Till_T-1_${tMinus1}.xlsx"`);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.send(buffer);
   } catch (err) {

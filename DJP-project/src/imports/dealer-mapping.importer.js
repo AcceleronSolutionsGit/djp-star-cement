@@ -18,8 +18,8 @@ const HEADER_MAP = {
   'dealer sap code': 'sap_code',
   'dealer name': 'dealer_name',
   'account name': 'dealer_name',
-  'branch': 'branch',
-  'branch name': 'branch',
+  'branch': 'area',
+  'branch name': 'area',
   'region': 'region',
   'so name': 'so_name',
   'so e code': 'so_emp_code',
@@ -221,14 +221,11 @@ export async function importDealerMapping(filePath, batchCode = null) {
     const rawDealerName = getCell(row, 'dealer_name');
     const custType = getCell(row, 'cust_type') || 'STAR';
 
-    // Dealer Mapping Area — authoritative Area source (stored in dm_area)
-    // Branch is a separate concept — used for mapping/grouping, not the Area field
-    const branch = getCell(row, 'branch');
     const territoryCode = normalizeCode(getCell(row, 'territory_code'));
     const territoryName = getCell(row, 'territory_name');
-    // dm_area: strictly from the 'area' column in Dealer Mapping
-    // Falls back to territory_name only if area column is absent
+    // Area and Branch are identical entities. Take input from area, branch, or territory.
     const dmArea = getCell(row, 'area') || territoryName || null;
+    const branch = dmArea; // Keep variable for database insertion so both columns get the same value
     const region = getCell(row, 'region') || getCell(row, 'zone');
     const zone = getCell(row, 'zone') || getCell(row, 'region');
     const soName = getCell(row, 'so_name');

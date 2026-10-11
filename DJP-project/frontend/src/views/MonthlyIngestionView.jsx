@@ -1,19 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { api, API_BASE } from '../services/api';
-import { UploadCloud, Plus, Zap, FileSpreadsheet, CheckCircle2, Clock, X, Trash2, HelpCircle, RefreshCw, AlertCircle } from 'lucide-react';
+import { UploadCloud, Plus, Zap, FileSpreadsheet, CheckCircle2, Clock, X, Trash2, HelpCircle, RefreshCw, AlertCircle, Search } from 'lucide-react';
 
 const SCHEMAS = [
-  { type: 'DEALER_MAPPING', name: 'Dealer - SO Territory Hierarchy Mapping', templateFile: '01_Dealer_Mapping_Template.xlsx', cols: ['SAP Code', 'SFA Code', 'Dealer Name', 'Cust Type', 'Area', 'Zone', 'Block', 'SO Name', 'SO Emp Code', 'ASM Name', 'ASM Code', 'RSM Name', 'RSM Code', 'ZH Name', 'ZH Code', 'Counter Potential', 'DOA'] },
+  { type: 'DEALER_MAPPING', name: 'Dealer - SO Territory Hierarchy Mapping', templateFile: '01_Dealer_Mapping_Template.xlsx', cols: ['SAP Code', 'SFA Code', 'Dealer Name', 'Cust Type', 'Area / Branch', 'Zone', 'Block', 'SO Name', 'SO Emp Code', 'ASM Name', 'ASM Code', 'RSM Name', 'RSM Code', 'ZH Name', 'ZH Code', 'Counter Potential', 'DOA'] },
   { type: 'DEALER_PERFORMANCE', name: 'Dealer Performance & Historical Sales', templateFile: '02_Dealer_Performance_Template.xlsx', cols: ['SAP', 'CODE', 'DEALERS NAME', 'AREA', 'REGION', 'DOA', 'Targeted Dealer', 'EXCLUSIVE DEALER', "June'26 Tgt", 'Prorata Tgt', "June'26 SALE", "May'26 DEALER", 'June-25 SALE', 'Jan-26 SALE', 'Feb-26 SALE', 'Mar-26 SALE', 'Apr-26 SALE', 'May-26 SALE', 'Jun-26 SALE', 'Last 6 Months Avg Sales'] },
   { type: 'SBG', name: 'SBG Dealer Master & Counter Potential', templateFile: '03_SBG_Master_Template.xlsx', cols: ['Customer Code', 'Dealer Name', 'Territory Code', 'Territory Name', 'Block (Taluka)', 'Counter Potential Average (MT)', 'Zone', 'SO Code', 'SO Name', 'ASM Code', 'ASM Name', 'RSM Code', 'RSM Name', 'ZH Code', 'ZH Name', 'Status in SAP', 'Dealer Start Date'] },
   { type: 'SALES_HISTORY', name: 'Period Sales History (RSAR / ERP)', templateFile: '04_Sales_History_RSAR_Template.xlsx', cols: ['SAP Code', 'Sub Dealer Name', 'LinkedDealerCode', 'Linked Dealer Name', 'Zone', 'Monthly Sales Columns (e.g. Jan-26, Feb-26, Mar-26, Apr-26, May-26, Jun-26)'] },
-  { type: 'PROSPECT_DEALERS', name: 'Prospect Dealer Intake', templateFile: '05_Prospect_Dealers_Template.xlsx', cols: ['Prospective Dealer Name', 'SFA Code', 'Zone', 'Area', 'Taluka', 'Name of SO', 'SO Emp Code', 'Potential', 'Expected Sale', 'Status'] },
+  { type: 'PROSPECT_DEALERS', name: 'Prospect Dealer Intake', templateFile: '05_Prospect_Dealers_Template.xlsx', cols: ['Prospective Dealer Name', 'SFA Code', 'Zone', 'Area / Branch', 'Taluka', 'Name of SO', 'SO Emp Code', 'Potential', 'Expected Sale', 'Status'] },
   { type: 'SFA_REPORT', name: 'SFA Visit Execution Feedback', templateFile: null, cols: ['Visit Date', 'Customer Code', 'Customer Name', 'Employee Code', 'Employee Name', 'Check In Time', 'Duration'] },
   { type: 'VISIT_TARGETS_OVERRIDE', name: 'Generated Visit Targets (Bulk Edit)', templateFile: null, cols: ['Customer Code', 'SO Visits', 'ASM Visits', 'RSM Visits', 'ZH Visits'] }
 ];
 
-export default function MonthlyIngestionView({ 
-  onShowToast, 
+export default function MonthlyIngestionView({
+  onShowToast,
   onTriggerDjp,
   onRegenerateC2,
   selectedPeriod,
@@ -36,8 +36,23 @@ export default function MonthlyIngestionView({
   const [periodMonth, setPeriodMonth] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [reconciliation, setReconciliation] = useState(null);
-  const [readiness, setReadiness] = useState(null);
   const [sfaUploadResult, setSfaUploadResult] = useState(null); // tracks last SFA upload result
+  const [sfaSyncSummary, setSfaSyncSummary] = useState(null);
+  const [unplannedSearch, setUnplannedSearch] = useState('');
+
+  const filteredUnplannedVisits = React.useMemo(() => {
+    if (!sfaSyncSummary?.unplannedVisits) return [];
+    if (!unplannedSearch.trim()) return sfaSyncSummary.unplannedVisits;
+    const q = unplannedSearch.toLowerCase();
+    return sfaSyncSummary.unplannedVisits.filter(v => 
+      String(v.employee_name || '').toLowerCase().includes(q) ||
+      String(v.employee_code || '').toLowerCase().includes(q) ||
+      String(v.customer_name || '').toLowerCase().includes(q) ||
+      String(v.customer_code || '').toLowerCase().includes(q) ||
+      String(v.branch || '').toLowerCase().includes(q) ||
+      String(v.route || '').toLowerCase().includes(q)
+    );
+  }, [sfaSyncSummary, unplannedSearch]);
 
   const [generatedPlans, setGeneratedPlans] = useState([]);
   const [loadingPlans, setLoadingPlans] = useState(false);
@@ -84,7 +99,7 @@ export default function MonthlyIngestionView({
   const autoDetectType = (file) => {
     if (!file) return;
     const name = file.name.toLowerCase();
-    
+
     let detected = '';
     if (name.includes('sbg')) detected = 'SBG';
     else if (name.includes('performance')) detected = 'DEALER_PERFORMANCE';
@@ -134,7 +149,7 @@ export default function MonthlyIngestionView({
     setUploading(true);
     setProgress(0);
     setProgressText('Uploading file...');
-    
+
     const progressInterval = setInterval(() => {
       setProgress(prev => {
         if (prev >= 90) return prev;
@@ -154,13 +169,13 @@ export default function MonthlyIngestionView({
       clearInterval(progressInterval);
       setProgressText('Processing complete!');
       setProgress(100);
-      
+
       setTimeout(() => {
         const { batchCode, rowsProcessed, counts, batchStatus, monthsFound, sfaFeedbackTriggered, c2RegenerationPeriod } = res;
         const dupInfo = counts?.duplicateRows > 0 ? `, ${counts.duplicateRows} duplicates skipped` : '';
         const invalidInfo = counts?.invalidRows > 0 ? `, ${counts.invalidRows} invalid rows` : '';
         const monthInfo = monthsFound?.length > 0 ? ` | Months: ${monthsFound.slice(0, 3).join(', ')}${monthsFound.length > 3 ? '...' : ''}` : '';
-        
+
         const toastType = batchStatus === 'PARTIAL' ? 'warning' : 'success';
         const toastMsg = `Batch ${batchCode}: ${rowsProcessed} rows ingested${dupInfo}${invalidInfo}${monthInfo}`;
         onShowToast(toastMsg, toastType);
@@ -196,7 +211,7 @@ export default function MonthlyIngestionView({
     setSyncing(true);
     setProgress(0);
     setProgressText('Syncing live SFA data day-by-day (this takes about 5-7 minutes)...');
-    
+
     // Simulate a 5-minute progress bar
     const progressInterval = setInterval(() => {
       setProgress(prev => {
@@ -206,7 +221,7 @@ export default function MonthlyIngestionView({
     }, 3000);
 
     onShowToast('Syncing SFA execution logs from live API in the background...', 'info');
-    
+
     let is504 = false;
     try {
       const res = await fetch(`${API_BASE}/sfa/sync`, { method: 'POST' });
@@ -228,11 +243,23 @@ export default function MonthlyIngestionView({
           }, 330000); // 5.5 minutes
         } else {
           let errorData;
-          try { errorData = await res.json(); } catch(e) {}
+          try { errorData = await res.json(); } catch (e) { }
           throw new Error(errorData?.error || 'API Sync Failed');
         }
       } else {
-        onShowToast('SFA Sync completed successfully!', 'success');
+        let syncData = null;
+        try { syncData = await res.json(); } catch (e) { }
+        if (syncData) {
+          setSfaSyncSummary(syncData);
+          const upCount = syncData.unplannedCount ?? (syncData.unplannedVisits?.length || 0);
+          if (upCount > 0) {
+            onShowToast(`SFA Sync complete! ${upCount} unplanned visit(s) identified (Data till T-1: ${syncData.syncedUntil || 'yesterday'}).`, 'info');
+          } else {
+            onShowToast(`SFA Sync complete! All visits matched planned schedules (Data till T-1: ${syncData.syncedUntil || 'yesterday'}).`, 'success');
+          }
+        } else {
+          onShowToast('SFA Sync completed successfully!', 'success');
+        }
         loadBatches();
         clearInterval(progressInterval);
         setProgress(100);
@@ -240,7 +267,7 @@ export default function MonthlyIngestionView({
         setTimeout(() => {
           setProgress(0);
           setSyncing(false);
-        }, 2000);
+        }, 1500);
       }
     } catch (err) {
       onShowToast(err.message || 'Failed to sync SFA data', 'error');
@@ -332,10 +359,10 @@ export default function MonthlyIngestionView({
               <HelpCircle size={16} />
               <span>Excel Schema Guide</span>
             </button>
-            <a 
-              href={`${API_BASE}/djp/export-master`} 
-              className="btn btn-outline" 
-              target="_blank" 
+            <a
+              href={`${API_BASE}/djp/export-master`}
+              className="btn btn-outline"
+              target="_blank"
               rel="noreferrer"
               style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#16a34a', borderColor: '#16a34a', fontWeight: 600 }}
               title="Download 22-column Master Report Excel"
@@ -343,10 +370,10 @@ export default function MonthlyIngestionView({
               <FileSpreadsheet size={16} />
               <span>Download Masters Excel</span>
             </a>
-            <a 
-              href={`${API_BASE}/djp/export-visits`} 
-              className="btn btn-outline" 
-              target="_blank" 
+            <a
+              href={`${API_BASE}/djp/export-visits`}
+              className="btn btn-outline"
+              target="_blank"
               rel="noreferrer"
               style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#2563eb', borderColor: '#2563eb', fontWeight: 600 }}
               title="Download Visits Planned Excel"
@@ -354,16 +381,16 @@ export default function MonthlyIngestionView({
               <FileSpreadsheet size={16} />
               <span>Download Visits Planned</span>
             </a>
-            <a 
-              href={`${API_BASE}/djp/export-sfa-logs`} 
-              className="btn btn-outline" 
-              target="_blank" 
+            <a
+              href={`${API_BASE}/djp/export-sfa-logs`}
+              className="btn btn-outline"
+              target="_blank"
               rel="noreferrer"
               style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#8B5CF6', borderColor: '#8B5CF6', fontWeight: 600 }}
-              title="Download SFA Execution Logs Excel"
+              title="Download SFA Execution Logs Excel (Till T-1 Day)"
             >
               <FileSpreadsheet size={16} />
-              <span>Download SFA Report</span>
+              <span>Download SFA Report (Till T-1)</span>
             </a>
             <button className="btn btn-outline" onClick={handleSfaSync} disabled={syncing} style={{ color: '#16A34A', borderColor: '#16A34A' }}>
               <RefreshCw size={16} className={syncing ? 'spin' : ''} />
@@ -433,8 +460,8 @@ export default function MonthlyIngestionView({
               </select>
             </div>
 
-              <button 
-              className="btn btn-generate" 
+            <button
+              className="btn btn-generate"
               onClick={onTriggerDjp}
               style={{
                 opacity: readiness && !readiness.allAvailable ? 0.7 : 1,
@@ -480,7 +507,7 @@ export default function MonthlyIngestionView({
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', marginTop: '12px' }}>
           {readiness?.required?.map(req => (
-            <div 
+            <div
               key={req.key}
               style={{
                 display: 'flex',
@@ -549,6 +576,206 @@ export default function MonthlyIngestionView({
                 </span>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* SFA Sync / Upload Results with Unplanned Visits Display */}
+      {sfaSyncSummary && (
+        <div className="content-card" style={{
+          marginTop: '16px',
+          border: '2px solid #F59E0B',
+          background: 'linear-gradient(135deg, #FFFBEB 0%, #FFFFFF 100%)',
+          position: 'relative',
+          padding: '20px',
+          borderRadius: '12px',
+          boxShadow: '0 4px 12px rgba(245, 158, 11, 0.08)'
+        }}>
+          <button
+            onClick={() => setSfaSyncSummary(null)}
+            style={{ position: 'absolute', top: '16px', right: '16px', background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}
+            title="Dismiss"
+          >
+            <X size={18} />
+          </button>
+          
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px', marginBottom: '16px' }}>
+            <div style={{
+              width: '44px', height: '44px', borderRadius: '10px',
+              background: 'linear-gradient(135deg, #F59E0B, #D97706)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0
+            }}>
+              <CheckCircle2 size={24} color="white" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#92400E' }}>
+                  Live SFA Report Synced Successfully
+                </h4>
+                {sfaSyncSummary.syncedUntil && (
+                  <span style={{
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    background: '#FEF3C7',
+                    color: '#B45309',
+                    border: '1px solid #FCD34D',
+                    padding: '2px 8px',
+                    borderRadius: '6px'
+                  }}>
+                    Data Till T-1: {sfaSyncSummary.syncedUntil}
+                  </span>
+                )}
+                {sfaSyncSummary.batchCode && (
+                  <span style={{ fontSize: '0.75rem', color: '#64748B', fontFamily: 'monospace' }}>
+                    {sfaSyncSummary.batchCode}
+                  </span>
+                )}
+              </div>
+              <p style={{ margin: '4px 0 0 0', fontSize: '0.84rem', color: '#78350F' }}>
+                Reconciled actual SFA execution logs against planned officer journey schedules.
+              </p>
+            </div>
+          </div>
+
+          {/* Quick Metrics Bar */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+            gap: '12px',
+            marginBottom: '18px',
+            background: 'white',
+            padding: '12px 16px',
+            borderRadius: '8px',
+            border: '1px solid #FDE68A'
+          }}>
+            <div>
+              <div style={{ fontSize: '0.72rem', color: '#64748B', textTransform: 'uppercase', fontWeight: 700 }}>Total Synced Visits</div>
+              <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#1E293B' }}>{sfaSyncSummary.inserted ?? sfaSyncSummary.totalVisits ?? 0}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '0.72rem', color: '#64748B', textTransform: 'uppercase', fontWeight: 700 }}>Planned Visits</div>
+              <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#16A34A' }}>{sfaSyncSummary.plannedCount ?? 0}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '0.72rem', color: '#B45309', textTransform: 'uppercase', fontWeight: 700 }}>Unplanned Visits</div>
+              <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#DC2626' }}>
+                {sfaSyncSummary.unplannedCount ?? (sfaSyncSummary.unplannedVisits?.length || 0)}
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+              <a
+                href={`${API_BASE}/djp/export-sfa-logs`}
+                className="btn btn-outline btn-sm"
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: '#8B5CF6', borderColor: '#8B5CF6', display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.8rem', fontWeight: 600 }}
+              >
+                <FileSpreadsheet size={14} />
+                <span>Download SFA Report (Till T-1)</span>
+              </a>
+            </div>
+          </div>
+
+          {/* Unplanned Visits Table Section */}
+          <div style={{ background: 'white', borderRadius: '8px', border: '1px solid #E2E8F0', overflow: 'hidden' }}>
+            <div style={{
+              padding: '12px 16px',
+              background: '#F8FAFC',
+              borderBottom: '1px solid #E2E8F0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '10px'
+            }}>
+              <div>
+                <span style={{ fontSize: '0.88rem', fontWeight: 700, color: '#0F172A' }}>
+                  Unplanned Visits Made by Officers ({filteredUnplannedVisits.length})
+                </span>
+                <span style={{ fontSize: '0.75rem', color: '#64748B', marginLeft: '8px' }}>
+                  Visits logged in SFA that were not part of the active schedule
+                </span>
+              </div>
+              <div style={{ position: 'relative', width: '240px' }}>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Search officer / dealer / branch..."
+                  value={unplannedSearch}
+                  onChange={e => setUnplannedSearch(e.target.value)}
+                  style={{ fontSize: '0.78rem', paddingLeft: '28px', height: '30px' }}
+                />
+                <Search size={13} style={{ position: 'absolute', left: '8px', top: '9px', color: '#94A3B8' }} />
+              </div>
+            </div>
+
+            {filteredUnplannedVisits.length === 0 ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: '#64748B', fontSize: '0.85rem' }}>
+                {sfaSyncSummary.unplannedVisits?.length === 0
+                  ? 'No unplanned visits detected. All officer visits adhered to planned schedules.'
+                  : 'No unplanned visits match the search filter.'}
+              </div>
+            ) : (
+              <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                  <thead style={{ position: 'sticky', top: 0, background: '#F1F5F9', zIndex: 1 }}>
+                    <tr>
+                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>#</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Visit Date</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Officer Name</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Officer Code</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Customer Code</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Customer Name</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Branch / Area</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Route</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Status</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredUnplannedVisits.map((uv, idx) => (
+                      <tr key={uv.id || idx} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                        <td style={{ padding: '8px 12px', color: '#64748B' }}>{idx + 1}</td>
+                        <td style={{ padding: '8px 12px', fontWeight: 600 }}>{uv.visit_date}</td>
+                        <td style={{ padding: '8px 12px', fontWeight: 600, color: '#0F172A' }}>{uv.employee_name}</td>
+                        <td style={{ padding: '8px 12px' }}><code>{uv.employee_code}</code></td>
+                        <td style={{ padding: '8px 12px' }}><code>{uv.customer_code}</code></td>
+                        <td style={{ padding: '8px 12px', fontWeight: 600 }}>{uv.customer_name}</td>
+                        <td style={{ padding: '8px 12px' }}>{uv.branch || '-'}</td>
+                        <td style={{ padding: '8px 12px' }}>{uv.route || '-'}</td>
+                        <td style={{ padding: '8px 12px' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            fontSize: '0.7rem',
+                            fontWeight: 600,
+                            background: '#EFF6FF',
+                            color: '#1D4ED8'
+                          }}>
+                            {uv.visit_status || 'Completed'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px 12px' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
+                            background: '#FEF3C7',
+                            color: '#B45309'
+                          }}>
+                            {uv.reason || "Dealer not on officer's plan"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -684,8 +911,8 @@ export default function MonthlyIngestionView({
                 <UploadCloud size={20} color="var(--star-red)" />
                 Upload Excel File
               </h3>
-              <button 
-                className="btn-icon" 
+              <button
+                className="btn-icon"
                 onClick={() => setShowModal(false)}
                 disabled={uploading}
                 type="button"
@@ -829,10 +1056,10 @@ export default function MonthlyIngestionView({
                 <button type="button" className="btn btn-outline" onClick={() => setShowModal(false)} disabled={uploading}>
                   Cancel
                 </button>
-                <button 
-                  type={selectedFile ? 'submit' : 'button'} 
-                  className="btn btn-primary" 
-                  disabled={uploading} 
+                <button
+                  type={selectedFile ? 'submit' : 'button'}
+                  className="btn btn-primary"
+                  disabled={uploading}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                   onClick={() => {
                     if (!selectedFile) {
@@ -842,10 +1069,10 @@ export default function MonthlyIngestionView({
                 >
                   <UploadCloud size={16} />
                   <span>
-                    {uploading 
-                      ? 'Uploading...' 
-                      : selectedFile 
-                        ? 'Upload Selected Excel' 
+                    {uploading
+                      ? 'Uploading...'
+                      : selectedFile
+                        ? 'Upload Selected Excel'
                         : 'Select & Upload Excel'}
                   </span>
                 </button>

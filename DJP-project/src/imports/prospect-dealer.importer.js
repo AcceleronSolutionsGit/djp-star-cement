@@ -90,7 +90,7 @@ export async function importProspectDealers(filePath, batchCode = null) {
     const s = String(val).trim();
     return s === '' || s === '-' ? null : s;
   };
-  
+
   const getCellNum = (row, field) => {
     const idx = colMap[field];
     if (idx === undefined || idx === -1) return 0;

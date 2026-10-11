@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import XLSX from 'xlsx';
 import { dbRun, dbGet, dbAll } from '../config/database.js';
 import { regenerateC2Plans } from '../controllers/generation.controller.js';
+import { reconcileUnplannedVisits } from './unplannedVisits.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,7 +23,11 @@ export async function syncSfaDataFromApi() {
     let targetMonth = new Date().getMonth();
     
     const formatYMD = (y, m, d) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    let endDate = formatYMD(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate());
+    
+    // T-1 Day (yesterday relative to current execution date)
+    const now = new Date();
+    const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    let endDate = formatYMD(yesterday.getFullYear(), yesterday.getMonth() + 1, yesterday.getDate());
 
     try {
       const latestPeriodRow = await dbGet(`SELECT period_month FROM dealer_visit_targets ORDER BY period_month DESC LIMIT 1`);
@@ -32,7 +37,7 @@ export async function syncSfaDataFromApi() {
         targetMonth = parseInt(m, 10) - 1;
         
         // If the active period is a past month, fetch until the last day of that month
-        if (targetYear < new Date().getFullYear() || (targetYear === new Date().getFullYear() && targetMonth < new Date().getMonth())) {
+        if (targetYear < now.getFullYear() || (targetYear === now.getFullYear() && targetMonth < now.getMonth())) {
           const lastDayObj = new Date(targetYear, targetMonth + 1, 0);
           endDate = formatYMD(lastDayObj.getFullYear(), lastDayObj.getMonth() + 1, lastDayObj.getDate());
         }
@@ -42,6 +47,11 @@ export async function syncSfaDataFromApi() {
     }
 
     const startDate = formatYMD(targetYear, targetMonth + 1, 1);
+    
+    // If today is 1st of month, ensure endDate does not precede startDate for active month
+    if (endDate < startDate) {
+      endDate = startDate;
+    }
     
     const payload = {
       employee: 'all',
@@ -195,7 +205,26 @@ export async function syncSfaDataFromApi() {
 
     console.log(`[SFA_SYNC] Finished sync. Inserted ${inserted} total visits from API.`);
 
-    // 6. Trigger C2 Regeneration
+    // 6. Reconcile Planned vs Unplanned Visits
+    console.log(`[SFA_SYNC] Reconciling planned vs unplanned visits...`);
+    let unplannedVisits = [];
+    let unplannedCount = 0;
+    let plannedCount = 0;
+    try {
+      const reconciliation = await reconcileUnplannedVisits({
+        startDate,
+        endDate,
+        batchCode
+      });
+      unplannedVisits = reconciliation.unplannedVisits || [];
+      unplannedCount = reconciliation.unplannedVisitsCount || 0;
+      plannedCount = reconciliation.plannedVisitsCount || 0;
+      console.log(`[SFA_SYNC] Reconciled: ${plannedCount} planned visits, ${unplannedCount} unplanned visits.`);
+    } catch (recErr) {
+      console.warn('[SFA_SYNC] Could not reconcile unplanned visits:', recErr.message);
+    }
+
+    // 7. Trigger C2 Regeneration
     const latestPeriod = await dbGet(`SELECT period_month FROM dealer_visit_targets ORDER BY period_month DESC LIMIT 1`);
     if (latestPeriod?.period_month) {
       const fakeReq = { body: { periodMonth: latestPeriod.period_month } };
@@ -206,7 +235,15 @@ export async function syncSfaDataFromApi() {
       regenerateC2Plans(fakeReq, fakeRes).catch(e => console.error('[SFA_SYNC] C2 regen async error:', e.message));
     }
 
-    return { status: 'success', inserted, batchCode };
+    return {
+      status: 'success',
+      inserted,
+      batchCode,
+      syncedUntil: endDate,
+      unplannedCount,
+      plannedCount,
+      unplannedVisits
+    };
   } catch (error) {
     console.error('[SFA_SYNC] Failed:', error.message);
     return { status: 'error', error: error.message };
