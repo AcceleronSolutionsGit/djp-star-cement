@@ -36,6 +36,7 @@ export default function MonthlyIngestionView({
   const [periodMonth, setPeriodMonth] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [reconciliation, setReconciliation] = useState(null);
+  const [readiness, setReadiness] = useState(null);
   const [sfaUploadResult, setSfaUploadResult] = useState(null); // tracks last SFA upload result
   const [sfaSyncSummary, setSfaSyncSummary] = useState(null);
   const [unplannedSearch, setUnplannedSearch] = useState('');
@@ -469,10 +470,10 @@ export default function MonthlyIngestionView({
                 alignItems: 'center',
                 gap: '6px'
               }}
-              title={readiness && !readiness.allAvailable ? `Missing inputs: ${readiness.missing.join(', ')}` : `Generate PJP & DJP for both C1 and C2 — ${selectedPeriod || '2026-06'}`}
+              title={readiness && !readiness.allAvailable ? `Missing inputs: ${readiness.missing?.join(', ') || ''}` : `Generate PJP & DJP for both C1 and C2 — ${selectedPeriod || '2026-06'}`}
             >
               <Zap size={15} />
-              <span>Generate C1 + C2 Plans {selectedPeriod ? `(${selectedPeriod})` : ''} {readiness ? (readiness.allAvailable ? '✓ 5/5 Ready' : `(${readiness.required.filter(r => r.uploaded).length}/5 Excels)`) : ''}</span>
+              <span>Generate C1 + C2 Plans {selectedPeriod ? `(${selectedPeriod})` : ''} {readiness ? (readiness.allAvailable ? '✓ 5/5 Ready' : `(${readiness.required?.filter(r => r.uploaded).length || 0}/5 Excels)`) : ''}</span>
             </button>
           </div>
         </div>
@@ -500,7 +501,7 @@ export default function MonthlyIngestionView({
           </div>
           <div>
             <span style={{ fontSize: '0.85rem', fontWeight: 700, color: readiness?.allAvailable ? '#16a34a' : '#d97706' }}>
-              {readiness ? `${readiness.required.filter(r => r.uploaded).length} of ${readiness.required.length} Inputs Available` : 'Checking...'}
+              {readiness ? `${readiness.required?.filter(r => r.uploaded).length || 0} of ${readiness.required?.length || 5} Inputs Available` : 'Checking...'}
             </span>
           </div>
         </div>
