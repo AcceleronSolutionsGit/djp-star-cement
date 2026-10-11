@@ -2,9 +2,19 @@ import { dbRun, dbGet, dbAll } from '../config/database.js';
 
 const norm = v => String(v ?? '').trim();
 const key  = v => norm(v).toUpperCase();
+const normName = v => key(v).replace(/[^A-Z0-9]/g, '');
 
 /**
- * Ensure is_unplanned column exists on visit_execution_logs
+ * Extract parenthesized code (e.g. RSSB758, RSSD102, SDNE123) from customer name
+ */
+export function extractCodeFromName(name) {
+  if (!name) return null;
+  const match = String(name).match(/\((RSS[BD]?\w+|SDNE\w+|\d{6,}|[A-Z0-9_-]{4,})\)/i);
+  return match ? match[1].trim() : null;
+}
+
+/**
+ * Ensure is_unplanned and is_unmapped columns exist on visit_execution_logs
  */
 export async function ensureVisitExecutionLogsSchema() {
   try {
@@ -17,13 +27,33 @@ export async function ensureVisitExecutionLogsSchema() {
       await dbRun(`ALTER TABLE visit_execution_logs ADD COLUMN is_unplanned TINYINT(1) DEFAULT 0`);
     } catch (_) {}
   }
+
+  try {
+    const cols = await dbAll(`SHOW COLUMNS FROM visit_execution_logs LIKE 'is_unmapped'`);
+    if (!cols || cols.length === 0) {
+      await dbRun(`ALTER TABLE visit_execution_logs ADD COLUMN is_unmapped TINYINT(1) DEFAULT 0 COMMENT '0=Mapped, 1=Unmapped customer'`);
+    }
+  } catch (e) {
+    try {
+      await dbRun(`ALTER TABLE visit_execution_logs ADD COLUMN is_unmapped TINYINT(1) DEFAULT 0`);
+    } catch (_) {}
+  }
+
+  // Create helper indexes if possible
+  try {
+    await dbRun(`CREATE INDEX idx_vel_unplanned_date ON visit_execution_logs (is_unplanned, visit_date)`);
+  } catch (_) {}
+  try {
+    await dbRun(`CREATE INDEX idx_vel_unmapped_date ON visit_execution_logs (is_unmapped, visit_date)`);
+  } catch (_) {}
 }
 
 /**
- * Build dealer code index: Customer code (SAP/SFA/RSSD) -> canonical SAP code + info
+ * Build dealer code index: Customer code (SAP/SFA/RSSD/Name) -> canonical SAP code + info
  */
 export async function buildDealerLookupIndex() {
   const index = new Map();
+  const nameIndex = new Map();
 
   // 1. From dealer_visit_targets
   try {
@@ -43,6 +73,14 @@ export async function buildDealerLookupIndex() {
         const k = key(c);
         if (k && !index.has(k)) index.set(k, info);
       }
+      const codeInName = extractCodeFromName(d.dealer_name);
+      if (codeInName && !index.has(key(codeInName))) {
+        index.set(key(codeInName), info);
+      }
+      const nKey = normName(d.dealer_name);
+      if (nKey && !nameIndex.has(nKey)) {
+        nameIndex.set(nKey, info);
+      }
     }
   } catch (_) {}
 
@@ -56,6 +94,7 @@ export async function buildDealerLookupIndex() {
         canonical,
         sap_code: norm(d.sap_code) || canonical,
         sfa_code: norm(d.sfa_code) || null,
+        rssd_code: norm(d.rssd_code) || null,
         name: d.dealer_name,
         area: d.area || d.branch || '',
         zone: d.zone || ''
@@ -64,16 +103,26 @@ export async function buildDealerLookupIndex() {
         const k = key(c);
         if (k && !index.has(k)) index.set(k, info);
       }
+      const codeInName = extractCodeFromName(d.dealer_name);
+      if (codeInName && !index.has(key(codeInName))) {
+        index.set(key(codeInName), info);
+      }
+      const nKey = normName(d.dealer_name);
+      if (nKey && !nameIndex.has(nKey)) {
+        nameIndex.set(nKey, info);
+      }
     }
   } catch (_) {}
 
-  return index;
+  return { index, nameIndex };
 }
 
 /**
- * Reconcile SFA visit execution logs against planned visits.
- * Marks is_unplanned = 1 for visits made by officers to dealers not on their plan
- * or not scheduled on that date.
+ * Reconcile SFA visit execution logs against planned visits and master dealers.
+ * Marks:
+ *  - is_unplanned = 1: dealer is known, but was NOT on the officer's plan for that period
+ *  - is_unmapped = 1: customer code matches no dealer in master or target lists
+ *  - is_unplanned = 0, is_unmapped = 0: planned visit adhered to
  *
  * @param {Object} opts
  * @param {string} [opts.startDate] 'YYYY-MM-DD'
@@ -84,10 +133,20 @@ export async function buildDealerLookupIndex() {
 export async function reconcileUnplannedVisits(opts = {}) {
   await ensureVisitExecutionLogsSchema();
 
-  const { startDate, endDate, periodMonth, batchCode } = opts;
+  let { startDate, endDate, periodMonth, batchCode } = opts;
+
+  // Derive periodMonth from dates or batchCode if not explicitly supplied
+  if (!periodMonth) {
+    if (startDate) {
+      periodMonth = startDate.slice(0, 7);
+    } else if (batchCode) {
+      const sample = await dbGet(`SELECT SUBSTRING(visit_date, 1, 7) as pm FROM visit_execution_logs WHERE batch_code = ? AND visit_date IS NOT NULL LIMIT 1`, [batchCode]).catch(() => null);
+      if (sample?.pm) periodMonth = sample.pm;
+    }
+  }
 
   // 1. Build dealer code index
-  const dealerIndex = await buildDealerLookupIndex();
+  const { index: dealerIndex, nameIndex } = await buildDealerLookupIndex();
 
   // 2. Query planned visits from sales_plan_details + sales_plans
   let planSql = `
@@ -207,6 +266,10 @@ export async function reconcileUnplannedVisits(opts = {}) {
     logSql += ' AND batch_code = ?';
     logParams.push(batchCode);
   } else {
+    if (periodMonth) {
+      logSql += ' AND visit_date LIKE ?';
+      logParams.push(`${periodMonth}%`);
+    }
     if (startDate) {
       logSql += ' AND visit_date >= ?';
       logParams.push(startDate);
@@ -221,8 +284,10 @@ export async function reconcileUnplannedVisits(opts = {}) {
   const logs = await dbAll(logSql, logParams).catch(() => []);
 
   const unplannedVisits = [];
+  const unmappedVisits = [];
   const plannedVisits = [];
   const unplannedIds = [];
+  const unmappedIds = [];
   const plannedIds = [];
 
   for (const l of logs) {
@@ -231,14 +296,54 @@ export async function reconcileUnplannedVisits(opts = {}) {
     const custC = key(l.customer_code);
     const vDate = String(l.visit_date || '').slice(0, 10);
 
-    const dealer = dealerIndex.get(custC);
-    const canonical = dealer ? key(dealer.canonical) : custC;
-    const sapCode = dealer ? key(dealer.sap_code) : custC;
-    const sfaCode = dealer ? key(dealer.sfa_code) : custC;
+    // Resolve dealer identity via code, paren code in name, or clean name
+    let dealer = dealerIndex.get(custC);
+    if (!dealer && l.customer_name) {
+      const codeFromName = extractCodeFromName(l.customer_name);
+      if (codeFromName) {
+        dealer = dealerIndex.get(key(codeFromName));
+      }
+    }
+    if (!dealer && l.customer_name) {
+      dealer = nameIndex.get(normName(l.customer_name));
+    }
 
-    const dealerCodes = [custC, canonical, sapCode, sfaCode].filter(Boolean);
+    if (!dealer) {
+      // Unmapped visit: customer is not known to master dealers or targets
+      const item = {
+        id: l.id,
+        visit_date: vDate,
+        customer_code: l.customer_code,
+        mapped_sap_code: null,
+        customer_name: l.customer_name || 'Unknown Customer',
+        customer_type: l.customer_type || 'PROSPECT',
+        route: l.route || '-',
+        branch: l.branch || '-',
+        employee_code: l.employee_code,
+        employee_name: l.employee_name || l.employee_code,
+        check_in_time: l.check_in_time,
+        check_out_time: l.check_out_time,
+        duration: l.duration,
+        visit_status: l.visit_status || 'Completed',
+        purpose_of_visit: l.purpose_of_visit,
+        remarks: l.remarks,
+        is_unmapped: 1,
+        is_unplanned: 0,
+        reason: 'Customer code not found in any dealer master'
+      };
+      unmappedVisits.push(item);
+      unmappedIds.push(l.id);
+      continue;
+    }
 
-    // Check if dealer was planned for this officer
+    // Dealer IS mapped. Now check if officer was scheduled / planned for this dealer.
+    const canonical = key(dealer.canonical);
+    const sapCode = key(dealer.sap_code);
+    const sfaCode = key(dealer.sfa_code);
+    const rssdCode = key(dealer.rssd_code);
+
+    const dealerCodes = [custC, canonical, sapCode, sfaCode, rssdCode].filter(Boolean);
+
     let dealerPlanned = false;
     let dateScheduled = false;
 
@@ -260,7 +365,6 @@ export async function reconcileUnplannedVisits(opts = {}) {
       unplannedType = 'DEALER_NOT_ON_PLAN';
       reason = "Dealer not on officer's plan";
     } else if (plannedOfficerSchedule.size > 0 && !dateScheduled) {
-      // Officer had dealer in plan, but visited on an unscheduled date
       isUnplanned = true;
       unplannedType = 'UNSCHEDULED_DATE';
       reason = 'Visit on unscheduled date';
@@ -284,6 +388,7 @@ export async function reconcileUnplannedVisits(opts = {}) {
       purpose_of_visit: l.purpose_of_visit,
       remarks: l.remarks,
       is_unplanned: isUnplanned ? 1 : 0,
+      is_unmapped: 0,
       unplanned_type: unplannedType,
       reason
     };
@@ -297,22 +402,28 @@ export async function reconcileUnplannedVisits(opts = {}) {
     }
   }
 
-  // 6. Update is_unplanned flag in database in chunks
+  // 6. Update flags in database in chunks
   try {
+    const CHUNK_SIZE = 500;
     if (unplannedIds.length > 0) {
-      const CHUNK_SIZE = 500;
       for (let i = 0; i < unplannedIds.length; i += CHUNK_SIZE) {
         const slice = unplannedIds.slice(i, i + CHUNK_SIZE);
         const placeholders = slice.map(() => '?').join(',');
-        await dbRun(`UPDATE visit_execution_logs SET is_unplanned = 1 WHERE id IN (${placeholders})`, slice);
+        await dbRun(`UPDATE visit_execution_logs SET is_unplanned = 1, is_unmapped = 0 WHERE id IN (${placeholders})`, slice);
+      }
+    }
+    if (unmappedIds.length > 0) {
+      for (let i = 0; i < unmappedIds.length; i += CHUNK_SIZE) {
+        const slice = unmappedIds.slice(i, i + CHUNK_SIZE);
+        const placeholders = slice.map(() => '?').join(',');
+        await dbRun(`UPDATE visit_execution_logs SET is_unplanned = 0, is_unmapped = 1 WHERE id IN (${placeholders})`, slice);
       }
     }
     if (plannedIds.length > 0) {
-      const CHUNK_SIZE = 500;
       for (let i = 0; i < plannedIds.length; i += CHUNK_SIZE) {
         const slice = plannedIds.slice(i, i + CHUNK_SIZE);
         const placeholders = slice.map(() => '?').join(',');
-        await dbRun(`UPDATE visit_execution_logs SET is_unplanned = 0 WHERE id IN (${placeholders})`, slice);
+        await dbRun(`UPDATE visit_execution_logs SET is_unplanned = 0, is_unmapped = 0 WHERE id IN (${placeholders})`, slice);
       }
     }
   } catch (err) {
@@ -323,24 +434,45 @@ export async function reconcileUnplannedVisits(opts = {}) {
     totalVisits: logs.length,
     plannedVisitsCount: plannedVisits.length,
     unplannedVisitsCount: unplannedVisits.length,
-    unplannedVisits
+    unmappedVisitsCount: unmappedVisits.length,
+    unplannedVisits,
+    unmappedVisits
   };
 }
 
 /**
- * Get unplanned visits with optional filtering
+ * Get unplanned visits with optional filtering & pagination
  */
 export async function getUnplannedVisits(opts = {}) {
   await ensureVisitExecutionLogsSchema();
 
   const { startDate, endDate, periodMonth, employeeCode, search, limit = 100, offset = 0 } = opts;
 
+  // Auto-reconcile once if current month has never been reconciled
+  if (periodMonth) {
+    try {
+      const check = await dbGet(
+        `SELECT COUNT(*) as cnt FROM visit_execution_logs WHERE (is_unplanned = 1 OR is_unmapped = 1) AND visit_date LIKE ?`,
+        [`${periodMonth}%`]
+      );
+      if (!check || check.cnt === 0) {
+        const totalInMonth = await dbGet(
+          `SELECT COUNT(*) as cnt FROM visit_execution_logs WHERE visit_date LIKE ?`,
+          [`${periodMonth}%`]
+        );
+        if (totalInMonth?.cnt > 0) {
+          await reconcileUnplannedVisits({ periodMonth });
+        }
+      }
+    } catch (_) {}
+  }
+
   let sql = `
     SELECT 
       v.id,
       v.visit_date,
       v.customer_code,
-      d.sap_code AS mapped_sap_code,
+      COALESCE(d.sap_code, d_rssd.sap_code, v.customer_code) AS mapped_sap_code,
       v.customer_name,
       v.customer_type,
       v.route,
@@ -355,7 +487,8 @@ export async function getUnplannedVisits(opts = {}) {
       v.remarks,
       v.is_unplanned
     FROM visit_execution_logs v
-    LEFT JOIN master_dealers d ON d.sfa_code = v.customer_code
+    LEFT JOIN master_dealers d ON d.sfa_code = v.customer_code OR d.sap_code = v.customer_code
+    LEFT JOIN master_dealers d_rssd ON d_rssd.rssd_code = v.customer_code
     WHERE v.is_unplanned = 1
   `;
   let countSql = `SELECT COUNT(*) as total FROM visit_execution_logs v WHERE v.is_unplanned = 1`;
@@ -382,10 +515,10 @@ export async function getUnplannedVisits(opts = {}) {
     countParams.push(p);
   }
   if (employeeCode && employeeCode !== 'ALL') {
-    sql += ' AND v.employee_code = ?';
-    countSql += ' AND v.employee_code = ?';
-    params.push(employeeCode);
-    countParams.push(employeeCode);
+    sql += ' AND (v.employee_code = ? OR v.employee_name = ?)';
+    countSql += ' AND (v.employee_code = ? OR v.employee_name = ?)';
+    params.push(employeeCode, employeeCode);
+    countParams.push(employeeCode, employeeCode);
   }
   if (search) {
     sql += ' AND (v.customer_name LIKE ? OR v.customer_code LIKE ? OR v.employee_name LIKE ? OR v.employee_code LIKE ? OR v.branch LIKE ?)';
@@ -409,6 +542,109 @@ export async function getUnplannedVisits(opts = {}) {
       ...r,
       visit_date: String(r.visit_date || '').slice(0, 10),
       reason: "Dealer not on officer's plan"
+    }))
+  };
+}
+
+/**
+ * Get unmapped visits — SFA visits whose customer_code matches no dealer in master_dealers
+ * or dealer_visit_targets. These visits cannot be credited to anyone and represent unmapped counters/dealers.
+ */
+export async function getUnmappedVisits(opts = {}) {
+  await ensureVisitExecutionLogsSchema();
+
+  const { startDate, endDate, periodMonth, employeeCode, search, limit = 100, offset = 0 } = opts;
+
+  // Auto-reconcile once if current month has never been reconciled
+  if (periodMonth) {
+    try {
+      const check = await dbGet(
+        `SELECT COUNT(*) as cnt FROM visit_execution_logs WHERE (is_unplanned = 1 OR is_unmapped = 1) AND visit_date LIKE ?`,
+        [`${periodMonth}%`]
+      );
+      if (!check || check.cnt === 0) {
+        const totalInMonth = await dbGet(
+          `SELECT COUNT(*) as cnt FROM visit_execution_logs WHERE visit_date LIKE ?`,
+          [`${periodMonth}%`]
+        );
+        if (totalInMonth?.cnt > 0) {
+          await reconcileUnplannedVisits({ periodMonth });
+        }
+      }
+    } catch (_) {}
+  }
+
+  let sql = `
+    SELECT 
+      v.id,
+      v.visit_date,
+      v.customer_code,
+      v.customer_name,
+      v.customer_type,
+      v.route,
+      v.branch,
+      v.employee_code,
+      v.employee_name,
+      v.check_in_time,
+      v.check_out_time,
+      v.duration,
+      v.visit_status,
+      v.purpose_of_visit,
+      v.remarks
+    FROM visit_execution_logs v
+    WHERE v.is_unmapped = 1
+  `;
+  let countSql = `SELECT COUNT(*) as total FROM visit_execution_logs v WHERE v.is_unmapped = 1`;
+  const params = [];
+  const countParams = [];
+
+  if (startDate) {
+    sql += ' AND v.visit_date >= ?';
+    countSql += ' AND v.visit_date >= ?';
+    params.push(startDate);
+    countParams.push(startDate);
+  }
+  if (endDate) {
+    sql += ' AND v.visit_date <= ?';
+    countSql += ' AND v.visit_date <= ?';
+    params.push(endDate);
+    countParams.push(endDate);
+  }
+  if (periodMonth) {
+    sql += ' AND v.visit_date LIKE ?';
+    countSql += ' AND v.visit_date LIKE ?';
+    const p = `${periodMonth}%`;
+    params.push(p);
+    countParams.push(p);
+  }
+  if (employeeCode && employeeCode !== 'ALL') {
+    sql += ' AND (v.employee_code = ? OR v.employee_name = ?)';
+    countSql += ' AND (v.employee_code = ? OR v.employee_name = ?)';
+    params.push(employeeCode, employeeCode);
+    countParams.push(employeeCode, employeeCode);
+  }
+  if (search) {
+    sql += ' AND (v.customer_name LIKE ? OR v.customer_code LIKE ? OR v.employee_name LIKE ? OR v.employee_code LIKE ? OR v.branch LIKE ?)';
+    countSql += ' AND (v.customer_name LIKE ? OR v.customer_code LIKE ? OR v.employee_name LIKE ? OR v.employee_code LIKE ? OR v.branch LIKE ?)';
+    const s = `%${search}%`;
+    params.push(s, s, s, s, s);
+    countParams.push(s, s, s, s, s);
+  }
+
+  sql += ' ORDER BY v.visit_date DESC, v.id DESC LIMIT ? OFFSET ?';
+  params.push(parseInt(limit), parseInt(offset));
+
+  const [rows, countObj] = await Promise.all([
+    dbAll(sql, params).catch(() => []),
+    dbGet(countSql, countParams).catch(() => ({ total: 0 }))
+  ]);
+
+  return {
+    total: countObj?.total || 0,
+    visits: rows.map(r => ({
+      ...r,
+      visit_date: String(r.visit_date || '').slice(0, 10),
+      reason: 'Customer code not in dealer master or targets'
     }))
   };
 }

@@ -159,6 +159,10 @@ export async function buildDealerCodeIndex() {
       const k = key(c);
       if (k && !index.has(k)) index.set(k, { canonical, name: d.dealer_name });
     }
+    const codeInName = String(d.dealer_name || '').match(/\((RSS[BD]?\w+|SDNE\w+|\d{6,}|[A-Z0-9_-]{4,})\)/i);
+    if (codeInName && !index.has(key(codeInName[1]))) {
+      index.set(key(codeInName[1]), { canonical, name: d.dealer_name });
+    }
   }
   return index;
 }
@@ -221,7 +225,11 @@ export async function analyseAdherence(opts = {}) {
 
   for (const l of logs) {
     if (productiveOnly && !/^productive$/i.test(norm(l.visit_status))) continue;
-    const hit = dealerIndex.get(key(l.customer_code));
+    let hit = dealerIndex.get(key(l.customer_code));
+    if (!hit && l.customer_name) {
+      const match = String(l.customer_name).match(/\((RSS[BD]?\w+|SDNE\w+|\d{6,}|[A-Z0-9_-]{4,})\)/i);
+      if (match) hit = dealerIndex.get(key(match[1]));
+    }
     if (!hit) {
       unresolvedLogs.push({
         employee_code: l.employee_code, employee_name: l.employee_name,

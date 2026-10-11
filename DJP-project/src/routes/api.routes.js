@@ -328,7 +328,7 @@ router.get('/templates/:name', downloadTemplate);
 
 // SFA Auto-Sync API
 import { syncSfaDataFromApi } from '../services/sfaSync.service.js';
-import { getUnplannedVisits } from '../services/unplannedVisits.service.js';
+import { getUnplannedVisits, getUnmappedVisits } from '../services/unplannedVisits.service.js';
 
 router.post('/sfa/sync', async (req, res) => {
   const result = await syncSfaDataFromApi();
@@ -338,6 +338,15 @@ router.post('/sfa/sync', async (req, res) => {
 router.get('/sfa/unplanned-visits', async (req, res) => {
   try {
     const result = await getUnplannedVisits(req.query);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/sfa/unmapped-visits', async (req, res) => {
+  try {
+    const result = await getUnmappedVisits(req.query);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   ClipboardList, Search, RefreshCw, X, CalendarDays, AlertTriangle,
   CheckCircle2, Activity, Users, Download, GitCompare, ArrowUp, ArrowDown,
-  PlusCircle, MinusCircle, History, ChevronLeft, ChevronRight
+  PlusCircle, MinusCircle, History, ChevronLeft, ChevronRight, HelpCircle
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -204,6 +204,15 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
   const [unplannedPage, setUnplannedPage] = useState(1);
   const [unplannedPageSize, setUnplannedPageSize] = useState(15);
 
+  // ── unmapped visits tab & pagination ────────────────────────────────────────
+  const [unmappedList, setUnmappedList] = useState([]);
+  const [unmappedTotal, setUnmappedTotal] = useState(0);
+  const [unmappedLoading, setUnmappedLoading] = useState(false);
+  const [unmappedOfficerFilter, setUnmappedOfficerFilter] = useState('ALL');
+  const [unmappedSearch, setUnmappedSearch] = useState('');
+  const [unmappedPage, setUnmappedPage] = useState(1);
+  const [unmappedPageSize, setUnmappedPageSize] = useState(15);
+
   // ── C2 review tab ──────────────────────────────────────────────────────────
   const [regens, setRegens] = useState(null);
   const [regen, setRegen] = useState(null);
@@ -300,6 +309,56 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `Unplanned_Visits_${month}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  // Load unmapped visits for admin tab
+  const loadAdminUnmappedVisits = async () => {
+    setUnmappedLoading(true);
+    try {
+      const res = await api.getUnmappedVisits({
+        periodMonth: month,
+        employeeCode: unmappedOfficerFilter,
+        search: unmappedSearch,
+        limit: unmappedPageSize,
+        offset: (unmappedPage - 1) * unmappedPageSize
+      });
+      setUnmappedList(res.visits || []);
+      setUnmappedTotal(res.total || 0);
+    } catch (err) {
+      onShowToast?.(err.message || 'Failed to fetch unmapped visits', 'error');
+      setUnmappedList([]);
+      setUnmappedTotal(0);
+    } finally {
+      setUnmappedLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (tab === 'unmapped') {
+      loadAdminUnmappedVisits();
+    }
+    // eslint-disable-next-line
+  }, [tab, month, unmappedOfficerFilter, unmappedPage, unmappedPageSize]);
+
+  const exportUnmappedCsv = () => {
+    if (!unmappedList.length) {
+      onShowToast?.('No unmapped visits to export', 'error');
+      return;
+    }
+    const head = 'Visit Date,Employee Code,Employee Name,Customer Code,Customer Name,Customer Type,Route,Branch,Check In,Check Out,Duration,Status,Reason,Remarks\n';
+    const body = unmappedList.map(u => [
+      u.visit_date, u.employee_code, `"${u.employee_name || ''}"`,
+      u.customer_code, `"${u.customer_name || ''}"`,
+      u.customer_type || '', `"${u.route || ''}"`, `"${u.branch || ''}"`,
+      u.check_in_time || '', u.check_out_time || '', u.duration || '',
+      u.visit_status || '', `"${u.reason || 'Unmapped'}"`, `"${(u.remarks || '').replace(/"/g, '""')}"`
+    ].join(',')).join('\n');
+    const blob = new Blob([head + body], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `Unmapped_Visits_${month}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
   };
@@ -488,6 +547,21 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
               fontWeight: 700
             }}>
               {unplannedTotal}
+            </span>
+          )}
+        </button>
+        <button className={`op-tab ${tab === 'unmapped' ? 'active' : ''}`} onClick={() => setTab('unmapped')}>
+          <HelpCircle size={16} /> Unmapped Visits
+          {unmappedTotal > 0 && (
+            <span style={{
+              background: 'var(--color-info-bg, #E0F2FE)',
+              color: 'var(--color-info, #0369A1)',
+              padding: '1px 7px',
+              borderRadius: 999,
+              fontSize: '.7rem',
+              fontWeight: 700
+            }}>
+              {unmappedTotal}
             </span>
           )}
         </button>
@@ -758,13 +832,27 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                   <AlertTriangle size={17} style={{ flexShrink: 0, marginTop: 1 }} />
                   <span>
                     {adh.diagnostics.unresolved_visits > 0 && (
-                      <div><strong>{adh.diagnostics.unresolved_visits} visit(s)</strong> carry a customer
-                      code that matches no dealer — they cannot be credited to anyone.
-                      {adh.diagnostics.unresolved_detail.slice(0, 3).map(u => (
-                        <div key={u.customer_code + u.visit_date} style={{ fontFamily: 'var(--font-mono)', fontSize: '.74rem' }}>
-                          {u.visit_date} · {u.customer_code} · {u.customer_name}
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                          <div>
+                            <strong>{adh.diagnostics.unresolved_visits} visit(s)</strong> carry a customer
+                            code that matches no dealer — they cannot be credited to anyone.
+                          </div>
+                          <button
+                            type="button"
+                            className="btn btn-outline"
+                            onClick={() => setTab('unmapped')}
+                            style={{ fontSize: '.74rem', padding: '2px 10px', height: 'auto', background: 'white' }}
+                          >
+                            Open Unmapped Tab
+                          </button>
                         </div>
-                      ))}</div>
+                        {adh.diagnostics.unresolved_detail.slice(0, 3).map(u => (
+                          <div key={u.customer_code + u.visit_date} style={{ fontFamily: 'var(--font-mono)', fontSize: '.74rem' }}>
+                            {u.visit_date} · {u.customer_code} · {u.customer_name}
+                          </div>
+                        ))}
+                      </div>
                     )}
                     {adh.diagnostics.unplanned_visits > 0 && (
                       <div style={{ marginTop: adh.diagnostics.unresolved_visits > 0 ? 6 : 0 }}>
@@ -773,14 +861,24 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                             <strong>{adh.diagnostics.unplanned_visits} visit(s)</strong> were made to dealers
                             not on that person's plan.
                           </div>
-                          <button
-                            type="button"
-                            className="btn btn-outline"
-                            onClick={() => setShowUnplanned(!showUnplanned)}
-                            style={{ fontSize: '.74rem', padding: '2px 10px', height: 'auto', background: 'white' }}
-                          >
-                            {showUnplanned ? 'Hide Unplanned Visits' : `View Unplanned Visits (${adh.diagnostics.unplanned_visits})`}
-                          </button>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                              type="button"
+                              className="btn btn-outline"
+                              onClick={() => setTab('unplanned')}
+                              style={{ fontSize: '.74rem', padding: '2px 10px', height: 'auto', background: 'white' }}
+                            >
+                              Open Unplanned Tab
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline"
+                              onClick={() => setShowUnplanned(!showUnplanned)}
+                              style={{ fontSize: '.74rem', padding: '2px 10px', height: 'auto', background: 'white' }}
+                            >
+                              {showUnplanned ? 'Hide' : `Quick Preview (${adh.diagnostics.unplanned_visits})`}
+                            </button>
+                          </div>
                         </div>
                         {showUnplanned && adh.diagnostics.unplanned_detail && adh.diagnostics.unplanned_detail.length > 0 && (
                           <div style={{ marginTop: 8, maxHeight: 220, overflowY: 'auto', background: 'white', borderRadius: 6, border: '1px solid var(--border-color)', padding: 8 }}>
@@ -1360,6 +1458,222 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
               onPageSizeChange={sz => { setUnplannedPageSize(sz); setUnplannedPage(1); }}
               pageSizeOptions={[15, 30, 50, 100]}
               itemName="unplanned visits"
+            />
+          </div>
+        </>
+      )}
+
+      {/* ═══════════════════════════ UNMAPPED VISITS ═══════════════════════════ */}
+      {tab === 'unmapped' && (
+        <>
+          <div className="filter-card">
+            <div className="filter-grid">
+              <div className="form-group">
+                <label className="form-label">Month</label>
+                <input
+                  type="month"
+                  className="form-control"
+                  value={month}
+                  onChange={e => { setMonth(e.target.value); setUnmappedPage(1); }}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Officer</label>
+                <select
+                  className="form-control"
+                  value={unmappedOfficerFilter}
+                  onChange={e => { setUnmappedOfficerFilter(e.target.value); setUnmappedPage(1); }}
+                >
+                  <option value="ALL">All Officers</option>
+                  {(adh?.by_employee || []).map(e => (
+                    <option key={e.emp_code} value={e.emp_code}>
+                      {e.emp_name ? `${e.emp_name} (${e.emp_code})` : e.emp_code}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Search</label>
+                <div className="input-with-icon">
+                  <Search size={14} className="input-icon" />
+                  <input
+                    className="form-control"
+                    placeholder="Customer code, name, route, branch..."
+                    value={unmappedSearch}
+                    onChange={e => setUnmappedSearch(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        setUnmappedPage(1);
+                        loadAdminUnmappedVisits();
+                      }
+                    }}
+                  />
+                  {unmappedSearch && (
+                    <button
+                      type="button"
+                      onClick={() => { setUnmappedSearch(''); setUnmappedPage(1); }}
+                      style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)' }}
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => { setUnmappedPage(1); loadAdminUnmappedVisits(); }}
+                  disabled={unmappedLoading}
+                >
+                  <RefreshCw size={15} className={unmappedLoading ? 'spin' : ''} /> Refresh
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={exportUnmappedCsv}
+                  disabled={unmappedList.length === 0}
+                >
+                  <Download size={15} /> Export CSV
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, flexWrap: 'wrap', gap: 8, fontSize: '.78rem' }}>
+              <span style={{ color: 'var(--text-tertiary)' }}>
+                Visits logged by officers where the customer/counter could not be mapped to any dealer in the master or monthly targets.
+              </span>
+              <span style={{
+                background: 'var(--color-warning-bg, #FEF3C7)',
+                color: '#B45309',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                fontWeight: 600
+              }}>
+                Unmapped Customer / External Counter
+              </span>
+            </div>
+          </div>
+
+          <div className="kpi-grid">
+            <Kpi
+              label="Total Unmapped Visits"
+              value={unmappedTotal}
+              sub={`for month ${month}`}
+              tone={unmappedTotal > 0 ? 'var(--color-danger)' : 'var(--color-success)'}
+            />
+            <Kpi
+              label="Sync Window"
+              value="Till T-1 Day"
+              sub="Synced from SFA daywise"
+              tone="var(--color-info)"
+            />
+            <Kpi
+              label="Classification"
+              value="Unmapped Counter"
+              sub="Customer code not in master / targets"
+            />
+          </div>
+
+          <div className="content-card">
+            <div className="card-title-bar">
+              <div>
+                <div className="card-title">Unmapped Visits Log</div>
+                <div className="card-subtitle">
+                  {unmappedLoading ? 'Loading…' : `${unmappedTotal} visit(s) to unmapped customers/counters`}
+                </div>
+              </div>
+            </div>
+
+            <div className="table-responsive">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Visit Date</th>
+                    <th>Officer</th>
+                    <th>Customer Code</th>
+                    <th>Customer Name</th>
+                    <th>Area / Branch</th>
+                    <th>Route</th>
+                    <th>Check In / Out</th>
+                    <th>Duration</th>
+                    <th>Status</th>
+                    <th>Reason</th>
+                    <th>Remarks</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {unmappedList.map((u, i) => (
+                    <tr key={u.id || i}>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '.78rem', whiteSpace: 'nowrap' }}>
+                        {u.visit_date}
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{u.employee_name || u.employee_code}</div>
+                        <div style={{ fontSize: '.72rem', color: 'var(--text-tertiary)' }}>{u.employee_code}</div>
+                      </td>
+                      <td>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: '.78rem', color: 'var(--color-danger)' }}>
+                          {u.customer_code}
+                        </div>
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{u.customer_name}</div>
+                        {u.customer_type && (
+                          <span style={{ fontSize: '.7rem', color: 'var(--text-secondary)' }}>
+                            {u.customer_type}
+                          </span>
+                        )}
+                      </td>
+                      <td>{u.branch || '—'}</td>
+                      <td>{u.route || '—'}</td>
+                      <td style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>
+                        {u.check_in_time ? `${u.check_in_time} → ${u.check_out_time || '—'}` : '—'}
+                      </td>
+                      <td style={{ fontSize: '.78rem' }}>{u.duration || '—'}</td>
+                      <td>
+                        <span style={{
+                          background: 'var(--color-danger-bg, #FEE2E2)',
+                          color: 'var(--color-danger, #DC2626)',
+                          padding: '3px 8px',
+                          borderRadius: 4,
+                          fontSize: '.72rem',
+                          fontWeight: 700
+                        }}>
+                          Unmapped
+                        </span>
+                      </td>
+                      <td style={{ fontSize: '.78rem', color: 'var(--text-secondary)' }}>
+                        {u.reason || 'Customer code not in dealer master'}
+                      </td>
+                      <td style={{ fontSize: '.78rem', color: 'var(--text-tertiary)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={u.remarks || ''}>
+                        {u.remarks || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                  {!unmappedLoading && unmappedList.length === 0 && (
+                    <tr>
+                      <td colSpan={11} style={{ textAlign: 'center', padding: 48, color: 'var(--text-tertiary)' }}>
+                        No unmapped visits found for {month}. All visits matched known dealer masters!
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <PaginationControls
+              page={unmappedPage}
+              totalPages={Math.max(1, Math.ceil(unmappedTotal / unmappedPageSize))}
+              totalItems={unmappedTotal}
+              pageSize={unmappedPageSize}
+              onPageChange={setUnmappedPage}
+              onPageSizeChange={sz => { setUnmappedPageSize(sz); setUnmappedPage(1); }}
+              pageSizeOptions={[15, 30, 50, 100]}
+              itemName="unmapped visits"
             />
           </div>
         </>

@@ -214,12 +214,13 @@ export async function syncSfaDataFromApi() {
       const reconciliation = await reconcileUnplannedVisits({
         startDate,
         endDate,
+        periodMonth: startDate ? startDate.slice(0, 7) : undefined,
         batchCode
       });
       unplannedVisits = reconciliation.unplannedVisits || [];
       unplannedCount = reconciliation.unplannedVisitsCount || 0;
       plannedCount = reconciliation.plannedVisitsCount || 0;
-      console.log(`[SFA_SYNC] Reconciled: ${plannedCount} planned visits, ${unplannedCount} unplanned visits.`);
+      console.log(`[SFA_SYNC] Reconciled: ${plannedCount} planned visits, ${unplannedCount} unplanned visits, ${reconciliation.unmappedVisitsCount || 0} unmapped visits.`);
     } catch (recErr) {
       console.warn('[SFA_SYNC] Could not reconcile unplanned visits:', recErr.message);
     }
