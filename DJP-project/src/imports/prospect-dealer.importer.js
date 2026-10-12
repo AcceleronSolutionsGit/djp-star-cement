@@ -73,7 +73,10 @@ export async function importProspectDealers(filePath, batchCode = null) {
     'total counter potential': 'potential',
     'counter potential': 'potential',
     'status': 'status',
-    'expected sale': 'expected_sale'
+    'expected sale': 'expected_sale',
+    'month': 'month',
+    'period month': 'month',
+    'plan month': 'month'
   };
 
   for (const [normHeader, canonicalField] of Object.entries(headerMappings)) {
@@ -135,6 +138,9 @@ export async function importProspectDealers(filePath, batchCode = null) {
       region: zone
     });
 
+    if (!soEmpCode && hierarchy.so_emp_code) soEmpCode = hierarchy.so_emp_code;
+    if (!soName && hierarchy.so_name) soName = hierarchy.so_name;
+
     const asmName = null;
     const asmCode = null;
     const rsmName = hierarchy.rsm_name;
@@ -186,7 +192,7 @@ export async function importProspectDealers(filePath, batchCode = null) {
       continue;
     }
 
-    // Update with extra prospect data
+    // Update with extra prospect data into master_dealers
     if (matchResult.internalId) {
       await dbRun(
         `UPDATE master_dealers SET 
@@ -206,28 +212,6 @@ export async function importProspectDealers(filePath, batchCode = null) {
          WHERE id = ?`,
         [potential, expectedSale, territoryCode, area, rsmName, rsmCode, zhName, zhCode, matchResult.internalId]
       );
-
-      // Also ensure master_dealer_so_mapping is synced for this prospect
-      const existingMapping = await dbGet('SELECT id FROM master_dealer_so_mapping WHERE dealer_id = ?', [matchResult.internalId]);
-      if (existingMapping) {
-        await dbRun(
-          `UPDATE master_dealer_so_mapping SET 
-            dealer_name = ?, area = ?, region = ?, 
-            so_name = ?, so_emp_code = ?,
-            asm_name = NULL, asm_code = NULL,
-            rsm_name = ?, rsm_code = ?,
-            zh_name = ?, zh_code = ?
-           WHERE id = ?`,
-          [prospectName, area, zone, soName, soEmpCode, rsmName, rsmCode, zhName, zhCode, existingMapping.id]
-        );
-      } else {
-        await dbRun(
-          `INSERT INTO master_dealer_so_mapping 
-            (dealer_id, sfa_code, dealer_name, area, branch, region, so_name, so_emp_code, asm_name, asm_code, rsm_name, rsm_code, zh_name, zh_code, batch_code)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`,
-          [matchResult.internalId, sfaCode, prospectName, area, area, zone, soName, soEmpCode, rsmName, rsmCode, zhName, zhCode, batchCode]
-        );
-      }
     }
 
     insertedCount++;
