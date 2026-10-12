@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   ClipboardList, Search, RefreshCw, X, CalendarDays, AlertTriangle,
-  CheckCircle2, Activity, Users, Download, GitCompare, ArrowUp, ArrowDown,
-  PlusCircle, MinusCircle, History, ChevronLeft, ChevronRight, HelpCircle, FileSpreadsheet, Clock
+  CheckCircle2, Activity, Users, Download, GitCompare,
+  History, ChevronLeft, ChevronRight, HelpCircle, FileSpreadsheet, Clock
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -269,18 +269,6 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
     };
   }, []);
 
-  // When a new day completes sync in background, auto-refresh active tabs
-  useEffect(() => {
-    if (syncStatus?.completedDays) {
-      if (tab === 'unplanned') {
-        loadAdminUnplannedVisits();
-      } else if (tab === 'adherence') {
-        runAdherence(true);
-      }
-    }
-    // eslint-disable-next-line
-  }, [syncStatus?.completedDays]);
-
   const handleDismissAdherenceNotice = () => {
     localStorage.setItem('star_adherence_notice_dismissed', 'true');
     setAdherenceNoticeDismissed(true);
@@ -483,6 +471,26 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
 
   useEffect(() => { if (tab === 'plans') loadPlans(); /* eslint-disable-next-line */ }, [tab, month, cycle, status, role]);
 
+  const runAdherence = async (isAuto = false) => {
+    setAdhLoading(true);
+    try {
+      const res = await api.getAdherenceReport(month, { cycle: adhCycle, asOn: asOn || undefined });
+      setAdh(res);
+      if (!isAuto) {
+        onShowToast?.(
+          `${month} ${res.cycles.join('+')} as on ${res.as_on_date}: ` +
+          `${res.totals.adhered} adhered against ${res.totals.mtd_due} due — ${res.adherence.capped_pct}%.`,
+          'success'
+        );
+      }
+    } catch (e) {
+      onShowToast?.(e.message || 'Adherence report failed', 'error');
+      setAdh(null);
+    } finally {
+      setAdhLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (tab === 'adherence') {
       runAdherence(true);
@@ -504,25 +512,17 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
     }
   };
 
-  const runAdherence = async (isAuto = false) => {
-    setAdhLoading(true);
-    try {
-      const res = await api.getAdherenceReport(month, { cycle: adhCycle, asOn: asOn || undefined });
-      setAdh(res);
-      if (!isAuto) {
-        onShowToast?.(
-          `${month} ${res.cycles.join('+')} as on ${res.as_on_date}: ` +
-          `${res.totals.adhered} adhered against ${res.totals.mtd_due} due — ${res.adherence.capped_pct}%.`,
-          'success'
-        );
+  // When a new day completes sync in background, auto-refresh active tabs
+  useEffect(() => {
+    if (syncStatus?.completedDays) {
+      if (tab === 'unplanned') {
+        loadAdminUnplannedVisits();
+      } else if (tab === 'adherence') {
+        runAdherence(true);
       }
-    } catch (e) {
-      onShowToast?.(e.message || 'Adherence report failed', 'error');
-      setAdh(null);
-    } finally {
-      setAdhLoading(false);
     }
-  };
+    // eslint-disable-next-line
+  }, [syncStatus?.completedDays]);
 
   // Adherence → C2 regeneration → officer plans, in one action. This is the same
   // pipeline "Run DJP" uses; the only difference is that the missed C1 dealers are
