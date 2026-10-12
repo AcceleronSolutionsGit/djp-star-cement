@@ -150,6 +150,8 @@ export async function matchAndUpsertCanonicalDealer({
     
     const dealerId = crypto.randomUUID();
     const counterStrategy = dType === 'PROSPECTIVE' ? 'PROSPECT' : null;
+    const finalAsmName = dType === 'PROSPECTIVE' ? null : (asmName || null);
+    const finalAsmCode = dType === 'PROSPECTIVE' ? null : (cleanAsmCode || null);
     const res = await dbRun(
       `INSERT INTO master_dealers 
       (dealer_id, dealer_type, sap_code, sfa_code, linked_dealer_code, dealer_name, normalized_dealer_name, 
@@ -164,7 +166,7 @@ export async function matchAndUpsertCanonicalDealer({
         rawBlock || null, block || null,
         effectiveZone || null, cleanRegion || null,
         soName || null, cleanEmpCode || null,
-        asmName || null, cleanAsmCode || null,
+        finalAsmName, finalAsmCode,
         counterStrategy,
         batchCode, 'NEW', 'NONE', 100
       ]
@@ -183,6 +185,7 @@ export async function matchAndUpsertCanonicalDealer({
   // MATCHED -> Update
   if (matchStatus === 'MATCHED') {
     if (sourceType !== 'SALES_HISTORY') {
+      const isProspect = dType === 'PROSPECTIVE' || matchedDealer.dealer_type === 'PROSPECTIVE';
       await dbRun(
         `UPDATE master_dealers SET 
         sap_code = COALESCE(?, sap_code),
@@ -199,8 +202,8 @@ export async function matchAndUpsertCanonicalDealer({
         region = COALESCE(?, region),
         so_name = COALESCE(?, so_name),
         so_emp_code = COALESCE(?, so_emp_code),
-        asm_name = COALESCE(?, asm_name),
-        asm_code = COALESCE(?, asm_code),
+        asm_name = ?,
+        asm_code = ?,
         match_status = ?,
         match_method = ?,
         match_confidence = ?,
@@ -213,7 +216,8 @@ export async function matchAndUpsertCanonicalDealer({
           rawBlock || null, block || null,
           effectiveZone || null, cleanRegion || null,
           soName || null, cleanEmpCode || null,
-          asmName || null, cleanAsmCode || null,
+          isProspect ? null : (asmName || matchedDealer.asm_name || null),
+          isProspect ? null : (cleanAsmCode || matchedDealer.asm_code || null),
           matchStatus, matchMethod, matchConfidence, batchCode, matchedDealer.id
         ]
       );

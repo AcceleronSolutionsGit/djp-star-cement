@@ -161,8 +161,9 @@ router.put('/admin/rules', authMiddleware, updateRule);
 router.put('/admin/rules/batch', authMiddleware, updateRulesBatch);
 
 // Archive APIs
-import { getArchiveSummary } from '../controllers/archive.controller.js';
+import { getArchiveSummary, deleteArchives } from '../controllers/archive.controller.js';
 router.get('/admin/archives/summary', getArchiveSummary);
+router.delete('/admin/archives', authMiddleware, deleteArchives);
 
 // DJP Engine APIs — legacy single-shot endpoint (uses latest batches auto)
 router.post('/djp/generate-all', generateAllLegacy);
@@ -328,7 +329,12 @@ router.get('/templates/:name', downloadTemplate);
 
 // SFA Auto-Sync API
 import { syncSfaDataFromApi } from '../services/sfaSync.service.js';
-import { getUnplannedVisits, getUnmappedVisits } from '../services/unplannedVisits.service.js';
+import { 
+  getUnplannedVisits, 
+  getUnmappedVisits,
+  exportUnplannedVisitsToWorkbook,
+  exportUnmappedVisitsToWorkbook
+} from '../services/unplannedVisits.service.js';
 
 router.post('/sfa/sync', async (req, res) => {
   const result = await syncSfaDataFromApi();
@@ -344,11 +350,39 @@ router.get('/sfa/unplanned-visits', async (req, res) => {
   }
 });
 
+router.get('/sfa/unplanned-visits/export-excel', async (req, res) => {
+  try {
+    const wb = await exportUnplannedVisitsToWorkbook(req.query);
+    const month = req.query.periodMonth || 'All';
+    res.setHeader('Content-Disposition', `attachment; filename="Unplanned_Visits_${month}.xlsx"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error('Failed to export unplanned visits Excel:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/sfa/unmapped-visits', async (req, res) => {
   try {
     const result = await getUnmappedVisits(req.query);
     res.json(result);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/sfa/unmapped-visits/export-excel', async (req, res) => {
+  try {
+    const wb = await exportUnmappedVisitsToWorkbook(req.query);
+    const month = req.query.periodMonth || 'All';
+    res.setHeader('Content-Disposition', `attachment; filename="Unmapped_Visits_${month}.xlsx"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error('Failed to export unmapped visits Excel:', err);
     res.status(500).json({ error: err.message });
   }
 });

@@ -129,6 +129,18 @@ export const api = {
     return res.json();
   },
 
+  deleteArchives: async (periodMonth = null) => {
+    const query = periodMonth && periodMonth !== 'ALL' ? `?periodMonth=${encodeURIComponent(periodMonth)}` : '';
+    const res = await fetchWithAuth(`${API_BASE}/admin/archives${query}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to delete archives');
+    }
+    return res.json();
+  },
+
   getInputReadiness: async () => {
     const res = await fetchWithAuth(`${API_BASE}/admin/readiness`);
     if (!res.ok) throw new Error('Failed to fetch input readiness');
@@ -583,5 +595,47 @@ export const api = {
     const res = await fetchWithAuth(`${API_BASE}/sfa/unmapped-visits?${query.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch unmapped visits');
     return res.json();
+  },
+
+  exportUnplannedVisitsExcel: async (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.startDate) query.append('startDate', params.startDate);
+    if (params.endDate) query.append('endDate', params.endDate);
+    if (params.periodMonth) query.append('periodMonth', params.periodMonth);
+    if (params.employeeCode && params.employeeCode !== 'ALL') query.append('employeeCode', params.employeeCode);
+
+    const res = await fetchWithAuth(`${API_BASE}/sfa/unplanned-visits/export-excel?${query.toString()}`);
+    if (!res.ok) throw new Error('Failed to export unplanned visits to Excel');
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Unplanned_Visits_${params.periodMonth || 'All'}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
+
+  exportUnmappedVisitsExcel: async (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.startDate) query.append('startDate', params.startDate);
+    if (params.endDate) query.append('endDate', params.endDate);
+    if (params.periodMonth) query.append('periodMonth', params.periodMonth);
+    if (params.employeeCode && params.employeeCode !== 'ALL') query.append('employeeCode', params.employeeCode);
+
+    const res = await fetchWithAuth(`${API_BASE}/sfa/unmapped-visits/export-excel?${query.toString()}`);
+    if (!res.ok) throw new Error('Failed to export unmapped visits to Excel');
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Unmapped_Visits_${params.periodMonth || 'All'}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
   }
 };

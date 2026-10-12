@@ -1,4 +1,5 @@
 import { dbRun, dbGet, dbAll } from '../config/database.js';
+import ExcelJS from 'exceljs';
 
 const norm = v => String(v ?? '').trim();
 const key  = v => norm(v).toUpperCase();
@@ -647,4 +648,326 @@ export async function getUnmappedVisits(opts = {}) {
       reason: 'Customer code not in dealer master or targets'
     }))
   };
+}
+
+/**
+ * Export all matching unplanned visits to an ExcelJS Workbook
+ */
+export async function exportUnplannedVisitsToWorkbook(opts = {}) {
+  await ensureVisitExecutionLogsSchema();
+  const { startDate, endDate, periodMonth, employeeCode, search } = opts;
+
+  let sql = `
+    SELECT 
+      v.id,
+      v.visit_date,
+      v.customer_code,
+      COALESCE(d.sap_code, d_rssd.sap_code, v.customer_code) AS mapped_sap_code,
+      v.customer_name,
+      v.customer_type,
+      v.route,
+      v.branch,
+      v.employee_code,
+      v.employee_name,
+      v.check_in_time,
+      v.check_out_time,
+      v.duration,
+      v.visit_status,
+      v.purpose_of_visit,
+      v.remarks,
+      v.is_unplanned
+    FROM visit_execution_logs v
+    LEFT JOIN master_dealers d ON d.sfa_code = v.customer_code OR d.sap_code = v.customer_code
+    LEFT JOIN master_dealers d_rssd ON d_rssd.rssd_code = v.customer_code
+    WHERE v.is_unplanned = 1
+  `;
+  const params = [];
+
+  if (startDate) {
+    sql += ' AND v.visit_date >= ?';
+    params.push(startDate);
+  }
+  if (endDate) {
+    sql += ' AND v.visit_date <= ?';
+    params.push(endDate);
+  }
+  if (periodMonth) {
+    sql += ' AND v.visit_date LIKE ?';
+    params.push(`${periodMonth}%`);
+  }
+  if (employeeCode && employeeCode !== 'ALL') {
+    sql += ' AND (v.employee_code = ? OR v.employee_name = ?)';
+    params.push(employeeCode, employeeCode);
+  }
+  if (search) {
+    sql += ' AND (v.customer_name LIKE ? OR v.customer_code LIKE ? OR v.employee_name LIKE ? OR v.employee_code LIKE ? OR v.branch LIKE ?)';
+    const s = `%${search}%`;
+    params.push(s, s, s, s, s);
+  }
+
+  sql += ' ORDER BY v.visit_date DESC, v.id DESC';
+  const rows = await dbAll(sql, params);
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Star Cement PJP/DJP';
+  wb.created = new Date();
+
+  const ws = wb.addWorksheet('Unplanned Visits', {
+    views: [{ state: 'frozen', ySplit: 1 }]
+  });
+
+  const columns = [
+    { header: 'Visit Date', key: 'visit_date', width: 14 },
+    { header: 'Employee Code', key: 'employee_code', width: 16 },
+    { header: 'Employee Name', key: 'employee_name', width: 26 },
+    { header: 'Customer Code', key: 'customer_code', width: 16 },
+    { header: 'Mapped SAP Code', key: 'mapped_sap_code', width: 16 },
+    { header: 'Customer Name', key: 'customer_name', width: 32 },
+    { header: 'Customer Type', key: 'customer_type', width: 16 },
+    { header: 'Area / Branch', key: 'branch', width: 20 },
+    { header: 'Route', key: 'route', width: 24 },
+    { header: 'Check In', key: 'check_in_time', width: 12 },
+    { header: 'Check Out', key: 'check_out_time', width: 12 },
+    { header: 'Duration', key: 'duration', width: 12 },
+    { header: 'Visit Status', key: 'visit_status', width: 14 },
+    { header: 'Plan Classification', key: 'plan_classification', width: 18 },
+    { header: 'Reason', key: 'reason', width: 30 },
+    { header: 'Remarks', key: 'remarks', width: 36 }
+  ];
+
+  ws.columns = columns;
+
+  const headerRow = ws.getRow(1);
+  headerRow.height = 26;
+  headerRow.eachCell((cell) => {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF991B1B' }
+    };
+    cell.font = {
+      name: 'Calibri',
+      size: 10,
+      bold: true,
+      color: { argb: 'FFFFFFFF' }
+    };
+    cell.alignment = {
+      vertical: 'middle',
+      horizontal: 'center',
+      wrapText: true
+    };
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+      bottom: { style: 'medium', color: { argb: 'FF7F1D1D' } },
+      left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+      right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+    };
+  });
+
+  const thinBorder = {
+    top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+    bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+    left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+    right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+  };
+
+  rows.forEach((r, idx) => {
+    const isEven = idx % 2 === 0;
+    const row = ws.addRow({
+      visit_date: String(r.visit_date || '').slice(0, 10),
+      employee_code: r.employee_code || '',
+      employee_name: r.employee_name || '',
+      customer_code: r.customer_code || '',
+      mapped_sap_code: r.mapped_sap_code || '',
+      customer_name: r.customer_name || '',
+      customer_type: r.customer_type || '',
+      branch: r.branch || '',
+      route: r.route || '',
+      check_in_time: r.check_in_time || '',
+      check_out_time: r.check_out_time || '',
+      duration: r.duration || '',
+      visit_status: r.visit_status || '',
+      plan_classification: 'Unplanned',
+      reason: "Dealer not on officer's plan",
+      remarks: r.remarks || ''
+    });
+
+    row.height = 20;
+    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      cell.font = { name: 'Calibri', size: 9.5 };
+      cell.border = thinBorder;
+      if (isEven) {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFF8FAFC' }
+        };
+      }
+      if ([1, 2, 4, 5, 10, 11, 12, 13, 14].includes(colNumber)) {
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      } else {
+        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+      }
+    });
+  });
+
+  return wb;
+}
+
+/**
+ * Export all matching unmapped visits to an ExcelJS Workbook
+ */
+export async function exportUnmappedVisitsToWorkbook(opts = {}) {
+  await ensureVisitExecutionLogsSchema();
+  const { startDate, endDate, periodMonth, employeeCode, search } = opts;
+
+  let sql = `
+    SELECT 
+      v.id,
+      v.visit_date,
+      v.customer_code,
+      v.customer_name,
+      v.customer_type,
+      v.route,
+      v.branch,
+      v.employee_code,
+      v.employee_name,
+      v.check_in_time,
+      v.check_out_time,
+      v.duration,
+      v.visit_status,
+      v.purpose_of_visit,
+      v.remarks
+    FROM visit_execution_logs v
+    WHERE v.is_unmapped = 1
+  `;
+  const params = [];
+
+  if (startDate) {
+    sql += ' AND v.visit_date >= ?';
+    params.push(startDate);
+  }
+  if (endDate) {
+    sql += ' AND v.visit_date <= ?';
+    params.push(endDate);
+  }
+  if (periodMonth) {
+    sql += ' AND v.visit_date LIKE ?';
+    params.push(`${periodMonth}%`);
+  }
+  if (employeeCode && employeeCode !== 'ALL') {
+    sql += ' AND (v.employee_code = ? OR v.employee_name = ?)';
+    params.push(employeeCode, employeeCode);
+  }
+  if (search) {
+    sql += ' AND (v.customer_name LIKE ? OR v.customer_code LIKE ? OR v.employee_name LIKE ? OR v.employee_code LIKE ? OR v.branch LIKE ?)';
+    const s = `%${search}%`;
+    params.push(s, s, s, s, s);
+  }
+
+  sql += ' ORDER BY v.visit_date DESC, v.id DESC';
+  const rows = await dbAll(sql, params);
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Star Cement PJP/DJP';
+  wb.created = new Date();
+
+  const ws = wb.addWorksheet('Unmapped Visits', {
+    views: [{ state: 'frozen', ySplit: 1 }]
+  });
+
+  const columns = [
+    { header: 'Visit Date', key: 'visit_date', width: 14 },
+    { header: 'Employee Code', key: 'employee_code', width: 16 },
+    { header: 'Employee Name', key: 'employee_name', width: 26 },
+    { header: 'Customer Code', key: 'customer_code', width: 16 },
+    { header: 'Customer Name', key: 'customer_name', width: 32 },
+    { header: 'Customer Type', key: 'customer_type', width: 16 },
+    { header: 'Area / Branch', key: 'branch', width: 20 },
+    { header: 'Route', key: 'route', width: 24 },
+    { header: 'Check In', key: 'check_in_time', width: 12 },
+    { header: 'Check Out', key: 'check_out_time', width: 12 },
+    { header: 'Duration', key: 'duration', width: 12 },
+    { header: 'Visit Status', key: 'visit_status', width: 14 },
+    { header: 'Classification', key: 'classification', width: 18 },
+    { header: 'Reason', key: 'reason', width: 35 },
+    { header: 'Remarks', key: 'remarks', width: 36 }
+  ];
+
+  ws.columns = columns;
+
+  const headerRow = ws.getRow(1);
+  headerRow.height = 26;
+  headerRow.eachCell((cell) => {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF991B1B' }
+    };
+    cell.font = {
+      name: 'Calibri',
+      size: 10,
+      bold: true,
+      color: { argb: 'FFFFFFFF' }
+    };
+    cell.alignment = {
+      vertical: 'middle',
+      horizontal: 'center',
+      wrapText: true
+    };
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+      bottom: { style: 'medium', color: { argb: 'FF7F1D1D' } },
+      left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+      right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+    };
+  });
+
+  const thinBorder = {
+    top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+    bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+    left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+    right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+  };
+
+  rows.forEach((r, idx) => {
+    const isEven = idx % 2 === 0;
+    const row = ws.addRow({
+      visit_date: String(r.visit_date || '').slice(0, 10),
+      employee_code: r.employee_code || '',
+      employee_name: r.employee_name || '',
+      customer_code: r.customer_code || '',
+      customer_name: r.customer_name || '',
+      customer_type: r.customer_type || '',
+      branch: r.branch || '',
+      route: r.route || '',
+      check_in_time: r.check_in_time || '',
+      check_out_time: r.check_out_time || '',
+      duration: r.duration || '',
+      visit_status: r.visit_status || '',
+      classification: 'Unmapped',
+      reason: 'Customer code not in dealer master or targets',
+      remarks: r.remarks || ''
+    });
+
+    row.height = 20;
+    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      cell.font = { name: 'Calibri', size: 9.5 };
+      cell.border = thinBorder;
+      if (isEven) {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFF8FAFC' }
+        };
+      }
+      if ([1, 2, 4, 9, 10, 11, 12, 13].includes(colNumber)) {
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      } else {
+        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+      }
+    });
+  });
+
+  return wb;
 }

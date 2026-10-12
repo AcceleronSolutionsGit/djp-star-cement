@@ -283,12 +283,12 @@ export default function MonthlyIngestionView({
   };
 
   const handlePurge = async () => {
-    if (!window.confirm('Are you sure you want to purge all old master data? This cannot be undone.')) {
+    if (!window.confirm('Purge active data? Existing plans, master records, and visit targets will be safely preserved in cold archive before operational tables are reset.')) {
       return;
     }
     setPurging(true);
     setProgress(0);
-    setProgressText('Purging master records...');
+    setProgressText('Preserving data to archive & purging...');
 
     const progressInterval = setInterval(() => {
       setProgress(prev => {
@@ -301,11 +301,11 @@ export default function MonthlyIngestionView({
       const res = await api.purgeData();
       clearInterval(progressInterval);
       setProgress(100);
-      setProgressText('Purge complete!');
+      setProgressText('Archived & purged successfully!');
       setTimeout(() => {
         setPurging(false);
         setProgress(0);
-        onShowToast(`Purged: ${res.deletedTargets || 0} targets, ${res.deletedMappings || 0} mappings, ${res.deletedProspects || 0} prospects.`, 'success');
+        onShowToast(res.message || 'Data safely preserved in archive and purged.', 'success');
         loadBatches();
       }, 400);
     } catch (err) {

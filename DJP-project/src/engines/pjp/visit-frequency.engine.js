@@ -49,8 +49,8 @@ export const DEFAULT_VISIT_MATRIX = {
   ASM: {
     'Zero lifter':  [3, 2, 1, 0.5],
     'Zero Lifter':  [3, 2, 1, 0.5],
-    'Prospective':  [3, 2, 1, 0.5],
-    'Prospectiv':   [3, 2, 1, 0.5],
+    'Prospective':  [0, 0, 0, 0],
+    'Prospectiv':   [0, 0, 0, 0],
     'De-growing':   [3, 2, 1, 0.5],
     'Growing':      [2, 2, 1, 0.5],
     'Need to Grow': [3, 2, 1, 0.5],

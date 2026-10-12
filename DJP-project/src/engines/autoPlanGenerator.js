@@ -124,6 +124,7 @@ export class AutoPlanGenerator {
       WHERE (dvt.${codeField} = ? OR dvt.${roleField} = ? OR dvt.${roleField} LIKE ?)
         AND dvt.period_month = ?
         AND dvt.${visitCol} > 0
+        ${role === 'ASM' ? "AND (md.dealer_type IS NULL OR md.dealer_type != 'PROSPECTIVE') AND (dvt.dealer_status IS NULL OR dvt.dealer_status != 'Prospective')" : ''}
       ORDER BY md.block ASC, dvt.category ASC, dvt.dealer_name ASC
     `;
 

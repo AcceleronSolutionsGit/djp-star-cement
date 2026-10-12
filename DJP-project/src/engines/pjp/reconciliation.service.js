@@ -181,22 +181,28 @@ export async function reconcileUniverse(options = {}) {
     const territoryName = m.territory_name || d.territory_name || null;
     const soCode = m.so_emp_code || d.so_emp_code || null;
     const soName = m.so_name || d.so_name || null;
-    const asmCode = m.asm_code || d.asm_code || null;
-    const asmName = m.asm_name || d.asm_name || null;
+    const isProspect = d.dealer_type === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED';
+    const asmCode = isProspect ? null : (m.asm_code || d.asm_code || null);
+    const asmName = isProspect ? null : (m.asm_name || d.asm_name || null);
     const rsmCode = m.rsm_code || d.rsm_code || null;
     const rsmName = m.rsm_name || d.rsm_name || null;
     const zhCode = m.zh_code || d.zh_code || null;
     const zhName = m.zh_name || d.zh_name || null;
 
-    // Check hierarchy completeness
-    const isHierarchyComplete = Boolean(soCode && soName && asmCode && asmName && rsmCode && rsmName && zhCode && zhName);
+    // Check hierarchy completeness (ASM is intentionally not mapped for prospects)
+    const isHierarchyComplete = isProspect
+      ? Boolean(soCode && soName && rsmCode && rsmName && zhCode && zhName)
+      : Boolean(soCode && soName && asmCode && asmName && rsmCode && rsmName && zhCode && zhName);
     if (!isHierarchyComplete) {
       missingHierarchyCount++;
+      const missingRoles = isProspect
+        ? [!soCode && 'SO Code', !rsmCode && 'RSM Code', !zhCode && 'ZH Code'].filter(Boolean)
+        : [!soCode && 'SO Code', !asmCode && 'ASM Code', !rsmCode && 'RSM Code', !zhCode && 'ZH Code'].filter(Boolean);
       issues.push({
         code,
         dealerName: d.dealer_name,
         type: 'MISSING_HIERARCHY',
-        reason: `Missing: ${[!soCode && 'SO Code', !asmCode && 'ASM Code', !rsmCode && 'RSM Code', !zhCode && 'ZH Code'].filter(Boolean).join(', ')}`,
+        reason: `Missing: ${missingRoles.join(', ')}`,
         severity: 'WARNING'
       });
     }

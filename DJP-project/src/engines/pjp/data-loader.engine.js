@@ -146,9 +146,12 @@ export async function loadDealersWithMappings(options = {}) {
     const territoryCode = d.territory_code || null;
     const territoryName = d.territory_name || area || null;
     const custType = d.dealer_type === 'PROSPECTIVE' ? 'NON STAR' : (d.dealer_type || 'DEALER');
+    const isProspect = d.dealer_type === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED';
 
     return {
       ...d,
+      asm_name: isProspect ? null : (d.asm_name || null),
+      asm_code: isProspect ? null : (d.asm_code || null),
       sap_code: sapCode,
       sfa_code: sfaCode,
       rssd_code: rssdCode,

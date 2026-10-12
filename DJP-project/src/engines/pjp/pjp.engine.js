@@ -387,11 +387,12 @@ export async function calculatePJP(reportMonth, cycleCode, options = {}) {
     region: d.region || d.zone || null,
 
     // Hierarchy (from Dealer Mapping)
+    // ASM is deliberately NOT mapped for prospects
     soName: d.so_name,
     soEmpCode: d.so_emp_code,
     soCode: d.so_emp_code || d.soCode || null,
-    asmName: d.asm_name,
-    asmCode: d.asm_code,
+    asmName: (d.dealer_type === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED' || d.finalCategory === 'Prospective') ? null : d.asm_name,
+    asmCode: (d.dealer_type === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED' || d.finalCategory === 'Prospective') ? null : d.asm_code,
     rsmName: d.rsm_name,
     rsmCode: d.rsm_code || null,
     zhName: d.zh_name,
@@ -458,7 +459,7 @@ export async function calculatePJP(reportMonth, cycleCode, options = {}) {
     priorityLabel: d.priorityLabel,
 
     soVisits: d.soVisits,    // fractional preserved (e.g. 0.5)
-    asmVisits: d.asmVisits,
+    asmVisits: (d.dealer_type === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED' || d.finalCategory === 'Prospective') ? 0 : d.asmVisits,
     rsmVisits: d.rsmVisits,
     zhVisits: d.zhVisits
   }));

@@ -1,4 +1,5 @@
 import { dbAll, dbGet, dbRun } from '../config/database.js';
+import { archiveAllActiveData } from '../services/archive.service.js';
 
 /**
  * Get aggregate counters for admin dashboard header stats
@@ -785,6 +786,12 @@ export async function getMasterEmployees(req, res) {
  */
 export async function purgeOldData(req, res) {
   try {
+    // 1. First keep all plans, master, visits created, and history in archive
+    console.log('[purgeOldData] Preserving plans, master data, and visits in archive prior to purge...');
+    const archiveStats = await archiveAllActiveData();
+    console.log('[purgeOldData] Archive complete:', archiveStats);
+
+    // 2. Purge active operational tables
     const tablesToPurge = [
       'plan_approvals',
       'sales_plan_details',
@@ -803,19 +810,20 @@ export async function purgeOldData(req, res) {
     await dbRun('SET FOREIGN_KEY_CHECKS = 0');
     for (const table of tablesToPurge) {
       try {
-        await dbRun(`TRUNCATE TABLE ${table}`);
+        await dbRun(`TRUNCATE TABLE \`${table}\``);
       } catch (truncErr) {
-        await dbRun(`DELETE FROM ${table}`);
+        await dbRun(`DELETE FROM \`${table}\``);
       }
     }
     await dbRun('SET FOREIGN_KEY_CHECKS = 1');
 
     res.json({
       success: true,
-      message: 'All master data, sales history, mappings and targets purged successfully.',
-      deletedTargets: 0,
-      deletedMappings: 0,
-      deletedProspects: 0
+      message: 'All master data, plans and visits safely preserved in archive and purged successfully.',
+      archived: archiveStats,
+      deletedTargets: archiveStats.dealer_visit_targets || 0,
+      deletedMappings: archiveStats.master_dealer_so_mapping || 0,
+      deletedProspects: archiveStats.master_dealers || 0
     });
   } catch (err) {
     try { await dbRun('SET FOREIGN_KEY_CHECKS = 1'); } catch (_) {}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   ClipboardList, Search, RefreshCw, X, CalendarDays, AlertTriangle,
   CheckCircle2, Activity, Users, Download, GitCompare, ArrowUp, ArrowDown,
-  PlusCircle, MinusCircle, History, ChevronLeft, ChevronRight, HelpCircle
+  PlusCircle, MinusCircle, History, ChevronLeft, ChevronRight, HelpCircle, FileSpreadsheet
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -292,6 +292,25 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
     // eslint-disable-next-line
   }, [tab, month, unplannedOfficerFilter, unplannedPage, unplannedPageSize]);
 
+  const [exportingUnplanned, setExportingUnplanned] = useState(false);
+  const [exportingUnmapped, setExportingUnmapped] = useState(false);
+
+  const handleExportUnplannedExcel = async () => {
+    try {
+      setExportingUnplanned(true);
+      await api.exportUnplannedVisitsExcel({
+        periodMonth: month,
+        employeeCode: unplannedOfficerFilter,
+        search: unplannedSearch
+      });
+      onShowToast?.(`Unplanned visits Excel exported successfully`, 'success');
+    } catch (err) {
+      onShowToast?.(err.message || 'Failed to export unplanned visits to Excel', 'error');
+    } finally {
+      setExportingUnplanned(false);
+    }
+  };
+
   const exportUnplannedCsv = () => {
     if (!unplannedList.length) {
       onShowToast?.('No unplanned visits to export', 'error');
@@ -341,6 +360,22 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
     }
     // eslint-disable-next-line
   }, [tab, month, unmappedOfficerFilter, unmappedPage, unmappedPageSize]);
+
+  const handleExportUnmappedExcel = async () => {
+    try {
+      setExportingUnmapped(true);
+      await api.exportUnmappedVisitsExcel({
+        periodMonth: month,
+        employeeCode: unmappedOfficerFilter,
+        search: unmappedSearch
+      });
+      onShowToast?.(`Unmapped visits Excel exported successfully`, 'success');
+    } catch (err) {
+      onShowToast?.(err.message || 'Failed to export unmapped visits to Excel', 'error');
+    } finally {
+      setExportingUnmapped(false);
+    }
+  };
 
   const exportUnmappedCsv = () => {
     if (!unmappedList.length) {
@@ -1313,6 +1348,17 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                 <button
                   type="button"
                   className="btn btn-outline"
+                  onClick={handleExportUnplannedExcel}
+                  disabled={unplannedList.length === 0 || exportingUnplanned}
+                  style={{ color: '#16A34A', borderColor: '#16A34A', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  title="Export all unplanned visits to styled Excel spreadsheet"
+                >
+                  <FileSpreadsheet size={15} className={exportingUnplanned ? 'spin' : ''} />
+                  <span>{exportingUnplanned ? 'Exporting…' : 'Export Excel'}</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline"
                   onClick={exportUnplannedCsv}
                   disabled={unplannedList.length === 0}
                 >
@@ -1530,6 +1576,17 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                   disabled={unmappedLoading}
                 >
                   <RefreshCw size={15} className={unmappedLoading ? 'spin' : ''} /> Refresh
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={handleExportUnmappedExcel}
+                  disabled={unmappedList.length === 0 || exportingUnmapped}
+                  style={{ color: '#16A34A', borderColor: '#16A34A', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  title="Export all unmapped visits to styled Excel spreadsheet"
+                >
+                  <FileSpreadsheet size={15} className={exportingUnmapped ? 'spin' : ''} />
+                  <span>{exportingUnmapped ? 'Exporting…' : 'Export Excel'}</span>
                 </button>
                 <button
                   type="button"
