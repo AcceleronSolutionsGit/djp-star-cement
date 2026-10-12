@@ -40,6 +40,9 @@ export default function MonthlyIngestionView({
   const [sfaUploadResult, setSfaUploadResult] = useState(null); // tracks last SFA upload result
   const [sfaSyncSummary, setSfaSyncSummary] = useState(null);
   const [unplannedSearch, setUnplannedSearch] = useState('');
+  const [adherenceNoticeDismissed, setAdherenceNoticeDismissed] = useState(() => {
+    return localStorage.getItem('star_adherence_notice_dismissed') === 'true';
+  });
 
   const filteredUnplannedVisits = React.useMemo(() => {
     if (!sfaSyncSummary?.unplannedVisits) return [];
@@ -252,6 +255,8 @@ export default function MonthlyIngestionView({
         try { syncData = await res.json(); } catch (e) { }
         if (syncData) {
           setSfaSyncSummary(syncData);
+          localStorage.removeItem('star_adherence_notice_dismissed');
+          setAdherenceNoticeDismissed(false);
           const upCount = syncData.unplannedCount ?? (syncData.unplannedVisits?.length || 0);
           if (upCount > 0) {
             onShowToast(`SFA Sync complete! ${upCount} unplanned visit(s) identified (Data till T-1: ${syncData.syncedUntil || 'yesterday'}).`, 'info');
@@ -259,6 +264,8 @@ export default function MonthlyIngestionView({
             onShowToast(`SFA Sync complete! All visits matched planned schedules (Data till T-1: ${syncData.syncedUntil || 'yesterday'}).`, 'success');
           }
         } else {
+          localStorage.removeItem('star_adherence_notice_dismissed');
+          setAdherenceNoticeDismissed(false);
           onShowToast('SFA Sync completed successfully!', 'success');
         }
         loadBatches();
@@ -537,6 +544,73 @@ export default function MonthlyIngestionView({
           ))}
         </div>
       </div>
+
+      {/* Persistent SFA Sync / Adherence Processing Notice Banner */}
+      {!adherenceNoticeDismissed && (
+        <div className="content-card" style={{
+          marginTop: '16px',
+          border: '1.5px solid #F59E0B',
+          background: 'linear-gradient(135deg, #FEF3C7 0%, #FFFBEB 100%)',
+          borderRadius: '12px',
+          padding: '16px 20px',
+          position: 'relative',
+          boxShadow: '0 4px 12px rgba(245, 158, 11, 0.1)'
+        }}>
+          <button
+            onClick={() => {
+              localStorage.setItem('star_adherence_notice_dismissed', 'true');
+              setAdherenceNoticeDismissed(true);
+            }}
+            style={{ position: 'absolute', top: '14px', right: '14px', background: 'none', border: 'none', cursor: 'pointer', color: '#92400E' }}
+            title="Dismiss notice"
+          >
+            <X size={18} />
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flex: 1, minWidth: '280px' }}>
+              <div style={{
+                width: '42px', height: '42px', borderRadius: '10px',
+                background: '#F59E0B',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0, color: 'white'
+              }}>
+                <Clock size={22} />
+              </div>
+              <div>
+                <h4 style={{ margin: '0 0 4px 0', fontSize: '0.95rem', fontWeight: 700, color: '#92400E' }}>
+                  SFA Sync &amp; Adherence Processing Notice
+                </h4>
+                <p style={{ margin: 0, fontSize: '0.83rem', color: '#78350F', lineHeight: 1.45 }}>
+                  Even after SFA sync completes, adherence metrics and visit alignments may take up to an hour to fully update across all officer plans. However, you can download the complete SFA execution report immediately.
+                </p>
+              </div>
+            </div>
+            <a
+              href={`${API_BASE}/sfa/execution-report/export-excel?periodMonth=${selectedPeriod || ''}`}
+              className="btn btn-outline"
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                background: '#FFFFFF',
+                borderColor: '#D97706',
+                color: '#B45309',
+                fontWeight: 600,
+                fontSize: '0.84rem',
+                padding: '8px 14px',
+                borderRadius: '8px'
+              }}
+              title="Download SFA Execution Report Excel"
+            >
+              <FileSpreadsheet size={16} />
+              <span>Download SFA Report</span>
+            </a>
+          </div>
+        </div>
+      )}
+
       {/* SFA Feedback Banner — appears after SFA upload */}
       {sfaUploadResult && (
         <div className="content-card" style={{

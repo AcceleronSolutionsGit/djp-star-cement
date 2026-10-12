@@ -1,5 +1,6 @@
 import { dbAll, dbGet } from '../../config/database.js';
 import { normalizeCode } from '../normalization.engine.js';
+import { resolveProspectHierarchy } from '../../services/hierarchyResolution.service.js';
 
 /**
  * Multi-Source Reconciliation & Canonical Dealer Universe Builder
@@ -184,10 +185,22 @@ export async function reconcileUniverse(options = {}) {
     const isProspect = d.dealer_type === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED';
     const asmCode = isProspect ? null : (m.asm_code || d.asm_code || null);
     const asmName = isProspect ? null : (m.asm_name || d.asm_name || null);
-    const rsmCode = m.rsm_code || d.rsm_code || null;
-    const rsmName = m.rsm_name || d.rsm_name || null;
-    const zhCode = m.zh_code || d.zh_code || null;
-    const zhName = m.zh_name || d.zh_name || null;
+    let rsmCode = m.rsm_code || d.rsm_code || null;
+    let rsmName = m.rsm_name || d.rsm_name || null;
+    let zhCode = m.zh_code || d.zh_code || null;
+    let zhName = m.zh_name || d.zh_name || null;
+
+    if (isProspect && (!zhName || !rsmName)) {
+      const h = await resolveProspectHierarchy({
+        soEmpCode: soCode,
+        soName,
+        area: m.area || d.area,
+        zone: d.zone,
+        region: d.region
+      });
+      if (!zhName) { zhName = h.zh_name; zhCode = h.zh_code; }
+      if (!rsmName) { rsmName = h.rsm_name; rsmCode = h.rsm_code; }
+    }
 
     // Check hierarchy completeness (ASM is intentionally not mapped for prospects)
     const isHierarchyComplete = isProspect

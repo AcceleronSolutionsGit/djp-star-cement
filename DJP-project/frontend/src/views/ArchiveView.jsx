@@ -26,15 +26,16 @@ export default function ArchiveView({ onShowToast, selectedPeriod }) {
     loadSummary();
   }, [period]);
 
-  const handleDeleteArchives = async () => {
-    const scopeMsg = period ? `for period ${period}` : 'for ALL TIME';
+  const handleDeleteArchives = async (forceAllTime = false) => {
+    const targetPeriod = forceAllTime ? null : (period || null);
+    const scopeMsg = targetPeriod ? `for period ${targetPeriod}` : 'for ALL TIME (all months)';
     if (!window.confirm(`Are you sure you want to permanently delete archive records ${scopeMsg}?\n\nThis cannot be undone.`)) {
       return;
     }
 
     setDeleting(true);
     try {
-      const res = await api.deleteArchives(period || null);
+      const res = await api.deleteArchives(targetPeriod);
       onShowToast?.(res.message || 'Archive data deleted successfully', 'success');
       await loadSummary();
     } catch (err) {
@@ -101,7 +102,7 @@ export default function ArchiveView({ onShowToast, selectedPeriod }) {
               <Database size={20} color="var(--star-red)" /> Data Archives
             </h3>
             <p className="card-subtitle">
-              Cold-storage repository for historical data. Whenever active data is purged, all plans, master records and visits created are safely archived here.
+              Cold-storage repository for historical data. Whenever active data is purged, all plans, master records and visits created are safely archived here mapped to the planning month.
             </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -129,24 +130,45 @@ export default function ArchiveView({ onShowToast, selectedPeriod }) {
             >
               <RefreshCw size={14} className={loading ? 'spin' : ''} />
             </button>
+            {period && (
+              <button
+                className="btn btn-outline"
+                onClick={() => handleDeleteArchives(false)}
+                disabled={deleting || loading || totalCount === 0}
+                style={{
+                  color: 'var(--star-red)',
+                  borderColor: 'var(--star-red)',
+                  padding: '6px 12px',
+                  fontSize: '.82rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontWeight: 600
+                }}
+                title={`Permanently delete archives for ${period}`}
+              >
+                <Trash2 size={14} />
+                <span>{deleting ? 'Deleting…' : `Delete ${period}`}</span>
+              </button>
+            )}
             <button
               className="btn btn-outline"
-              onClick={handleDeleteArchives}
-              disabled={deleting || loading || totalCount === 0}
+              onClick={() => handleDeleteArchives(true)}
+              disabled={deleting || loading}
               style={{
-                color: 'var(--star-red)',
-                borderColor: 'var(--star-red)',
-                padding: '6px 14px',
+                color: '#64748B',
+                borderColor: '#CBD5E1',
+                padding: '6px 12px',
                 fontSize: '.82rem',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 6,
                 fontWeight: 600
               }}
-              title="Permanently delete historical archives"
+              title="Permanently delete all historical archives"
             >
-              <Trash2 size={15} />
-              <span>{deleting ? 'Deleting Archives…' : 'Delete Archives'}</span>
+              <Trash2 size={14} />
+              <span>Delete All Time</span>
             </button>
           </div>
         </div>

@@ -196,7 +196,10 @@ export function buildRow(t, index) {
 
   // NON STAR is the master's word for a prospect (see custType). Category is checked
   // too, so a prospect still reads as one if the type column is missing.
-  const isProspect = custType(t) === 'NON STAR' || category.toUpperCase() === 'PROSPECTIVE';
+  const isProspect = custType(t) === 'NON STAR' || 
+    category.toUpperCase() === 'PROSPECTIVE' || 
+    s(t.dealer_type).toUpperCase() === 'PROSPECTIVE' || 
+    s(t.counter_strategy).toUpperCase() === 'PROSPECT';
 
   // Counter share comes from the engine; recomputed only if it is absent.
   const counterShare = t.counter_share !== null && t.counter_share !== undefined
@@ -209,7 +212,7 @@ export function buildRow(t, index) {
     zone:            s(t.zone),
     zh_name:         s(t.zh_name),
     rsm_name:        s(t.rsm_name),
-    asm_name:        s(t.asm_name),
+    asm_name:        isProspect ? '' : s(t.asm_name), // Deliberately blank for prospects
     area:            s(t.dm_area || t.area),
     area_strategy:   '',
     so_name:         soName,
@@ -234,7 +237,7 @@ export function buildRow(t, index) {
     total_score:     n(t.total_score),
     priority_rank:   n(t.priority) || 1,
     so_visits:       n(t.so_visits),
-    asm_visits:      n(t.asm_visits),
+    asm_visits:      isProspect ? 0 : n(t.asm_visits),
     rsm_visits:      n(t.rsm_visits),
     zh_visits:       n(t.zh_visits),
     final_volume:    n(t.final_volume),

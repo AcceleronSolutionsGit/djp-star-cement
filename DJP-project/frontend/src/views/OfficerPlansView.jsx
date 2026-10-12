@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   ClipboardList, Search, RefreshCw, X, CalendarDays, AlertTriangle,
   CheckCircle2, Activity, Users, Download, GitCompare, ArrowUp, ArrowDown,
-  PlusCircle, MinusCircle, History, ChevronLeft, ChevronRight, HelpCircle, FileSpreadsheet
+  PlusCircle, MinusCircle, History, ChevronLeft, ChevronRight, HelpCircle, FileSpreadsheet, Clock
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -219,6 +219,29 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
   const [regenViewLoading, setRegenViewLoading] = useState(false);
   const [expandedOfficer, setExpandedOfficer] = useState(null);
   const [changeFilter, setChangeFilter] = useState('ALL');
+
+  // ── SFA adherence processing notification banner ───────────────────────────
+  const [adherenceNoticeDismissed, setAdherenceNoticeDismissed] = useState(() => {
+    return localStorage.getItem('star_adherence_notice_dismissed') === 'true';
+  });
+  const [exportingReport, setExportingReport] = useState(false);
+
+  const handleDownloadExecutionReport = async () => {
+    try {
+      setExportingReport(true);
+      await api.exportExecutionReportExcel({ periodMonth: month });
+      onShowToast?.('SFA Execution report downloaded successfully', 'success');
+    } catch (e) {
+      onShowToast?.(e.message || 'Failed to download SFA report', 'error');
+    } finally {
+      setExportingReport(false);
+    }
+  };
+
+  const handleDismissAdherenceNotice = () => {
+    localStorage.setItem('star_adherence_notice_dismissed', 'true');
+    setAdherenceNoticeDismissed(true);
+  };
 
   // Adherence filtered & paginated officers
   const filteredOfficers = useMemo(() => {
@@ -604,6 +627,86 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
           <GitCompare size={16} /> C2 Review
         </button>
       </div>
+
+      {/* SFA Sync / Adherence processing persistent notice banner */}
+      {!adherenceNoticeDismissed && (
+        <div style={{
+          margin: '0 0 16px 0',
+          padding: '14px 18px',
+          background: 'linear-gradient(135deg, #FEF3C7 0%, #FFFBEB 100%)',
+          border: '1.5px solid #F59E0B',
+          borderRadius: '10px',
+          boxShadow: '0 2px 8px rgba(245, 158, 11, 0.12)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '16px',
+          position: 'relative'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flex: 1, minWidth: '280px' }}>
+            <div style={{
+              width: '38px',
+              height: '38px',
+              borderRadius: '8px',
+              background: '#F59E0B',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              color: '#FFFFFF'
+            }}>
+              <Clock size={20} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '.9rem', color: '#92400E', marginBottom: 2 }}>
+                SFA Sync &amp; Adherence Data Processing Notice
+              </div>
+              <div style={{ fontSize: '.82rem', color: '#78350F', lineHeight: 1.45 }}>
+                Even after SFA sync completes, adherence metrics and target recalculations may take up to an hour to fully update across all officers and dealers. However, you can download the latest SFA execution report immediately.
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+            <button
+              className="btn btn-outline"
+              onClick={handleDownloadExecutionReport}
+              disabled={exportingReport}
+              style={{
+                background: '#FFFFFF',
+                borderColor: '#D97706',
+                color: '#B45309',
+                fontWeight: 600,
+                fontSize: '.82rem',
+                padding: '6px 14px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6
+              }}
+              title="Download SFA Execution Report Excel"
+            >
+              <FileSpreadsheet size={15} />
+              <span>{exportingReport ? 'Downloading…' : 'Download SFA Report'}</span>
+            </button>
+            <button
+              onClick={handleDismissAdherenceNotice}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#92400E',
+                padding: '4px',
+                borderRadius: '4px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+              title="Dismiss notice"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ═══════════════════════════ PLANS ═══════════════════════════ */}
       {tab === 'plans' && (

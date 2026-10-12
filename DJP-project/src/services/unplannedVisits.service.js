@@ -971,3 +971,123 @@ export async function exportUnmappedVisitsToWorkbook(opts = {}) {
 
   return wb;
 }
+
+/**
+ * Export full SFA execution logs report to an Excel workbook
+ */
+export async function exportExecutionReportToWorkbook(options = {}) {
+  await ensureVisitExecutionLogsSchema();
+  const { periodMonth, employeeCode, search } = options;
+
+  let sql = 'SELECT * FROM visit_execution_logs WHERE 1=1';
+  const params = [];
+
+  if (periodMonth && periodMonth !== 'ALL') {
+    sql += ' AND visit_date LIKE ?';
+    params.push(`${periodMonth}%`);
+  }
+  if (employeeCode && employeeCode !== 'ALL') {
+    sql += ' AND (employee_code = ? OR employee_name = ?)';
+    params.push(employeeCode, employeeCode);
+  }
+  if (search) {
+    sql += ' AND (customer_name LIKE ? OR customer_code LIKE ? OR employee_name LIKE ? OR employee_code LIKE ? OR branch LIKE ? OR route LIKE ?)';
+    const s = `%${search}%`;
+    params.push(s, s, s, s, s, s);
+  }
+
+  sql += ' ORDER BY visit_date DESC, id DESC LIMIT 50000';
+  const rows = await dbAll(sql, params);
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Star Cement SFA Integration';
+  wb.created = new Date();
+
+  const ws = wb.addWorksheet('SFA Execution Report', {
+    views: [{ state: 'frozen', ySplit: 1 }]
+  });
+
+  ws.columns = [
+    { header: 'Visit Date', key: 'visit_date', width: 14 },
+    { header: 'Employee Code', key: 'employee_code', width: 15 },
+    { header: 'Employee Name', key: 'employee_name', width: 25 },
+    { header: 'Customer Code', key: 'customer_code', width: 16 },
+    { header: 'Customer Name', key: 'customer_name', width: 32 },
+    { header: 'Customer Type', key: 'customer_type', width: 15 },
+    { header: 'Branch / Area', key: 'branch', width: 18 },
+    { header: 'Route', key: 'route', width: 22 },
+    { header: 'Check In', key: 'check_in_time', width: 12 },
+    { header: 'Check Out', key: 'check_out_time', width: 12 },
+    { header: 'Duration', key: 'duration', width: 12 },
+    { header: 'Visit Status', key: 'visit_status', width: 14 },
+    { header: 'Plan Type', key: 'plan_type', width: 14 },
+    { header: 'Remarks', key: 'remarks', width: 30 }
+  ];
+
+  const headerRow = ws.getRow(1);
+  headerRow.height = 26;
+  headerRow.eachCell((cell) => {
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF1E3A8A' } // Dark blue
+    };
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FF172554' } },
+      left: { style: 'thin', color: { argb: 'FF172554' } },
+      bottom: { style: 'medium', color: { argb: 'FF172554' } },
+      right: { style: 'thin', color: { argb: 'FF172554' } }
+    };
+  });
+
+  const thinBorder = {
+    top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+    left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+    bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+    right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+  };
+
+  rows.forEach((r, idx) => {
+    const isEven = idx % 2 === 0;
+    const planType = r.is_unplanned === 1 ? 'Unplanned' : 'Planned';
+    const row = ws.addRow({
+      visit_date: String(r.visit_date || '').slice(0, 10),
+      employee_code: r.employee_code || '',
+      employee_name: r.employee_name || '',
+      customer_code: r.customer_code || '',
+      customer_name: r.customer_name || '',
+      customer_type: r.customer_type || '',
+      branch: r.branch || '',
+      route: r.route || '',
+      check_in_time: r.check_in_time || '',
+      check_out_time: r.check_out_time || '',
+      duration: r.duration || '',
+      visit_status: r.visit_status || '',
+      plan_type: planType,
+      remarks: r.remarks || ''
+    });
+
+    row.height = 20;
+    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      cell.font = { name: 'Calibri', size: 9.5 };
+      cell.border = thinBorder;
+      if (isEven) {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFF8FAFC' }
+        };
+      }
+      if ([1, 2, 4, 9, 10, 11, 12, 13].includes(colNumber)) {
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      } else {
+        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+      }
+    });
+  });
+
+  return wb;
+}
+

@@ -2,6 +2,7 @@ import XLSX from 'xlsx';
 import { dbRun, dbGet, dbAll } from '../config/database.js';
 import { matchAndUpsertCanonicalDealer, logMatchingAudit } from '../engines/canonical-matching.engine.js';
 import { normalizeString, normalizeCode, normalizeBranch, normalizeRegion } from '../engines/normalization.engine.js';
+import { resolveProspectHierarchy } from '../services/hierarchyResolution.service.js';
 import path from 'path';
 
 function normalizeHeader(h) {
@@ -125,69 +126,21 @@ export async function importProspectDealers(filePath, batchCode = null) {
       continue;
     }
 
-    // Upper hierarchy resolution (NOTE: ASM is deliberately NOT mapped for prospects)
+    // Upper hierarchy resolution (NOTE: ZH and RSM mapped, ASM is deliberately NOT mapped for prospects)
+    const hierarchy = await resolveProspectHierarchy({
+      soEmpCode,
+      soName,
+      area,
+      zone,
+      region: zone
+    });
+
     const asmName = null;
     const asmCode = null;
-    let rsmName = null;
-    let rsmCode = null;
-    let zhName = null;
-    let zhCode = null;
-
-    if (soEmpCode) {
-      const existingMapping = await dbGet(
-        'SELECT so_name, rsm_name, rsm_code, zh_name, zh_code, area, territory_name FROM master_dealer_so_mapping WHERE so_emp_code = ? LIMIT 1',
-        [soEmpCode]
-      );
-      if (existingMapping) {
-        if (!soName) soName = existingMapping.so_name;
-        rsmName = existingMapping.rsm_name;
-        rsmCode = existingMapping.rsm_code;
-        zhName = existingMapping.zh_name;
-        zhCode = existingMapping.zh_code;
-        if (!area) area = existingMapping.territory_name || existingMapping.area;
-      }
-    } else if (soName) {
-      const existingMapping = await dbGet(
-        'SELECT so_emp_code, rsm_name, rsm_code, zh_name, zh_code, area, territory_name FROM master_dealer_so_mapping WHERE so_name = ? LIMIT 1',
-        [soName]
-      );
-      if (existingMapping) {
-        soEmpCode = existingMapping.so_emp_code;
-        rsmName = existingMapping.rsm_name;
-        rsmCode = existingMapping.rsm_code;
-        zhName = existingMapping.zh_name;
-        zhCode = existingMapping.zh_code;
-        if (!area) area = existingMapping.territory_name || existingMapping.area;
-      } else {
-        const emp = await dbGet('SELECT emp_code FROM master_employees WHERE emp_name = ?', [soName]);
-        if (emp) {
-          soEmpCode = emp.emp_code;
-        }
-      }
-    }
-
-    // Fallback: if ZH or RSM are still unresolved, look up by Area / Branch from the uploaded file.
-    // This ensures prospect dealers inherit the correct hierarchy from the Dealer Mapping for their area.
-    // (ASM is deliberately not mapped for prospects)
-    if ((!zhName || !rsmName) && area) {
-      const areaMapping = await dbGet(
-        `SELECT rsm_name, rsm_code, zh_name, zh_code, so_name, so_emp_code
-           FROM master_dealer_so_mapping
-          WHERE (LOWER(TRIM(area)) = LOWER(TRIM(?)) OR LOWER(TRIM(territory_name)) = LOWER(TRIM(?)))
-            AND rsm_name IS NOT NULL
-          LIMIT 1`,
-        [area, area]
-      );
-      if (areaMapping) {
-        if (!rsmName) { rsmName = areaMapping.rsm_name; rsmCode = areaMapping.rsm_code; }
-        if (!zhName)  { zhName  = areaMapping.zh_name;  zhCode  = areaMapping.zh_code;  }
-        if (!soName && areaMapping.so_name) soName = areaMapping.so_name;
-        if (!soEmpCode && areaMapping.so_emp_code) soEmpCode = areaMapping.so_emp_code;
-        console.log(`[PROSPECT_DEALERS] Resolved ZH/RSM for "${prospectName}" via area="${area}" → ZH: ${zhName}, RSM: ${rsmName}`);
-      } else {
-        warnings.push({ row: i + 1, message: `Could not resolve ZH/RSM for prospect "${prospectName}" — area "${area}" not found in Dealer Mapping.` });
-      }
-    }
+    const rsmName = hierarchy.rsm_name;
+    const rsmCode = hierarchy.rsm_code;
+    const zhName = hierarchy.zh_name;
+    const zhCode = hierarchy.zh_code;
 
     const matchResult = await matchAndUpsertCanonicalDealer({
       dealerType: 'PROSPECTIVE',
@@ -203,6 +156,10 @@ export async function importProspectDealers(filePath, batchCode = null) {
       soEmpCode,
       asmName: null, // Prospects are not mapped to ASM
       asmCode: null,
+      zhName,
+      zhCode,
+      rsmName,
+      rsmCode,
       batchCode,
       sourceType: 'PROSPECT_DEALERS'
     });
@@ -243,10 +200,34 @@ export async function importProspectDealers(filePath, batchCode = null) {
           rsm_name = COALESCE(?, rsm_name),
           rsm_code = COALESCE(?, rsm_code),
           zh_name = COALESCE(?, zh_name),
-          zh_code = COALESCE(?, zh_code)
+          zh_code = COALESCE(?, zh_code),
+          asm_name = NULL,
+          asm_code = NULL
          WHERE id = ?`,
         [potential, expectedSale, territoryCode, area, rsmName, rsmCode, zhName, zhCode, matchResult.internalId]
       );
+
+      // Also ensure master_dealer_so_mapping is synced for this prospect
+      const existingMapping = await dbGet('SELECT id FROM master_dealer_so_mapping WHERE dealer_id = ?', [matchResult.internalId]);
+      if (existingMapping) {
+        await dbRun(
+          `UPDATE master_dealer_so_mapping SET 
+            dealer_name = ?, area = ?, region = ?, 
+            so_name = ?, so_emp_code = ?,
+            asm_name = NULL, asm_code = NULL,
+            rsm_name = ?, rsm_code = ?,
+            zh_name = ?, zh_code = ?
+           WHERE id = ?`,
+          [prospectName, area, zone, soName, soEmpCode, rsmName, rsmCode, zhName, zhCode, existingMapping.id]
+        );
+      } else {
+        await dbRun(
+          `INSERT INTO master_dealer_so_mapping 
+            (dealer_id, sfa_code, dealer_name, area, branch, region, so_name, so_emp_code, asm_name, asm_code, rsm_name, rsm_code, zh_name, zh_code, batch_code)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`,
+          [matchResult.internalId, sfaCode, prospectName, area, area, zone, soName, soEmpCode, rsmName, rsmCode, zhName, zhCode, batchCode]
+        );
+      }
     }
 
     insertedCount++;

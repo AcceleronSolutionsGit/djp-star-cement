@@ -637,5 +637,26 @@ export const api = {
     a.click();
     a.remove();
     window.URL.revokeObjectURL(url);
+  },
+
+  exportExecutionReportExcel: async (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.startDate) query.append('startDate', params.startDate);
+    if (params.endDate) query.append('endDate', params.endDate);
+    if (params.periodMonth) query.append('periodMonth', params.periodMonth);
+    if (params.employeeCode && params.employeeCode !== 'ALL') query.append('employeeCode', params.employeeCode);
+
+    const res = await fetchWithAuth(`${API_BASE}/sfa/execution-report/export-excel?${query.toString()}`);
+    if (!res.ok) throw new Error('Failed to export SFA execution report to Excel');
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `SFA_Execution_Report_${params.periodMonth || 'All'}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
   }
 };

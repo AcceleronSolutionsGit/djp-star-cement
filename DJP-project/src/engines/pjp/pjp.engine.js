@@ -391,8 +391,8 @@ export async function calculatePJP(reportMonth, cycleCode, options = {}) {
     soName: d.so_name,
     soEmpCode: d.so_emp_code,
     soCode: d.so_emp_code || d.soCode || null,
-    asmName: (d.dealer_type === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED' || d.finalCategory === 'Prospective') ? null : d.asm_name,
-    asmCode: (d.dealer_type === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED' || d.finalCategory === 'Prospective') ? null : d.asm_code,
+    asmName: (d.dealer_type === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED' || d.finalCategory === 'Prospective' || d.cust_type === 'NON STAR' || d.counter_strategy === 'PROSPECT') ? null : d.asm_name,
+    asmCode: (d.dealer_type === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED' || d.finalCategory === 'Prospective' || d.cust_type === 'NON STAR' || d.counter_strategy === 'PROSPECT') ? null : d.asm_code,
     rsmName: d.rsm_name,
     rsmCode: d.rsm_code || null,
     zhName: d.zh_name,
@@ -587,9 +587,14 @@ async function persistPjpResults(results, reportMonth, cycleCode, generationRunC
     if (processedKeys.has(key)) continue;
     processedKeys.add(key);
 
-    const totalVisits = (r.soVisits || 0) + (r.asmVisits || 0) + (r.rsmVisits || 0) + (r.zhVisits || 0);
+    const isProspect = r.cust_type === 'NON STAR' || r.finalCategory === 'Prospective' || r.dealer_type === 'PROSPECTIVE';
+    const finalAsmName = isProspect ? null : (r.asmName || null);
+    const finalAsmCode = isProspect ? null : (r.asmCode || null);
+    const finalAsmVisits = isProspect ? 0 : (r.asmVisits || 0);
+
+    const totalVisits = (r.soVisits || 0) + finalAsmVisits + (r.rsmVisits || 0) + (r.zhVisits || 0);
     const soVisitsPct = totalVisits > 0 ? Math.round((r.soVisits / totalVisits) * 10000) / 100 : 0;
-    const asmVisitsPct = totalVisits > 0 ? Math.round((r.asmVisits / totalVisits) * 10000) / 100 : 0;
+    const asmVisitsPct = totalVisits > 0 ? Math.round((finalAsmVisits / totalVisits) * 10000) / 100 : 0;
     const rsmVisitsPct = totalVisits > 0 ? Math.round((r.rsmVisits / totalVisits) * 10000) / 100 : 0;
     const zhVisitsPct = totalVisits > 0 ? Math.round((r.zhVisits / totalVisits) * 10000) / 100 : 0;
 
@@ -625,7 +630,7 @@ async function persistPjpResults(results, reportMonth, cycleCode, generationRunC
         r.cust_type || 'RSAR',
         r.territoryCode || null, r.territoryName || null,
         r.soCode || r.soEmpCode || null, r.soName || null, r.soEmpCode || null,
-        r.asmName || null, r.asmCode || null,
+        finalAsmName, finalAsmCode,
         r.rsmName || null, r.rsmCode || null,
         r.zhName || null, r.zhCode || null,
         // Potential: sbg_potential (may be NULL — store as-is)
@@ -655,7 +660,7 @@ async function persistPjpResults(results, reportMonth, cycleCode, generationRunC
         r.rsar_status || 'RSAR_NOT_FOUND',
         r.dp_status || 'DP_NOT_FOUND',
         r.prospect_status || 'PROSPECT_NOT_FOUND',
-        r.soVisits, r.asmVisits, r.rsmVisits, r.zhVisits, totalVisits,
+        r.soVisits, finalAsmVisits, r.rsmVisits, r.zhVisits, totalVisits,
         soVisitsPct, asmVisitsPct, rsmVisitsPct, zhVisitsPct
       ]
     );

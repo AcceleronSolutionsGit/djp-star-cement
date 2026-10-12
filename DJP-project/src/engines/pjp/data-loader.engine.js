@@ -19,6 +19,7 @@
 
 import { dbAll, dbGet } from '../../config/database.js';
 import { normalizeCode } from '../normalization.engine.js';
+import { resolveProspectHierarchy } from '../../services/hierarchyResolution.service.js';
 
 /**
  * Load all active dealers with their SO mappings.
@@ -110,7 +111,7 @@ export async function loadDealersWithMappings(options = {}) {
     ORDER BY d.id ASC
   `, queryParams);
 
-  return dealers.map(d => {
+  return Promise.all(dealers.map(async d => {
     const sapCode = normalizeCode(d.sap_code || d.dm_sap_code);
     const sfaCode = normalizeCode(d.sfa_code || d.dm_sfa_code);
     const linkedCode = normalizeCode(d.linked_dealer_code || d.mapping_linked_code);
@@ -148,10 +149,31 @@ export async function loadDealersWithMappings(options = {}) {
     const custType = d.dealer_type === 'PROSPECTIVE' ? 'NON STAR' : (d.dealer_type || 'DEALER');
     const isProspect = d.dealer_type === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED';
 
+    let zhName = d.zh_name;
+    let zhCode = d.zh_code;
+    let rsmName = d.rsm_name;
+    let rsmCode = d.rsm_code;
+
+    if (isProspect && (!zhName || !rsmName)) {
+      const h = await resolveProspectHierarchy({
+        soEmpCode: d.so_emp_code,
+        soName: d.so_name,
+        area,
+        zone: d.zone,
+        region
+      });
+      if (!zhName) { zhName = h.zh_name; zhCode = h.zh_code; }
+      if (!rsmName) { rsmName = h.rsm_name; rsmCode = h.rsm_code; }
+    }
+
     return {
       ...d,
       asm_name: isProspect ? null : (d.asm_name || null),
       asm_code: isProspect ? null : (d.asm_code || null),
+      rsm_name: rsmName || null,
+      rsm_code: rsmCode || null,
+      zh_name: zhName || null,
+      zh_code: zhCode || null,
       sap_code: sapCode,
       sfa_code: sfaCode,
       rssd_code: rssdCode,
@@ -181,7 +203,7 @@ export async function loadDealersWithMappings(options = {}) {
       // currentSales from DB record (will be overridden by RSAR aggregation)
       currentSales: parseFloat(d.current_sales) || 0
     };
-  });
+  }));
 }
 
 /**

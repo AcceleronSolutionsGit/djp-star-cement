@@ -786,9 +786,10 @@ export async function getMasterEmployees(req, res) {
  */
 export async function purgeOldData(req, res) {
   try {
+    const targetMonth = req.body?.periodMonth || req.query?.periodMonth || null;
     // 1. First keep all plans, master, visits created, and history in archive
-    console.log('[purgeOldData] Preserving plans, master data, and visits in archive prior to purge...');
-    const archiveStats = await archiveAllActiveData();
+    console.log(`[purgeOldData] Preserving plans, master data, and visits in archive prior to purge (month: ${targetMonth || 'auto'})...`);
+    const archiveStats = await archiveAllActiveData(targetMonth);
     console.log('[purgeOldData] Archive complete:', archiveStats);
 
     // 2. Purge active operational tables
