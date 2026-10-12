@@ -574,11 +574,18 @@ export const api = {
     if (params.endDate) query.append('endDate', params.endDate);
     if (params.periodMonth) query.append('periodMonth', params.periodMonth);
     if (params.employeeCode && params.employeeCode !== 'ALL') query.append('employeeCode', params.employeeCode);
+    if (params.refresh) query.append('refresh', '1');
     query.append('limit', params.limit || 100);
     query.append('offset', params.offset || 0);
 
     const res = await fetchWithAuth(`${API_BASE}/sfa/unplanned-visits?${query.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch unplanned visits');
+    return res.json();
+  },
+
+  getSfaSyncStatus: async () => {
+    const res = await fetchWithAuth(`${API_BASE}/sfa/sync-status`);
+    if (!res.ok) throw new Error('Failed to fetch SFA sync status');
     return res.json();
   },
 

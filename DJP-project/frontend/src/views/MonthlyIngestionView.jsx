@@ -213,79 +213,52 @@ export default function MonthlyIngestionView({
   const handleSfaSync = async () => {
     if (!window.confirm("Trigger a manual SFA API sync now? This will fetch the active month's data.")) return;
     setSyncing(true);
-    setProgress(0);
-    setProgressText('Syncing live SFA data day-by-day (this takes about 5-7 minutes)...');
-
-    // Simulate a 5-minute progress bar
-    const progressInterval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 95) return prev;
-        return prev + 1; // 1% every 3 seconds = 5 minutes to reach 100%
-      });
-    }, 3000);
+    setProgress(5);
+    setProgressText('Initiating SFA live sync in background...');
 
     onShowToast('Syncing SFA execution logs from live API in the background...', 'info');
 
-    let is504 = false;
     try {
       const res = await fetch(`${API_BASE}/sfa/sync`, { method: 'POST' });
-      if (!res.ok) {
-        if (res.status === 504) {
-          // It's a timeout. NGINX dropped us but backend is still running.
-          is504 = true;
-          console.log("NGINX Timeout reached, but backend is still working.");
-          // We will clear it automatically after roughly 5.5 minutes
-          setTimeout(() => {
-            clearInterval(progressInterval);
+      const triggerData = await res.json().catch(() => ({}));
+
+      // Poll real background sync status every 3 seconds
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusRes = await fetch(`${API_BASE}/sfa/sync-status`);
+          if (!statusRes.ok) return;
+          const status = await statusRes.json();
+
+          if (status.isRunning) {
+            setProgress(Math.max(10, status.percent || 10));
+            setProgressText(status.message || `Processing day ${status.completedDays}/${status.totalDays}...`);
+          } else {
+            clearInterval(pollInterval);
             setProgress(100);
-            setProgressText('Sync Complete (Background tasks finished)!');
+            setProgressText(status.message || 'Sync Complete!');
+            setSfaSyncSummary(status);
+            localStorage.removeItem('star_adherence_notice_dismissed');
+            setAdherenceNoticeDismissed(false);
+
+            if (status.error) {
+              onShowToast(`SFA Sync warning: ${status.error}`, 'error');
+            } else {
+              const upCount = status.unplannedCount || 0;
+              onShowToast(`SFA Sync complete! ${upCount} unplanned visits identified (Synced through ${status.endDate || 'month end'}).`, 'success');
+            }
+
+            loadBatches();
             setTimeout(() => {
               setProgress(0);
               setSyncing(false);
-              loadBatches();
-            }, 2000);
-          }, 330000); // 5.5 minutes
-        } else {
-          let errorData;
-          try { errorData = await res.json(); } catch (e) { }
-          throw new Error(errorData?.error || 'API Sync Failed');
-        }
-      } else {
-        let syncData = null;
-        try { syncData = await res.json(); } catch (e) { }
-        if (syncData) {
-          setSfaSyncSummary(syncData);
-          localStorage.removeItem('star_adherence_notice_dismissed');
-          setAdherenceNoticeDismissed(false);
-          const upCount = syncData.unplannedCount ?? (syncData.unplannedVisits?.length || 0);
-          if (upCount > 0) {
-            onShowToast(`SFA Sync complete! ${upCount} unplanned visit(s) identified (Data till T-1: ${syncData.syncedUntil || 'yesterday'}).`, 'info');
-          } else {
-            onShowToast(`SFA Sync complete! All visits matched planned schedules (Data till T-1: ${syncData.syncedUntil || 'yesterday'}).`, 'success');
+            }, 2500);
           }
-        } else {
-          localStorage.removeItem('star_adherence_notice_dismissed');
-          setAdherenceNoticeDismissed(false);
-          onShowToast('SFA Sync completed successfully!', 'success');
-        }
-        loadBatches();
-        clearInterval(progressInterval);
-        setProgress(100);
-        setProgressText('Sync Complete!');
-        setTimeout(() => {
-          setProgress(0);
-          setSyncing(false);
-        }, 1500);
-      }
+        } catch (_) {}
+      }, 3000);
     } catch (err) {
-      onShowToast(err.message || 'Failed to sync SFA data', 'error');
-      clearInterval(progressInterval);
+      onShowToast(err.message || 'Failed to start SFA sync', 'error');
       setProgress(0);
       setSyncing(false);
-    } finally {
-      if (!is504 && progress < 100) {
-        // If it was NOT a 504 and it didn't finish normally (e.g., error), we clear it
-      }
     }
   };
 
@@ -578,10 +551,10 @@ export default function MonthlyIngestionView({
               </div>
               <div>
                 <h4 style={{ margin: '0 0 4px 0', fontSize: '0.95rem', fontWeight: 700, color: '#92400E' }}>
-                  SFA Sync &amp; Adherence Processing Notice
+                  SFA Report Processing Notice
                 </h4>
                 <p style={{ margin: 0, fontSize: '0.83rem', color: '#78350F', lineHeight: 1.45 }}>
-                  Even after SFA sync completes, adherence metrics and visit alignments may take up to an hour to fully update across all officer plans. However, you can download the complete SFA execution report immediately.
+                  Please download the SFA Report table after 1 hour as processing takes time. It is being updated with calculations.
                 </p>
               </div>
             </div>

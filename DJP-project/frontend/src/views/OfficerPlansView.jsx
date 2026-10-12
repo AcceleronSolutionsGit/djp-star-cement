@@ -238,6 +238,49 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
     }
   };
 
+  // ── SFA Live Background Sync Polling & Status ───────────────────────────────
+  const [syncStatus, setSyncStatus] = useState(null);
+
+  useEffect(() => {
+    let timer = null;
+    let isMounted = true;
+
+    const checkSyncStatus = async () => {
+      try {
+        const status = await api.getSfaSyncStatus();
+        if (!isMounted) return;
+        setSyncStatus(status);
+
+        if (status?.isRunning) {
+          timer = setTimeout(checkSyncStatus, 3500);
+        } else {
+          timer = setTimeout(checkSyncStatus, 15000);
+        }
+      } catch (_) {
+        if (isMounted) timer = setTimeout(checkSyncStatus, 15000);
+      }
+    };
+
+    checkSyncStatus();
+
+    return () => {
+      isMounted = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+
+  // When a new day completes sync in background, auto-refresh active tabs
+  useEffect(() => {
+    if (syncStatus?.completedDays) {
+      if (tab === 'unplanned') {
+        loadAdminUnplannedVisits();
+      } else if (tab === 'adherence') {
+        runAdherence(true);
+      }
+    }
+    // eslint-disable-next-line
+  }, [syncStatus?.completedDays]);
+
   const handleDismissAdherenceNotice = () => {
     localStorage.setItem('star_adherence_notice_dismissed', 'true');
     setAdherenceNoticeDismissed(true);
@@ -287,18 +330,22 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
   }, [filteredAdhDealers, adhDealerPage, adhDealerPageSize]);
 
   // Load unplanned visits for admin tab
-  const loadAdminUnplannedVisits = async () => {
+  const loadAdminUnplannedVisits = async (isForceRefresh = false) => {
     setUnplannedLoading(true);
     try {
       const res = await api.getUnplannedVisits({
         periodMonth: month,
         employeeCode: unplannedOfficerFilter,
         search: unplannedSearch,
+        refresh: isForceRefresh ? '1' : undefined,
         limit: unplannedPageSize,
         offset: (unplannedPage - 1) * unplannedPageSize
       });
       setUnplannedList(res.visits || []);
       setUnplannedTotal(res.total || 0);
+      if (isForceRefresh) {
+        onShowToast?.(`Unplanned visits refreshed (${res.total || 0} found)`, 'success');
+      }
     } catch (err) {
       onShowToast?.(err.message || 'Failed to fetch unplanned visits', 'error');
       setUnplannedList([]);
@@ -659,10 +706,10 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
             </div>
             <div>
               <div style={{ fontWeight: 700, fontSize: '.9rem', color: '#92400E', marginBottom: 2 }}>
-                SFA Sync &amp; Adherence Data Processing Notice
+                SFA Report Processing Notice
               </div>
               <div style={{ fontSize: '.82rem', color: '#78350F', lineHeight: 1.45 }}>
-                Even after SFA sync completes, adherence metrics and target recalculations may take up to an hour to fully update across all officers and dealers. However, you can download the latest SFA execution report immediately.
+                Please download the SFA Report table after 1 hour as processing takes time. It is being updated with calculations.
               </div>
             </div>
           </div>
@@ -718,7 +765,7 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
               CYCLE
             </span>
             {[
-              { id: 'ALL', label: 'Both cycles' },
+              { id: 'ALL', label: 'Full cycle · days 1–end' },
               { id: 'C1',  label: 'C1 · days 1–15' },
               { id: 'C2',  label: 'C2 · days 16–end' }
             ].map(c => {
@@ -887,7 +934,7 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                         onChange={e => { setAdhCycle(e.target.value); setAsOn(''); }}>
                   <option value="C1">C1 · days 1–15</option>
                   <option value="C2">C2 · days 16–end</option>
-                  <option value="ALL">Both cycles</option>
+                  <option value="ALL">Full cycle · days 1–end</option>
                 </select>
               </div>
               <div className="form-group">
@@ -895,7 +942,7 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                 <input type="date" className="form-control" value={asOn}
                        onChange={e => setAsOn(e.target.value)} />
                 <span style={{ fontSize: '.72rem', color: 'var(--text-tertiary)' }}>
-                  {asOn ? 'manual' : adhCycle === 'C1' ? 'defaults to the 15th — SFA feedback day' : 'defaults to month end'}
+                  {asOn ? 'manual' : adhCycle === 'C1' ? 'defaults to 15th — SFA feedback day' : 'defaults to month end (days 1–end)'}
                 </span>
               </div>
               <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
@@ -941,7 +988,7 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                 <Kpi label="Planned visits" value={adh.totals.planned_visits}
                      sub={`${adh.totals.dealers_on_plan} dealers on plan`} />
                 <Kpi label="MTD due" value={adh.totals.mtd_due}
-                     sub={`as on ${adh.as_on_date}`} />
+                     sub={adh.cycles.length > 1 ? `full month (1 → ${adh.as_on_date.slice(8)})` : `as on ${adh.as_on_date}`} />
                 <Kpi label="Adhered" value={adh.totals.adhered} tone="var(--color-success)"
                      sub={`capped ${adh.totals.adhered_capped} · ${adh.totals.sfa_visits_in_window} SFA visits in window`} />
                 <Kpi label="Adherence (capped)" value={`${adh.adherence.capped_pct}%`}
@@ -1443,7 +1490,7 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                 <button
                   type="button"
                   className="btn btn-primary"
-                  onClick={() => { setUnplannedPage(1); loadAdminUnplannedVisits(); }}
+                  onClick={() => { setUnplannedPage(1); loadAdminUnplannedVisits(true); }}
                   disabled={unplannedLoading}
                 >
                   <RefreshCw size={15} className={unplannedLoading ? 'spin' : ''} /> Refresh
@@ -2225,6 +2272,53 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setDetail(null)}>Close</button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Floating SFA Background Sync Progress Widget */}
+      {syncStatus?.isRunning && (
+        <div style={{
+          position: 'fixed',
+          bottom: 24,
+          right: 24,
+          background: 'var(--bg-surface, #ffffff)',
+          color: 'var(--text-primary, #1e293b)',
+          border: '1px solid var(--border, #e2e8f0)',
+          borderRadius: 12,
+          padding: '12px 18px',
+          boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15), 0 8px 10px -6px rgba(0,0,0,0.1)',
+          zIndex: 9999,
+          maxWidth: 360,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          animation: 'fadeIn 0.2s ease-in-out'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: '.84rem' }}>
+              <RefreshCw size={15} className="spin" style={{ color: 'var(--star-red, #dc2626)' }} />
+              <span>Fetching SFA Live Data</span>
+            </div>
+            <span style={{ fontSize: '.75rem', fontWeight: 700, color: 'var(--star-red, #dc2626)' }}>
+              {syncStatus.percent}%
+            </span>
+          </div>
+
+          <div style={{ fontSize: '.75rem', color: 'var(--text-secondary, #64748b)' }}>
+            Processing: <strong>{syncStatus.currentDate || syncStatus.startDate}</strong> ({syncStatus.completedDays}/{syncStatus.totalDays} days)
+          </div>
+
+          <div style={{ width: '100%', height: 6, background: '#f1f5f9', borderRadius: 99, overflow: 'hidden' }}>
+            <div style={{
+              width: `${syncStatus.percent}%`,
+              height: '100%',
+              background: 'var(--star-red, #dc2626)',
+              transition: 'width 0.4s ease'
+            }} />
+          </div>
+
+          <div style={{ fontSize: '.7rem', color: 'var(--text-tertiary, #94a3b8)', lineHeight: 1.3 }}>
+            Fetched {syncStatus.totalVisitsFetched} visits. Unplanned & adherence data are updating live.
           </div>
         </div>
       )}

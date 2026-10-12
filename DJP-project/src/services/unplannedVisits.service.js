@@ -449,19 +449,20 @@ export async function getUnplannedVisits(opts = {}) {
 
   const { startDate, endDate, periodMonth, employeeCode, search, limit = 100, offset = 0 } = opts;
 
-  // Auto-reconcile once if current month has never been reconciled
+  // Auto-reconcile check: ensure all dates up to latest are reconciled
   if (periodMonth) {
     try {
-      const check = await dbGet(
-        `SELECT COUNT(*) as cnt FROM visit_execution_logs WHERE (is_unplanned = 1 OR is_unmapped = 1) AND visit_date LIKE ?`,
+      const maxLog = await dbGet(
+        `SELECT MAX(visit_date) as max_date, COUNT(*) as cnt FROM visit_execution_logs WHERE visit_date LIKE ?`,
         [`${periodMonth}%`]
       );
-      if (!check || check.cnt === 0) {
-        const totalInMonth = await dbGet(
-          `SELECT COUNT(*) as cnt FROM visit_execution_logs WHERE visit_date LIKE ?`,
+      if (maxLog?.cnt > 0) {
+        const maxRecon = await dbGet(
+          `SELECT MAX(visit_date) as max_date FROM visit_execution_logs WHERE (is_unplanned = 1 OR is_unmapped = 1) AND visit_date LIKE ?`,
           [`${periodMonth}%`]
         );
-        if (totalInMonth?.cnt > 0) {
+        // Reconcile if never reconciled, if newer dates landed in logs, or if explicit refresh requested
+        if (!maxRecon?.max_date || maxLog.max_date > maxRecon.max_date || opts.refresh === '1' || opts.refresh === true || opts.forceReconcile) {
           await reconcileUnplannedVisits({ periodMonth });
         }
       }
@@ -557,18 +558,19 @@ export async function getUnmappedVisits(opts = {}) {
   const { startDate, endDate, periodMonth, employeeCode, search, limit = 100, offset = 0 } = opts;
 
   // Auto-reconcile once if current month has never been reconciled
+  // Auto-reconcile check: ensure all dates up to latest are reconciled
   if (periodMonth) {
     try {
-      const check = await dbGet(
-        `SELECT COUNT(*) as cnt FROM visit_execution_logs WHERE (is_unplanned = 1 OR is_unmapped = 1) AND visit_date LIKE ?`,
+      const maxLog = await dbGet(
+        `SELECT MAX(visit_date) as max_date, COUNT(*) as cnt FROM visit_execution_logs WHERE visit_date LIKE ?`,
         [`${periodMonth}%`]
       );
-      if (!check || check.cnt === 0) {
-        const totalInMonth = await dbGet(
-          `SELECT COUNT(*) as cnt FROM visit_execution_logs WHERE visit_date LIKE ?`,
+      if (maxLog?.cnt > 0) {
+        const maxRecon = await dbGet(
+          `SELECT MAX(visit_date) as max_date FROM visit_execution_logs WHERE (is_unplanned = 1 OR is_unmapped = 1) AND visit_date LIKE ?`,
           [`${periodMonth}%`]
         );
-        if (totalInMonth?.cnt > 0) {
+        if (!maxRecon?.max_date || maxLog.max_date > maxRecon.max_date || opts.refresh === '1' || opts.refresh === true || opts.forceReconcile) {
           await reconcileUnplannedVisits({ periodMonth });
         }
       }

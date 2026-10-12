@@ -327,7 +327,7 @@ router.get('/templates', listTemplates);
 router.get('/templates/:name', downloadTemplate);
 
 // SFA Auto-Sync API
-import { syncSfaDataFromApi } from '../services/sfaSync.service.js';
+import { syncSfaDataFromApi, getSfaSyncStatus } from '../services/sfaSync.service.js';
 import { 
   getUnplannedVisits, 
   getUnmappedVisits,
@@ -336,9 +336,25 @@ import {
   exportExecutionReportToWorkbook
 } from '../services/unplannedVisits.service.js';
 
+router.get('/sfa/sync-status', (req, res) => {
+  res.json(getSfaSyncStatus());
+});
+
 router.post('/sfa/sync', async (req, res) => {
-  const result = await syncSfaDataFromApi();
-  res.json(result);
+  const status = getSfaSyncStatus();
+  if (status.isRunning) {
+    return res.json({ status: 'running', ...status });
+  }
+
+  // Launch sync in the background
+  syncSfaDataFromApi({ periodMonth: req.body?.periodMonth }).catch(err => {
+    console.error('[SFA_SYNC] Background sync error:', err);
+  });
+
+  res.json({
+    status: 'started',
+    message: 'SFA sync started in background. Monitor via /api/sfa/sync-status.'
+  });
 });
 
 router.get('/sfa/unplanned-visits', async (req, res) => {

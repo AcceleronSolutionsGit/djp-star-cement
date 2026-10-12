@@ -186,8 +186,9 @@ export async function analyseAdherence(opts = {}) {
   }
 
   const windows = await loadCycleWindows();
-  const cycles  = opts.cycleCode ? [String(opts.cycleCode).toUpperCase()] : ['C1', 'C2'];
-  const asOnDate = opts.asOnDate || defaultAsOnDate(periodMonth, cycles[0], windows);
+  const isBothCycles = !opts.cycleCode || String(opts.cycleCode).toUpperCase() === 'ALL';
+  const cycles  = isBothCycles ? ['C1', 'C2'] : [String(opts.cycleCode).toUpperCase()];
+  const asOnDate = opts.asOnDate || (isBothCycles ? defaultAsOnDate(periodMonth, 'C2', windows) : defaultAsOnDate(periodMonth, cycles[0], windows));
   const productiveOnly = !!opts.productiveOnly;
 
   // ── 1. planned visits, per role, from the plans themselves ────────────────
@@ -290,16 +291,26 @@ export async function analyseAdherence(opts = {}) {
   const fractions = {};
   for (const c of cycles) fractions[c] = cycleElapsedFraction(c, asOnDate, periodMonth, windows);
 
+  const cycleWindows = {};
+  for (const c of cycles) cycleWindows[c] = cycleWindowDates(c, asOnDate, periodMonth, windows);
+
   const byDealer = [];
   for (const row of dealerRows.values()) {
     const fraction   = fractions[row.cycle_code] ?? 1;
     const mtdPlanned = row.planned * fraction;
+    const cWin       = cycleWindows[row.cycle_code] || cycleWindows.C1;
 
     const hit = actual.get(`${key(row.emp_code)}|${key(row.dealer_sap_code)}`)
              || actual.get(`${key(row.emp_name)}|${key(row.dealer_sap_code)}`);
 
-    const adheredRaw    = hit ? hit.rows.length : 0;
-    const adheredDays   = hit ? hit.dates.size  : 0;
+    // Match only visits that fall within this cycle's active window (up to asOnDate)
+    const matchingRows = hit
+      ? hit.rows.filter(r => (!cWin.from || r.visit_date >= cWin.from) && (!cWin.to || r.visit_date <= cWin.to))
+      : [];
+    const matchingDates = new Set(matchingRows.map(r => r.visit_date));
+
+    const adheredRaw    = matchingRows.length;
+    const adheredDays   = matchingDates.size;
     const adheredCapped = Math.min(adheredRaw, row.planned);
 
     // Adhered ÷ MTD Due, falling back to the full plan when MTD Due rounds below 1.
@@ -318,7 +329,7 @@ export async function analyseAdherence(opts = {}) {
       adherence_pct_capped: pctCapped,
       pending: mtdPlanned - adheredRaw,
       visited: adheredRaw > 0,
-      visit_dates: hit ? [...hit.dates].sort() : []
+      visit_dates: [...matchingDates].sort()
     });
   }
 
