@@ -1011,6 +1011,179 @@ export async function submitMyPlan(req, res) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// AGENT — create & submit custom/manual plan
+// POST /api/app/officers/:empCode/plans
+// POST /api/plans/custom
+// ─────────────────────────────────────────────────────────────────────────────
+export async function createOfficerPlan(req, res) {
+  try {
+    const empCode = norm(req.params?.empCode || req.body?.empCode);
+    if (!empCode) {
+      return res.status(400).json({ error: 'empCode is required (in path or body).' });
+    }
+
+    const periodMonth = norm(req.body.periodMonth || req.body.planMonth);
+    const cycleCode = norm(req.body.cycleCode || 'C1').toUpperCase();
+    const visits = Array.isArray(req.body.visits) ? req.body.visits : [];
+    const submitDirectly = req.body.submitDirectly !== false && req.body.submitDirectly !== undefined 
+      ? Boolean(req.body.submitDirectly) 
+      : Boolean(req.body.submit);
+    const remarks = norm(req.body.remarks);
+
+    if (!periodMonth || !/^\d{4}-\d{2}$/.test(periodMonth)) {
+      return res.status(400).json({ error: 'periodMonth is required in YYYY-MM format.' });
+    }
+    if (!['C1', 'C2'].includes(cycleCode)) {
+      return res.status(400).json({ error: 'cycleCode must be C1 or C2.' });
+    }
+
+    // Resolve employee role and name
+    const role = await resolveEmployeeRole(empCode, req.body.role);
+    const nameRes = await resolveEmployeeName(empCode, role);
+    const empName = nameRes?.name || empCode;
+
+    // Resolve superior officer (L1 Approver)
+    const l1 = await resolveL1Approver(empCode, role);
+    const requiredApproverRole = l1.role || (role === 'ZH' ? 'ADMIN' : (role === 'RSM' ? 'ZH' : (role === 'ASM' ? 'RSM' : 'ASM')));
+    const superiorLabel = l1.name ? `${l1.name} (${l1.role})` : (l1.role || 'Superior Officer');
+
+    // Check if a plan already exists for this period and cycle
+    const existingPlan = await dbGet(
+      'SELECT * FROM sales_plans WHERE emp_code = ? AND period_month = ? AND cycle_code = ?',
+      [empCode, periodMonth, cycleCode]
+    );
+
+    let planId;
+    if (existingPlan) {
+      if (['APPROVED'].includes(existingPlan.status) && existingPlan.amendment_status !== 'AMENDMENT_PENDING') {
+        return res.status(409).json({
+          error: `Plan #${existingPlan.id} is already APPROVED for ${periodMonth} ${cycleCode}. Open an amendment window to modify it.`
+        });
+      }
+      planId = existingPlan.id;
+
+      // Replace visits if new visits are supplied
+      if (visits.length > 0) {
+        await dbRun('DELETE FROM sales_plan_details WHERE plan_id = ?', [planId]);
+      }
+
+      const newStatus = submitDirectly ? 'SUBMITTED' : (existingPlan.status || 'DRAFT');
+      await dbRun(
+        `UPDATE sales_plans 
+         SET emp_role = ?, required_approver_role = ?,
+             l1_approver_emp_code = ?, l1_approver_name = ?, l1_approver_role = ?,
+             status = ?,
+             submitted_at = ${submitDirectly ? 'COALESCE(submitted_at, CURRENT_TIMESTAMP)' : 'submitted_at'}
+         WHERE id = ?`,
+        [role, requiredApproverRole, l1.empCode, l1.name, l1.role, newStatus, planId]
+      );
+    } else {
+      const initialStatus = submitDirectly ? 'SUBMITTED' : 'DRAFT';
+      const insertRes = await dbRun(
+        `INSERT INTO sales_plans (
+           emp_code, emp_name, period_month, cycle_code, status, emp_role,
+           required_approver_role, l1_approver_emp_code, l1_approver_name, l1_approver_role,
+           submitted_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${submitDirectly ? 'CURRENT_TIMESTAMP' : 'NULL'})`,
+        [empCode, empName, periodMonth, cycleCode, initialStatus, role, requiredApproverRole, l1.empCode, l1.name, l1.role]
+      );
+      planId = insertRes.insertId || insertRes.lastID;
+    }
+
+    // Insert visits if provided
+    let insertedCount = 0;
+    const errors = [];
+    if (visits.length > 0) {
+      let seq = 1;
+      for (const v of visits) {
+        const vDate = norm(v.visitDate || v.date);
+        const dCode = norm(v.dealerSapCode || v.dealerSfaCode || v.dealerCode);
+        const dName = norm(v.dealerName || v.name);
+        const dType = norm(v.dealerType || 'DEALER');
+        const purpose = norm(v.purposeOfVisit || v.purpose || 'Officer Scheduled Visit');
+
+        if (!vDate || (!dCode && !dName)) {
+          errors.push({ visit: v, error: 'visitDate and dealer code/name are required.' });
+          continue;
+        }
+
+        // Validate date within month & cycle
+        const dErr = await validateVisitDate({ period_month: periodMonth, cycle_code: cycleCode }, vDate);
+        if (dErr) {
+          errors.push({ visit: v, error: dErr });
+          continue;
+        }
+
+        // Lookup dealer details if missing
+        let resolvedName = dName;
+        let resolvedId = v.dealerId || null;
+        let resolvedSap = dCode;
+        if (!resolvedName || !resolvedId) {
+          const dRow = await dbGet(
+            `SELECT id, dealer_name, sap_code, sfa_code, dealer_type FROM master_dealers 
+             WHERE sap_code = ? OR sfa_code = ? OR dealer_name = ? LIMIT 1`,
+            [dCode, dCode, dName]
+          );
+          if (dRow) {
+            resolvedName = resolvedName || dRow.dealer_name;
+            resolvedId = resolvedId || dRow.id;
+            resolvedSap = resolvedSap || dRow.sap_code || dRow.sfa_code;
+          }
+        }
+
+        await dbRun(
+          `INSERT INTO sales_plan_details 
+           (plan_id, visit_date, dealer_id, dealer_sap_code, dealer_name, dealer_type, purpose_of_visit, sequence)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [planId, vDate, resolvedId, resolvedSap, resolvedName || 'Customer Visit', dType, purpose, seq++]
+        );
+        insertedCount++;
+      }
+    }
+
+    const currentVisits = await dbGet('SELECT COUNT(*) as n FROM sales_plan_details WHERE plan_id = ?', [planId]);
+    const totalVisitsCount = Number(currentVisits?.n || 0);
+
+    if (submitDirectly) {
+      if (totalVisitsCount === 0) {
+        return res.status(400).json({
+          error: 'Cannot submit an empty plan — provide at least one valid visit in visits array.'
+        });
+      }
+      await dbRun(
+        'INSERT INTO plan_approvals (plan_id, action_by, action_type, remarks, approver_role) VALUES (?, ?, ?, ?, ?)',
+        [planId, empCode, 'SUBMITTED', remarks || `Plan submitted directly to ${superiorLabel} for approval.`, l1.role || null]
+      ).catch(() => {});
+    }
+
+    res.json({
+      success: true,
+      message: submitDirectly
+        ? `Plan #${planId} created and submitted directly to superior officer ${superiorLabel} for approval.`
+        : `Plan #${planId} created as DRAFT with ${totalVisitsCount} visits.`,
+      plan_id: Number(planId),
+      status: submitDirectly ? 'SUBMITTED' : 'DRAFT',
+      emp_code: empCode,
+      emp_name: empName,
+      role,
+      period_month: periodMonth,
+      cycle_code: cycleCode,
+      total_visits: totalVisitsCount,
+      approver: {
+        emp_code: l1.empCode,
+        name: l1.name,
+        role: l1.role
+      },
+      submitted_to: superiorLabel,
+      errors: errors.length > 0 ? errors : undefined
+    });
+  } catch (err) {
+    console.error('[createOfficerPlan]', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // L1 — inbox
 // GET /api/app/approvers/:empCode/inbox?month=&status=
 // ─────────────────────────────────────────────────────────────────────────────

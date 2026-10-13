@@ -55,6 +55,7 @@ import {
   getMySummary,
   getMyPlanDetail,
   getMyDealers,
+  createOfficerPlan,
   addVisit,
   removeVisit,
   moveVisit,
@@ -116,6 +117,7 @@ router.get('/master/visit-logs', getVisitExecutionLogs);
 
 // Plan Workflows & Dealer Mapping APIs
 router.post('/plans/generate', generateAutoPlan);
+router.post('/plans/custom', createOfficerPlan);
 router.post('/plans/mapping/run', runDealerMapping);
 router.post('/plans/submit', submitPlan);
 router.post('/plans/approve', approvePlan);
@@ -290,6 +292,7 @@ router.get('/admin/approval-matrix/pending', getPendingApprovals);
 // ─────────────────────────────────────────────────────────────────────────────
 router.get   ('/app/officers/:empCode/summary',                    getMySummary);
 router.get   ('/app/officers/:empCode/plans',                      listMyPlans);
+router.post  ('/app/officers/:empCode/plans',                      createOfficerPlan);
 router.get   ('/app/officers/:empCode/dealers',                    getMyDealers);
 router.get   ('/app/officers/:empCode/plans/:planId',              getMyPlanDetail);
 router.post  ('/app/officers/:empCode/plans/:planId/visits',       addVisit);
