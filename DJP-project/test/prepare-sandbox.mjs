@@ -18,6 +18,7 @@ const FILES = [
   ['src/services/planRouting.service.js',      'src/services/planRouting.service.js'],
   ['src/services/approvalMatrix.service.js',   'src/services/approvalMatrix.service.js'],
   ['src/services/c2Snapshot.service.js',       'src/services/c2Snapshot.service.js'],
+  ['src/services/unplannedVisits.service.js',   'src/services/unplannedVisits.service.js'],
   ['src/controllers/appPlan.controller.js',    'src/controllers/appPlan.controller.js'],
   ['src/controllers/generation.controller.js', 'src/controllers/generation.controller.js'],
   ['src/engines/sfa-adherence.engine.js',      'src/engines/sfa-adherence.engine.real.js'],

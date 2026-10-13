@@ -94,21 +94,29 @@ export async function generateAllRolePlans(req, res) {
 
     const result = await generateFullPjpDjpSolution(periodMonth, cycleCode);
 
-    // Auto-generate plans for all roles in the hierarchy
+    // Auto-generate plans for all roles in the hierarchy (DJP batch: status PENDING_ROLLOUT)
     console.log(`[generateAllRolePlans] Auto-generating sales_plans for all hierarchy levels...`);
     const autoGen = new AutoPlanGenerator();
+    const djpOptions = { isDjpPipeline: true, status: 'PENDING_ROLLOUT' };
 
     const sos = await dbAll('SELECT DISTINCT so_emp_code as emp_code FROM dealer_visit_targets WHERE period_month = ? AND cycle_code = ? AND so_emp_code IS NOT NULL AND TRIM(so_emp_code) != ""', [periodMonth, cycleCode]);
-    for (const s of sos) await autoGen.generatePlan(s.emp_code, periodMonth, 'SO', cycleCode).catch(e => console.warn(`SO plan gen error [${s.emp_code}]:`, e.message));
+    for (const s of sos) await autoGen.generatePlan(s.emp_code, periodMonth, 'SO', cycleCode, djpOptions).catch(e => console.warn(`SO plan gen error [${s.emp_code}]:`, e.message));
 
     const asms = await dbAll('SELECT DISTINCT asm_code as emp_code FROM dealer_visit_targets WHERE period_month = ? AND cycle_code = ? AND asm_code IS NOT NULL AND TRIM(asm_code) != ""', [periodMonth, cycleCode]);
-    for (const a of asms) await autoGen.generatePlan(a.emp_code, periodMonth, 'ASM', cycleCode).catch(e => console.warn(`ASM plan gen error [${a.emp_code}]:`, e.message));
+    for (const a of asms) await autoGen.generatePlan(a.emp_code, periodMonth, 'ASM', cycleCode, djpOptions).catch(e => console.warn(`ASM plan gen error [${a.emp_code}]:`, e.message));
 
     const rsms = await dbAll('SELECT DISTINCT rsm_code as emp_code FROM dealer_visit_targets WHERE period_month = ? AND cycle_code = ? AND rsm_code IS NOT NULL AND TRIM(rsm_code) != ""', [periodMonth, cycleCode]);
-    for (const r of rsms) await autoGen.generatePlan(r.emp_code, periodMonth, 'RSM', cycleCode).catch(e => console.warn(`RSM plan gen error [${r.emp_code}]:`, e.message));
+    for (const r of rsms) await autoGen.generatePlan(r.emp_code, periodMonth, 'RSM', cycleCode, djpOptions).catch(e => console.warn(`RSM plan gen error [${r.emp_code}]:`, e.message));
 
     const zhs = await dbAll('SELECT DISTINCT zh_code as emp_code FROM dealer_visit_targets WHERE period_month = ? AND cycle_code = ? AND zh_code IS NOT NULL AND TRIM(zh_code) != ""', [periodMonth, cycleCode]);
-    for (const z of zhs) await autoGen.generatePlan(z.emp_code, periodMonth, 'ZH', cycleCode).catch(e => console.warn(`ZH plan gen error [${z.emp_code}]:`, e.message));
+    for (const z of zhs) await autoGen.generatePlan(z.emp_code, periodMonth, 'ZH', cycleCode, djpOptions).catch(e => console.warn(`ZH plan gen error [${z.emp_code}]:`, e.message));
+
+    try {
+      const { stampPlanRoutingForPeriod } = await import('../services/planRouting.service.js');
+      await stampPlanRoutingForPeriod(periodMonth, cycleCode);
+    } catch (e) {
+      console.warn(`[generateAllRolePlans] Plan routing stamp skipped:`, e.message);
+    }
 
     console.log(`[generateAllRolePlans] Finished auto-generating plans.`);
 

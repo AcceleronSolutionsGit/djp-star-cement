@@ -292,9 +292,15 @@ export class AutoPlanGenerator {
     // emp_role is persisted here so the app can route the plan to the right L1
     // approver. Without it every plan defaulted to 'SO' and an ASM's own plan
     // was routed back to an ASM for approval.
+    // DJP batch pipeline runs create plans with PENDING_ROLLOUT so Admin can review and rollout.
+    // Individually added / generated plans start directly as DRAFT so they route to superior officer without Admin rollout.
+    const initialStatus = (options.isDjpPipeline || options.status === 'PENDING_ROLLOUT')
+      ? 'PENDING_ROLLOUT'
+      : (options.status || 'DRAFT');
+
     const planRes = await dbRun(
-      `INSERT INTO sales_plans (emp_code, emp_name, period_month, cycle_code, status, emp_role) VALUES (?, ?, ?, ?, 'PENDING_ROLLOUT', ?)`,
-      [empCode, empName, periodMonth, cycleCode, resolvedRole]
+      `INSERT INTO sales_plans (emp_code, emp_name, period_month, cycle_code, status, emp_role) VALUES (?, ?, ?, ?, ?, ?)`,
+      [empCode, empName, periodMonth, cycleCode, initialStatus, resolvedRole]
     );
     const planId = planRes.insertId || planRes.lastID;
 
@@ -371,6 +377,7 @@ export class AutoPlanGenerator {
       empCode,
       empName,
       role: resolvedRole,
+      status: initialStatus,
       periodMonth,
       cycleCode,
       totalDealers: targetDealers.length,

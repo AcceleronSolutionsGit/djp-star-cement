@@ -92,7 +92,11 @@ export default function PlanApprovalsView({ onShowToast }) {
 
   const handleApproveOrReject = async (planId, action) => {
     try {
-      const res = await api.approvePlan(planId, 'MGR_CENTRAL', action, approvalRemarks || `Action ${action} taken by admin.`);
+      const userObj = (() => {
+        try { return JSON.parse(localStorage.getItem('star_auth_user') || '{}'); } catch { return {}; }
+      })();
+      const approverCode = userObj.emp_code || userObj.username || 'MGR_CENTRAL';
+      const res = await api.approvePlan(planId, approverCode, action, approvalRemarks || `Action ${action} taken by ${approverCode}.`);
       onShowToast(`Plan #${planId} ${action.toLowerCase()}!`, 'success');
       if (reviewPlan) setReviewPlan(null);
       setApprovalRemarks('');
@@ -470,7 +474,9 @@ export default function PlanApprovalsView({ onShowToast }) {
                 <th>Plan ID</th>
                 <th>Employee Code</th>
                 <th>Employee Name</th>
-                <th>Period Month</th>
+                <th>Role</th>
+                <th>Period</th>
+                <th>Superior Approver</th>
                 <th>Status</th>
                 <th>Submitted At</th>
                 <th style={{ textAlign: 'center' }}>Actions</th>
@@ -479,13 +485,13 @@ export default function PlanApprovalsView({ onShowToast }) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="8" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  <td colSpan="10" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                     Loading sales plans...
                   </td>
                 </tr>
               ) : filteredPlans.length === 0 ? (
                 <tr>
-                  <td colSpan="8" style={{ textAlign: 'center', padding: '50px', color: 'var(--text-muted)' }}>
+                  <td colSpan="10" style={{ textAlign: 'center', padding: '50px', color: 'var(--text-muted)' }}>
                     <CalendarDays size={36} style={{ margin: '0 auto 10px', opacity: 0.3 }} />
                     <p>No sales plans match the current search / filter criteria.</p>
                   </td>
@@ -503,10 +509,35 @@ export default function PlanApprovalsView({ onShowToast }) {
                     <td style={{ fontWeight: 800 }}>#{plan.id}</td>
                     <td><code>{plan.emp_code}</code></td>
                     <td style={{ fontWeight: 700 }}>{plan.emp_name}</td>
-                    <td><span className="badge" style={{ background: '#F1F5F9' }}>{plan.period_month}</span></td>
+                    <td>
+                      <span className="badge" style={{ background: '#F1F5F9', fontSize: '0.72rem' }}>
+                        {plan.emp_role || 'SO'}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="badge" style={{ background: '#F1F5F9' }}>
+                        {plan.period_month} ({plan.cycle_code || 'C1'})
+                      </span>
+                    </td>
+                    <td>
+                      {plan.l1_approver_name ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontWeight: 600, fontSize: '0.82rem' }}>{plan.l1_approver_name}</span>
+                          <span className="badge" style={{ fontSize: '0.68rem', background: '#EEF2FF', color: '#4F46E5' }}>
+                            {plan.l1_approver_role || 'L1'}
+                          </span>
+                        </div>
+                      ) : plan.l1_approver_role ? (
+                        <span className="badge" style={{ fontSize: '0.72rem', background: '#F1F5F9', color: '#475569' }}>
+                          {plan.l1_approver_role}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Admin / Direct</span>
+                      )}
+                    </td>
                     <td>
                       <span className={`status-badge ${plan.status ? plan.status.toLowerCase() : 'draft'}`}>
-                        {plan.status || 'DRAFT'}
+                        {plan.status === 'PENDING_ROLLOUT' ? 'PENDING ROLLOUT' : (plan.status || 'DRAFT')}
                       </span>
                     </td>
                     <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>

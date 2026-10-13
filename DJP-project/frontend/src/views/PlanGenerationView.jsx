@@ -122,6 +122,7 @@ export default function PlanGenerationView({ onShowToast, onPlanSubmitted }) {
     try {
       const data = await api.getPlanDetails(planId);
       const details = data.details || [];
+      const planHeader = data.plan || {};
       
       const map = {};
       details.forEach(d => {
@@ -130,8 +131,19 @@ export default function PlanGenerationView({ onShowToast, onPlanSubmitted }) {
       });
 
       setDaysMap(map);
-      setCurrentPlan({ id: planId, status: 'DRAFT', empCode, periodMonth, cycleCode });
-      loadDealersForEmp(empCode);
+      setCurrentPlan({
+        id: planId,
+        status: planHeader.status || 'DRAFT',
+        empCode: planHeader.emp_code || empCode,
+        empName: planHeader.emp_name,
+        empRole: planHeader.emp_role,
+        l1ApproverCode: planHeader.l1_approver_emp_code,
+        l1ApproverName: planHeader.l1_approver_name,
+        l1ApproverRole: planHeader.l1_approver_role,
+        periodMonth: planHeader.period_month || periodMonth,
+        cycleCode: planHeader.cycle_code || cycleCode
+      });
+      loadDealersForEmp(planHeader.emp_code || empCode);
     } catch (err) {
       onShowToast('Failed to load plan details', 'error');
     } finally {
@@ -154,8 +166,13 @@ export default function PlanGenerationView({ onShowToast, onPlanSubmitted }) {
     if (!currentPlan?.id) return;
     try {
       const res = await api.submitPlan(currentPlan.id);
-      onShowToast(res.message || 'Plan submitted for approval!', 'success');
-      setCurrentPlan(prev => ({ ...prev, status: 'SUBMITTED' }));
+      onShowToast(res.message || 'Plan submitted directly to superior officer for approval!', 'success');
+      setCurrentPlan(prev => ({
+        ...prev,
+        status: 'SUBMITTED',
+        l1ApproverName: res.approver?.name || prev.l1ApproverName,
+        l1ApproverRole: res.approver?.role || prev.l1ApproverRole
+      }));
       if (onPlanSubmitted) onPlanSubmitted();
     } catch (err) {
       onShowToast(err.message || 'Failed to submit plan', 'error');
@@ -428,13 +445,13 @@ export default function PlanGenerationView({ onShowToast, onPlanSubmitted }) {
           {currentPlan?.status === 'DRAFT' && (
             <button className="btn btn-generate" onClick={handleSubmitPlan} style={{ padding: '8px 16px', fontWeight: 700 }}>
               <Send size={15} />
-              <span>Submit Plan for Approval</span>
+              <span>Submit Plan to Superior Officer</span>
             </button>
           )}
 
           {currentPlan?.status === 'SUBMITTED' && (
             <span className="status-badge submitted" style={{ fontSize: '0.82rem', padding: '6px 14px' }}>
-              <CheckCircle2 size={15} /> Submitted for Manager Approval
+              <CheckCircle2 size={15} /> Submitted to {currentPlan.l1ApproverName ? `${currentPlan.l1ApproverName} (${currentPlan.l1ApproverRole || 'Superior'})` : (currentPlan.l1ApproverRole || 'Superior Officer')} for Approval
             </span>
           )}
         </div>
@@ -599,6 +616,18 @@ export default function PlanGenerationView({ onShowToast, onPlanSubmitted }) {
             </div>
             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
               Role: <b>{selectedEmpObj?.role || 'SO'}</b> | {currentPlan.periodMonth} ({currentPlan.cycleCode})
+            </div>
+          </div>
+
+          <div className="content-card" style={{ padding: '12px 16px', marginBottom: 0 }}>
+            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+              Superior Approver (Direct)
+            </div>
+            <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#4F46E5', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {currentPlan.l1ApproverName ? `${currentPlan.l1ApproverName} (${currentPlan.l1ApproverRole})` : (currentPlan.l1ApproverRole || (selectedEmpObj?.role === 'SO' ? 'ASM' : selectedEmpObj?.role === 'ASM' ? 'RSM' : selectedEmpObj?.role === 'RSM' ? 'ZH' : 'Admin'))}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              Direct review (no rollout needed)
             </div>
           </div>
         </div>

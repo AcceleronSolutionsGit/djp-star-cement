@@ -29,6 +29,11 @@ import { dbRun, dbAll, dbGet } from '../config/database.js';
 export async function generatePlansForAllRoles(periodMonth, cycleCode, planOptions = {}) {
   const autoGen = new AutoPlanGenerator();
   const logTag  = `[AutoPlanGen:${cycleCode}]`;
+  const mergedOptions = {
+    isDjpPipeline: true,
+    status: 'PENDING_ROLLOUT',
+    ...planOptions
+  };
 
   const ROLES = [
     { role: 'SO',  codeCol: 'so_emp_code' },
@@ -51,7 +56,7 @@ export async function generatePlansForAllRoles(periodMonth, cycleCode, planOptio
     let planned = 0, empty = 0, failed = 0, visits = 0;
     for (const p of people) {
       try {
-        const r = await autoGen.generatePlan(p.emp_code, periodMonth, role, cycleCode, planOptions);
+        const r = await autoGen.generatePlan(p.emp_code, periodMonth, role, cycleCode, mergedOptions);
         if (r?.planId) { planned++; visits += r.totalVisitsScheduled || 0; }
         else empty++;
       } catch (e) {

@@ -6,6 +6,7 @@ import {
   validateApprover,
   lookupEmployeeRole
 } from '../services/approvalMatrix.service.js';
+import { stampPlanRouting } from '../services/planRouting.service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EXISTING FUNCTIONS (unchanged)
@@ -32,7 +33,30 @@ export async function generateAutoPlan(req, res) {
     }
 
     const generator = new AutoPlanGenerator();
-    const result = await generator.generatePlan(empCode, planMonth, role || 'SO', cycleCode || 'C1');
+    const result = await generator.generatePlan(empCode, planMonth, role || 'SO', cycleCode || 'C1', {
+      isDjpPipeline: false,
+      status: 'DRAFT'
+    });
+
+    if (result && result.planId) {
+      // Immediately stamp the employee's role and superior officer (L1 approver)
+      try {
+        const routing = await stampPlanRouting(result.planId, { roleHint: role || result.role });
+        result.routing = routing;
+        result.l1Approver = {
+          empCode: routing.l1ApproverEmpCode,
+          name: routing.l1ApproverName,
+          role: routing.l1ApproverRole
+        };
+        const superiorLabel = routing.l1ApproverName 
+          ? `${routing.l1ApproverName} (${routing.l1ApproverRole})`
+          : (routing.l1ApproverRole || 'Superior Officer');
+        result.message = `${result.message} Direct submission to superior officer ${superiorLabel}.`;
+      } catch (routingErr) {
+        console.warn(`[generateAutoPlan] Failed to stamp routing for plan ${result.planId}:`, routingErr.message);
+      }
+    }
+
     res.json(result);
   } catch (err) {
     console.error('Error generating auto plan:', err);
@@ -58,31 +82,44 @@ export async function submitPlan(req, res) {
 
     const plan = await dbGet('SELECT * FROM sales_plans WHERE id = ?', [planId]);
     if (!plan) return res.status(404).json({ error: 'Plan not found.' });
-    if (plan.status !== 'DRAFT') {
-      return res.status(400).json({ error: `Only DRAFT plans can be submitted. Current status: ${plan.status}` });
+    if (plan.status !== 'DRAFT' && plan.status !== 'RECTIFY') {
+      return res.status(400).json({ error: `Only DRAFT or RECTIFY plans can be submitted. Current status: ${plan.status}` });
     }
 
-    // Determine required approver role from the approval matrix
-    const empRole = plan.emp_role || 'SO';
-    const requiredApproverRole = await getRequiredApproverRole(empRole);
+    // Determine superior officer / L1 approver routing
+    const routing = await stampPlanRouting(plan.id, { roleHint: plan.emp_role });
+    const empRole = routing.empRole || plan.emp_role || 'SO';
+    const requiredApproverRole = routing.requiredApproverRole || routing.l1ApproverRole || (await getRequiredApproverRole(empRole));
+    const superiorLabel = routing.l1ApproverName
+      ? `${routing.l1ApproverName} (${routing.l1ApproverRole})`
+      : (routing.l1ApproverRole || requiredApproverRole || 'Superior Officer');
 
     await dbRun(
       `UPDATE sales_plans 
        SET status = 'SUBMITTED', submitted_at = CURRENT_TIMESTAMP,
-           emp_role = ?, required_approver_role = ?
+           emp_role = ?, required_approver_role = ?,
+           l1_approver_emp_code = ?, l1_approver_name = ?, l1_approver_role = ?
        WHERE id = ?`,
-      [empRole, requiredApproverRole || null, planId]
+      [empRole, requiredApproverRole || null, routing.l1ApproverEmpCode, routing.l1ApproverName, routing.l1ApproverRole, planId]
     );
+
+    await dbRun(
+      'INSERT INTO plan_approvals (plan_id, action_by, action_type, remarks, approver_role) VALUES (?, ?, ?, ?, ?)',
+      [planId, plan.emp_code, 'SUBMITTED', `Plan submitted directly to ${superiorLabel} for approval.`, routing.l1ApproverRole || null]
+    ).catch(e => console.warn('[submitPlan] audit log skipped:', e.message));
 
     res.json({
       success: true,
-      message: `Plan ${planId} submitted for approval.`,
+      message: `Plan #${planId} submitted directly to superior officer ${superiorLabel} for approval.`,
       planId: Number(planId),
       submittedByRole: empRole,
       requiredApproverRole: requiredApproverRole || 'N/A',
-      info: requiredApproverRole
-        ? `This plan requires approval from: ${requiredApproverRole}`
-        : 'No approver role configured for this role.'
+      approver: {
+        empCode: routing.l1ApproverEmpCode,
+        name: routing.l1ApproverName,
+        role: routing.l1ApproverRole
+      },
+      info: `This plan has been submitted directly to ${superiorLabel} for review.`
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -105,11 +142,25 @@ export async function approvePlan(req, res) {
       return res.status(400).json({ error: `Only SUBMITTED plans can be approved. Current status: ${plan.status}` });
     }
 
-    // ── Approval Matrix Validation ──────────────────────────────────────────
+    // ── Approval Matrix & Superior Officer Validation ───────────────────────
     const requiredApproverRole = plan.required_approver_role ||
       (await getRequiredApproverRole(plan.emp_role || 'SO'));
 
-    if (requiredApproverRole) {
+    const normManagerCode = String(managerEmpCode || '').trim().toUpperCase();
+    const isNamedL1 = plan.l1_approver_emp_code &&
+      String(plan.l1_approver_emp_code).trim().toUpperCase() === normManagerCode;
+
+    if (isNamedL1) {
+      // The exact designated superior officer is approving
+      await dbRun(
+        'UPDATE sales_plans SET status = ?, approved_by = ?, approved_at = CURRENT_TIMESTAMP, remarks = ?, approver_emp_code = ? WHERE id = ?',
+        [action, managerEmpCode, remarks || '', managerEmpCode, planId]
+      );
+      await dbRun(
+        'INSERT INTO plan_approvals (plan_id, action_by, action_type, remarks, approver_role) VALUES (?, ?, ?, ?, ?)',
+        [planId, managerEmpCode, action, remarks || '', plan.l1_approver_role || 'SUPERIOR']
+      );
+    } else if (requiredApproverRole) {
       const { valid, approverRole, reason } = await validateApprover(managerEmpCode, requiredApproverRole);
       if (!valid) {
         return res.status(403).json({
@@ -163,35 +214,38 @@ export async function getPlans(req, res) {
       if (userRole === 'ADMIN') {
         // Admins see everything, no filter
       } else if (userRole === 'ZH') {
-        // ZH sees their own plans + RSM/ASM/SO plans under them
+        // ZH sees their own plans + plans where they are L1 approver + RSM/ASM/SO plans under them
         query += ` AND (
           sp.emp_code = ? OR
+          sp.l1_approver_emp_code = ? OR
           sp.emp_code IN (
             SELECT rsm_code FROM dealer_visit_targets WHERE zh_code = ? UNION
             SELECT asm_code FROM dealer_visit_targets WHERE zh_code = ? UNION
             SELECT so_emp_code FROM dealer_visit_targets WHERE zh_code = ?
           )
         )`;
-        params.push(empCode, empCode, empCode, empCode);
+        params.push(empCode, empCode, empCode, empCode, empCode);
       } else if (userRole === 'RSM') {
-        // RSM sees their own plans + ASM/SO plans under them
+        // RSM sees their own plans + plans where they are L1 approver + ASM/SO plans under them
         query += ` AND (
           sp.emp_code = ? OR
+          sp.l1_approver_emp_code = ? OR
           sp.emp_code IN (
             SELECT asm_code FROM dealer_visit_targets WHERE rsm_code = ? UNION
             SELECT so_emp_code FROM dealer_visit_targets WHERE rsm_code = ?
           )
         )`;
-        params.push(empCode, empCode, empCode);
+        params.push(empCode, empCode, empCode, empCode);
       } else if (userRole === 'ASM') {
-        // ASM sees their own plans + SO plans under them
+        // ASM sees their own plans + plans where they are L1 approver + SO plans under them
         query += ` AND (
           sp.emp_code = ? OR
+          sp.l1_approver_emp_code = ? OR
           sp.emp_code IN (
             SELECT so_emp_code FROM dealer_visit_targets WHERE asm_code = ?
           )
         )`;
-        params.push(empCode, empCode);
+        params.push(empCode, empCode, empCode);
       } else {
         // SO or others see only their own plan
         query += ' AND sp.emp_code = ?';
@@ -210,11 +264,12 @@ export async function getPlans(req, res) {
 export async function getPlanDetails(req, res) {
   try {
     const { planId } = req.params;
+    const plan = await dbGet('SELECT * FROM sales_plans WHERE id = ?', [planId]);
     const details = await dbAll(
       'SELECT * FROM sales_plan_details WHERE plan_id = ? ORDER BY visit_date ASC, sequence ASC',
       [planId]
     );
-    res.json({ details });
+    res.json({ plan, details });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
