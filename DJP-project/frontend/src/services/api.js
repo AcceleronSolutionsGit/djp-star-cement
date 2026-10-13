@@ -373,6 +373,27 @@ export const api = {
     return readJson(res, 'Adherence report failed');
   },
 
+  exportAdherenceExcel: async ({ periodMonth, cycleCode, asOnDate } = {}) => {
+    const q = new URLSearchParams();
+    if (periodMonth) q.append('periodMonth', periodMonth);
+    if (cycleCode && cycleCode !== 'ALL') q.append('cycleCode', cycleCode);
+    if (asOnDate) q.append('asOnDate', asOnDate);
+    const res = await fetchWithAuth(`${API_BASE}/djp/export-adherence-report?${q.toString()}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to download adherence report Excel');
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Trade_DJP_Adherence_${periodMonth || '2026-06'}_${cycleCode || 'ALL'}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+
   // C2 regeneration review — what the adherence result changed in the second cycle
   listC2Regenerations: async (month) => {
     const q = month ? `?month=${encodeURIComponent(month)}` : '';
@@ -574,12 +595,43 @@ export const api = {
     if (params.endDate) query.append('endDate', params.endDate);
     if (params.periodMonth) query.append('periodMonth', params.periodMonth);
     if (params.employeeCode && params.employeeCode !== 'ALL') query.append('employeeCode', params.employeeCode);
+    if (params.role && params.role !== 'ALL') query.append('role', params.role);
     if (params.refresh) query.append('refresh', '1');
     query.append('limit', params.limit || 100);
     query.append('offset', params.offset || 0);
 
     const res = await fetchWithAuth(`${API_BASE}/sfa/unplanned-visits?${query.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch unplanned visits');
+    return res.json();
+  },
+
+  getConsolidatedVisits: async (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.periodMonth) query.append('periodMonth', params.periodMonth);
+    if (params.employeeCode && params.employeeCode !== 'ALL') query.append('employeeCode', params.employeeCode);
+    if (params.role && params.role !== 'ALL') query.append('role', params.role);
+    if (params.category && params.category !== 'ALL') query.append('category', params.category);
+    query.append('limit', params.limit || 100);
+    query.append('offset', params.offset || 0);
+
+    const res = await fetchWithAuth(`${API_BASE}/sfa/unplanned-visits/consolidated?${query.toString()}`);
+    if (!res.ok) throw new Error('Failed to fetch consolidated visits');
+    return res.json();
+  },
+
+  getPlannedVsUnplanned: async (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.periodMonth) query.append('periodMonth', params.periodMonth);
+    if (params.employeeCode && params.employeeCode !== 'ALL') query.append('employeeCode', params.employeeCode);
+    if (params.role && params.role !== 'ALL') query.append('role', params.role);
+    if (params.category && params.category !== 'ALL') query.append('category', params.category);
+    query.append('limit', params.limit || 100);
+    query.append('offset', params.offset || 0);
+
+    const res = await fetchWithAuth(`${API_BASE}/sfa/unplanned-visits/planned-vs-unplanned?${query.toString()}`);
+    if (!res.ok) throw new Error('Failed to fetch planned vs unplanned summary');
     return res.json();
   },
 
@@ -611,6 +663,8 @@ export const api = {
     if (params.endDate) query.append('endDate', params.endDate);
     if (params.periodMonth) query.append('periodMonth', params.periodMonth);
     if (params.employeeCode && params.employeeCode !== 'ALL') query.append('employeeCode', params.employeeCode);
+    if (params.role && params.role !== 'ALL') query.append('role', params.role);
+    if (params.category && params.category !== 'ALL') query.append('category', params.category);
 
     const res = await fetchWithAuth(`${API_BASE}/sfa/unplanned-visits/export-excel?${query.toString()}`);
     if (!res.ok) throw new Error('Failed to export unplanned visits to Excel');

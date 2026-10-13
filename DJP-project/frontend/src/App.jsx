@@ -14,6 +14,7 @@ import TerritoryMappingView from './views/TerritoryMappingView';
 import PlanGenerationView from './views/PlanGenerationView';
 import PlanApprovalsView from './views/PlanApprovalsView';
 import OfficerPlansView from './views/OfficerPlansView';
+import AdherenceReportView from './views/AdherenceReportView';
 import MasterSheetView from './views/MasterSheetView';
 import LoginView from './views/LoginView';
 import ArchiveView from './views/ArchiveView';
@@ -236,6 +237,7 @@ export default function App() {
       case 'mapping': return 'Territory Hierarchy';
       case 'plan-gen': return 'Plan Generation';
       case 'plan-appr': return 'Plan Approvals';
+      case 'adherence-report': return 'Zone Adherence Tracker (Excel View)';
       case 'officer-plans': return 'Officer Plans & Adherence';
       case 'archives': return 'Data Archives';
       default: return 'Star Cement | DJP';
@@ -336,6 +338,14 @@ export default function App() {
             {activeTab === 'plan-appr' && (
               <PlanApprovalsView
                 onShowToast={showToast}
+              />
+            )}
+
+            {activeTab === 'adherence-report' && (
+              <AdherenceReportView
+                onShowToast={showToast}
+                selectedPeriod={selectedPeriod}
+                selectedCycle={selectedCycle}
               />
             )}
 

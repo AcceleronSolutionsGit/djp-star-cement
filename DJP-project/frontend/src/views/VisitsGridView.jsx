@@ -31,6 +31,7 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
     zones: [],
     areas: [],
     salesOfficers: [],
+    asms: [],
     dealerStatuses: []
   });
 
@@ -40,6 +41,7 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
     dealerStatus: 'ALL',
     custType: 'ALL',
     so: 'ALL',
+    asm: 'ALL',
     periodMonth: '2026-06',
     cycleCode: 'C1',
     search: ''
@@ -108,6 +110,7 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
         zones: data.zones || [],
         areas: data.areas || [],
         salesOfficers: data.salesOfficers || [],
+        asms: data.asms || [],
         dealerStatuses: data.dealerStatuses || []
       });
     } catch (err) {
@@ -128,15 +131,11 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
         zone: filters.zone,
         area: filters.area,
         soName: filters.so,
+        asmName: filters.asm,
         limit: pageSize,
         offset: (page - 1) * pageSize
       });
       setTargets(data.targets || []);
-      // If backend returns total count, calculate totalPages here if we lift state up, 
-      // but we're still doing client-side pagination over the fetched chunk for now, 
-      // or we can just show the chunk. The backend returns { total, targets }
-      // To fully switch to server-side, we'd need a totalCount state.
-      // For now, let's keep the existing logic structure since we're passing limit/offset.
     } catch (err) {
       onShowToast('Failed to load visit targets', 'error');
     } finally {
@@ -164,6 +163,7 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
     filters.zone, 
     filters.area, 
     filters.so, 
+    filters.asm,
     page,
     triggerReload
   ]);
@@ -188,6 +188,7 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
       dealerStatus: 'ALL',
       custType: 'ALL',
       so: 'ALL',
+      asm: 'ALL',
       periodMonth: new Date().toISOString().slice(0, 7),
       cycleCode: 'C1',
       search: ''
@@ -332,6 +333,20 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
               <option value="ALL">All Sales Officers ({(filterOptions.salesOfficers || []).length})</option>
               {(filterOptions.salesOfficers || []).map(s => (
                 <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Assigned ASM</label>
+            <select
+              className="form-control"
+              value={filters.asm}
+              onChange={(e) => setFilters({ ...filters, asm: e.target.value })}
+            >
+              <option value="ALL">All ASMs ({(filterOptions.asms || []).length})</option>
+              {(filterOptions.asms || []).map(a => (
+                <option key={a} value={a}>{a}</option>
               ))}
             </select>
           </div>

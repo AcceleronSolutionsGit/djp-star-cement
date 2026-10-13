@@ -207,12 +207,13 @@ export function buildRow(t, index) {
     : (hasPotential ? currentSales / potential : 0);
 
   return {
+    id:              t.id,
     cust_type:       custType(t),
     sl_no:           index + 1,
     zone:            s(t.zone),
     zh_name:         s(t.zh_name),
     rsm_name:        s(t.rsm_name),
-    asm_name:        isProspect ? '' : s(t.asm_name), // Deliberately blank for prospects
+    asm_name:        s(t.asm_name),
     area:            s(t.dm_area || t.area),
     area_strategy:   '',
     so_name:         soName,
@@ -237,7 +238,7 @@ export function buildRow(t, index) {
     total_score:     n(t.total_score),
     priority_rank:   n(t.priority) || 1,
     so_visits:       n(t.so_visits),
-    asm_visits:      isProspect ? 0 : n(t.asm_visits),
+    asm_visits:      n(t.asm_visits),
     rsm_visits:      n(t.rsm_visits),
     zh_visits:       n(t.zh_visits),
     final_volume:    n(t.final_volume),

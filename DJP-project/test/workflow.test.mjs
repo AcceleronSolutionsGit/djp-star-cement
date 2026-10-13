@@ -45,13 +45,14 @@ CREATE TABLE master_employees (
   designation TEXT, role TEXT, zone TEXT, region TEXT
 );
 CREATE TABLE master_dealers (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, sap_code TEXT, sfa_code TEXT,
-  dealer_name TEXT, dealer_type TEXT, block TEXT
+  id INTEGER PRIMARY KEY AUTOINCREMENT, dealer_id INTEGER, sap_code TEXT, sfa_code TEXT,
+  dealer_name TEXT, dealer_type TEXT, block TEXT, area TEXT, zone TEXT
 );
 CREATE TABLE dealer_visit_targets (
   id INTEGER PRIMARY KEY AUTOINCREMENT, period_month TEXT, cycle_code TEXT,
   dealer_id INTEGER, sap_code TEXT, sfa_code TEXT, dealer_name TEXT,
   area TEXT, zone TEXT, category TEXT, dealer_status TEXT, priority INTEGER,
+  grade TEXT, block TEXT, sbg_block TEXT,
   so_name TEXT, so_emp_code TEXT, asm_name TEXT, asm_code TEXT,
   rsm_name TEXT, rsm_code TEXT, zh_name TEXT, zh_code TEXT,
   so_visits REAL, asm_visits REAL, rsm_visits REAL, zh_visits REAL

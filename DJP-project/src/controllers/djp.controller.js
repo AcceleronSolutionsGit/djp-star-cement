@@ -4,7 +4,7 @@ import { generateDealerTrace } from '../engines/pjp/pjp-validator.engine.js';
 import { reconcileUniverse } from '../engines/pjp/reconciliation.service.js';
 import { checkAllExcelInputsAvailable } from '../engines/pjp/data-loader.engine.js';
 import { AutoPlanGenerator } from '../engines/autoPlanGenerator.js';
-import { dbAll, dbGet } from '../config/database.js';
+import { dbAll, dbGet, dbRun } from '../config/database.js';
 import XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 import {
@@ -173,7 +173,7 @@ export async function getPjpDebug(req, res) {
  */
 export async function getDealerVisitTargets(req, res) {
   try {
-    const { soEmpCode, soName, category, dealerStatus, custType, search, periodMonth, cycleCode, zone, area, limit, offset } = req.query;
+    const { soEmpCode, soName, asmEmpCode, asmName, category, dealerStatus, custType, search, periodMonth, cycleCode, zone, area, limit, offset } = req.query;
 
     let sql = 'SELECT dvt.*, md.dealer_type FROM dealer_visit_targets dvt LEFT JOIN master_dealers md ON dvt.dealer_id = md.id WHERE 1=1';
     let countSql = 'SELECT COUNT(*) as total FROM dealer_visit_targets dvt LEFT JOIN master_dealers md ON dvt.dealer_id = md.id WHERE 1=1';
@@ -247,6 +247,18 @@ export async function getDealerVisitTargets(req, res) {
       countSql += ' AND dvt.so_name = ?';
       params.push(soName);
       countParams.push(soName);
+    }
+    if (asmEmpCode && asmEmpCode !== 'ALL') {
+      sql += ' AND dvt.asm_code = ?';
+      countSql += ' AND dvt.asm_code = ?';
+      params.push(asmEmpCode);
+      countParams.push(asmEmpCode);
+    }
+    if (asmName && asmName !== 'ALL') {
+      sql += ' AND dvt.asm_name = ?';
+      countSql += ' AND dvt.asm_name = ?';
+      params.push(asmName);
+      countParams.push(asmName);
     }
     if (category && category !== 'ALL') {
       sql += ' AND dvt.category = ?';
@@ -1235,6 +1247,18 @@ export async function uploadMasterEdit(req, res) {
     // Range 3 skips the first 3 rows (0-indexed 0,1,2). Row 4 is the header row.
     const rows = XLSX.utils.sheet_to_json(worksheet, { range: 3 });
 
+    const validColumns = new Set([
+      'generation_run_code', 'period_month', 'cycle_code', 'dealer_id', 'dealer_name',
+      'sap_code', 'sfa_code', 'linked_dealer_code', 'area', 'dm_area', 'block', 'sbg_block',
+      'branch', 'zone', 'region', 'cust_type', 'territory_code', 'territory_name',
+      'so_code', 'so_name', 'so_emp_code', 'asm_name', 'asm_code', 'rsm_name', 'rsm_code',
+      'zh_name', 'zh_code', 'potential', 'sbg_potential', 'previous_sales', 'current_sales',
+      'lysm_sales', 'rsar_six_month_avg', 'dp_six_month_avg', 'final_volume', 'score_a',
+      'score_b', 'score_c', 'total_score', 'priority', 'priority_label', 'grade', 'category',
+      'dealer_status', 'sbg_status', 'rsar_status', 'dp_status', 'so_visits', 'asm_visits',
+      'rsm_visits', 'zh_visits', 'total_visits'
+    ]);
+
     const headerMap = {};
     for (const c of MASTER_COLUMNS) {
       if (!c.header) continue;
@@ -1245,40 +1269,43 @@ export async function uploadMasterEdit(req, res) {
     let updatedCount = 0;
     
     for (const row of rows) {
-      let sapCode = null;
+      let custCode = null;
       const updates = {};
       
       for (const [key, value] of Object.entries(row)) {
         const normKey = key.replace(/[\r\n]+/g, ' ').trim().toLowerCase();
-        const dbKey = headerMap[normKey];
+        let dbKey = headerMap[normKey];
         if (dbKey) {
-          if (dbKey === 'customer_code') {
-            sapCode = String(value).trim();
+          if (dbKey === 'customer_code' || dbKey === 'sap_code') {
+            custCode = String(value).trim();
           } else {
-            if (['id', 'period_month', 'cycle_code', 'dealer_name'].includes(dbKey)) continue;
-            updates[dbKey] = value;
+            if (['id', 'sl_no', 'period_month', 'cycle_code', 'dealer_name'].includes(dbKey)) continue;
+            if (dbKey === 'dealer_type') dbKey = 'cust_type';
+            if (validColumns.has(dbKey)) {
+              updates[dbKey] = value;
+            }
           }
         }
       }
       
-      if (!sapCode) continue;
+      if (!custCode) continue;
       
-      const latest = await dbGet('SELECT id, period_month FROM dealer_visit_targets WHERE sap_code = ? ORDER BY period_month DESC LIMIT 1', [sapCode]);
+      const latest = await dbGet('SELECT id, period_month, sap_code, sfa_code FROM dealer_visit_targets WHERE sap_code = ? OR sfa_code = ? ORDER BY period_month DESC LIMIT 1', [custCode, custCode]);
       if (latest) {
          const keys = Object.keys(updates);
          if (keys.length === 0) continue;
          
          const setClauses = keys.map(k => `${k} = ?`).join(', ');
          const values = keys.map(k => updates[k]);
-         values.push(sapCode, latest.period_month);
+         values.push(latest.id);
          
-         await dbAll(`UPDATE dealer_visit_targets SET ${setClauses} WHERE sap_code = ? AND period_month = ?`, values);
+         await dbRun(`UPDATE dealer_visit_targets SET ${setClauses} WHERE id = ?`, values);
          
          if ('so_visits' in updates || 'asm_visits' in updates || 'rsm_visits' in updates || 'zh_visits' in updates) {
             const targetRow = await dbGet('SELECT id, so_visits, asm_visits, rsm_visits, zh_visits FROM dealer_visit_targets WHERE id = ?', [latest.id]);
             if (targetRow) {
                const total = (parseFloat(targetRow.so_visits)||0) + (parseFloat(targetRow.asm_visits)||0) + (parseFloat(targetRow.rsm_visits)||0) + (parseFloat(targetRow.zh_visits)||0);
-               await dbAll('UPDATE dealer_visit_targets SET total_visits = ? WHERE id = ?', [total, targetRow.id]);
+               await dbRun('UPDATE dealer_visit_targets SET total_visits = ? WHERE id = ?', [total, targetRow.id]);
             }
          }
          
@@ -1289,7 +1316,7 @@ export async function uploadMasterEdit(req, res) {
     res.json({ message: `Successfully updated ${updatedCount} records from the master sheet.` });
   } catch (err) {
     console.error('Failed to process uploaded master sheet:', err);
-    res.status(500).json({ error: 'Failed to process the uploaded Master Sheet' });
+    res.status(500).json({ error: 'Failed to process the uploaded Master Sheet: ' + err.message });
   }
 }
 

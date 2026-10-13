@@ -38,9 +38,7 @@
 export const DEFAULT_VISIT_MATRIX = {
   SO: {
     'Zero lifter':  [1, 2, 3, 2],
-    'Zero Lifter':  [1, 2, 3, 2],
     'Prospective':  [1, 2, 3, 2],
-    'Prospectiv':   [1, 2, 3, 2],
     'De-growing':   [2, 2, 3, 2],
     'Growing':      [2, 2, 3, 2],
     'Need to Grow': [2, 2, 3, 2],
@@ -48,9 +46,7 @@ export const DEFAULT_VISIT_MATRIX = {
   },
   ASM: {
     'Zero lifter':  [3, 2, 1, 0.5],
-    'Zero Lifter':  [3, 2, 1, 0.5],
-    'Prospective':  [0, 0, 0, 0],
-    'Prospectiv':   [0, 0, 0, 0],
+    'Prospective':  [3, 2, 1, 0.5],
     'De-growing':   [3, 2, 1, 0.5],
     'Growing':      [2, 2, 1, 0.5],
     'Need to Grow': [3, 2, 1, 0.5],
@@ -58,9 +54,7 @@ export const DEFAULT_VISIT_MATRIX = {
   },
   RSM: {
     'Zero lifter':  [2, 1, 0.5, 0],
-    'Zero Lifter':  [2, 1, 0.5, 0],
     'Prospective':  [2, 1, 0.5, 0],
-    'Prospectiv':   [2, 1, 0.5, 0],
     'De-growing':   [2, 1, 0.5, 0],
     'Growing':      [1, 1, 0.5, 0],
     'Need to Grow': [3, 1, 0.5, 0],
@@ -68,9 +62,7 @@ export const DEFAULT_VISIT_MATRIX = {
   },
   ZH: {
     'Zero lifter':  [1, 0, 0, 0],
-    'Zero Lifter':  [1, 0, 0, 0],
     'Prospective':  [1, 0, 0, 0],
-    'Prospectiv':   [1, 0, 0, 0],
     'De-growing':   [1, 0, 0, 0],
     'Growing':      [1, 0, 0, 0],
     'Need to Grow': [1, 0, 0, 0],
@@ -90,17 +82,32 @@ const GRADE_INDEX = { A: 0, B: 1, C: 2, D: 3 };
  */
 export function getVisitFrequencies(finalCategory, grade = 'A', matrix = null) {
   const m = matrix || DEFAULT_VISIT_MATRIX;
-  const gIdx = GRADE_INDEX[grade] ?? 0;
+  const gIdx = GRADE_INDEX[grade];
+  if (gIdx === undefined) {
+    throw new Error(`[VisitFrequency] Invalid grade: "${grade}". Must be one of: A, B, C, D`);
+  }
 
   const normalized = normalizeCategory(finalCategory) || finalCategory;
-  const soRow = m.SO?.[normalized] || m.SO?.[finalCategory];
+
+  const getRow = (roleObj) => {
+    if (!roleObj) return null;
+    if (roleObj[normalized]) return roleObj[normalized];
+    if (roleObj[finalCategory]) return roleObj[finalCategory];
+    const lower = String(finalCategory || '').toLowerCase().trim();
+    for (const [k, v] of Object.entries(roleObj)) {
+      if (k.toLowerCase().trim() === lower) return v;
+    }
+    return null;
+  };
+
+  const soRow = getRow(m.SO);
   if (!soRow) {
     throw new Error(`[VisitFrequency] Unknown Final Category: "${finalCategory}". Valid categories: ${Object.keys(m.SO || {}).join(', ')}`);
   }
 
-  const asmRow = m.ASM?.[normalized] || m.ASM?.[finalCategory];
-  const rsmRow = m.RSM?.[normalized] || m.RSM?.[finalCategory];
-  const zhRow = m.ZH?.[normalized] || m.ZH?.[finalCategory];
+  const asmRow = getRow(m.ASM);
+  const rsmRow = getRow(m.RSM);
+  const zhRow = getRow(m.ZH) || getRow(m.ZSH);
 
   return {
     soVisits: soRow?.[gIdx] ?? 0,

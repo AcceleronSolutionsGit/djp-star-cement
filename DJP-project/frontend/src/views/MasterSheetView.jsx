@@ -67,7 +67,8 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
   const [editForm, setEditForm] = useState({});
 
   const handleEditClick = (row) => {
-    setEditingId(row.id);
+    const targetKey = row.id || row.customer_code;
+    setEditingId(targetKey);
     setEditForm({ ...row });
   };
 
@@ -77,12 +78,17 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
 
   const handleSaveEdit = async (id) => {
     try {
+      const token = localStorage.getItem('star_auth_token') || localStorage.getItem('token');
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
       const res = await fetch(`${API_BASE}/djp/dealer-targets/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(editForm)
       });
-      if (!res.ok) throw new Error('Failed to save');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to save');
       
       onShowToast?.('Master record updated', 'success');
       setEditingId(null);
@@ -106,7 +112,7 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
       const formData = new FormData();
       formData.append('file', file);
       
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('star_auth_token') || localStorage.getItem('token');
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
       
       const res = await fetch(`${API_BASE}/djp/upload-master-edit`, {
@@ -326,7 +332,8 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
               <tbody>
                 {data.rows.map((row, i) => {
                   const sheetRow = data.first_data_row + (data.page - 1) * data.page_size + i;
-                  const isEditing = editingId === row.id;
+                  const targetKey = row.id || row.customer_code;
+                  const isEditing = editingId === targetKey;
                   
                   return (
                     <tr key={`${row.customer_code}-${i}`}>
@@ -334,7 +341,7 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
                       <td style={{ textAlign: 'center', padding: '0 4px' }}>
                         {isEditing ? (
                           <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
-                            <button className="ms-btn" style={{ padding: '2px 4px', background: 'var(--color-success)', color: 'white', border: 0 }} onClick={() => handleSaveEdit(row.id)} title="Save"><Save size={14}/></button>
+                            <button className="ms-btn" style={{ padding: '2px 4px', background: 'var(--color-success)', color: 'white', border: 0 }} onClick={() => handleSaveEdit(targetKey)} title="Save"><Save size={14}/></button>
                             <button className="ms-btn" style={{ padding: '2px 4px' }} onClick={handleCancelEdit} title="Cancel"><X size={14}/></button>
                           </div>
                         ) : (
@@ -347,7 +354,7 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
                         
                         if (isEditing) {
                           // Disable edit for ID and computed styling things to prevent breaking
-                          const readOnly = ['id', 'period_month', 'cycle_code', 'customer_code', 'dealer_name'].includes(c.key);
+                          const readOnly = ['id', 'sl_no', 'period_month', 'cycle_code', 'customer_code', 'dealer_name'].includes(c.key);
                           return (
                             <td key={c.col} className={c.hidden ? 'ms-hiddencol' : ''}>
                               <input 

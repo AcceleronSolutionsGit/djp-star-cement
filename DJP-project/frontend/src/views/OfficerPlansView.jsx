@@ -5,6 +5,7 @@ import {
   History, ChevronLeft, ChevronRight, HelpCircle, FileSpreadsheet, Clock
 } from 'lucide-react';
 import { api } from '../services/api';
+import AdherenceReportView from './AdherenceReportView';
 
 /**
  * Officer Plans & Adherence
@@ -177,6 +178,7 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
   const [detailLoading, setDetailLoading] = useState(false);
 
   // ── adherence tab & pagination ──────────────────────────────────────────────
+  const [adherenceMode, setAdherenceMode] = useState('excel'); // 'excel' | 'diagnostics'
   const [adh, setAdh] = useState(null);
   const [adhLoading, setAdhLoading] = useState(false);
   const [regenLoading, setRegenLoading] = useState(false);
@@ -195,7 +197,13 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
   const [adhDealerPage, setAdhDealerPage] = useState(1);
   const [adhDealerPageSize, setAdhDealerPageSize] = useState(15);
 
-  // ── unplanned visits tab & pagination ───────────────────────────────────────
+  // ── unplanned visits 3 sub-tabs & pagination ──────────────────────────────
+  const [unplannedSubTab, setUnplannedSubTab] = useState('unplanned'); // 'unplanned' | 'consolidated' | 'planned_vs_unplanned'
+  const [unplannedRoleFilter, setUnplannedRoleFilter] = useState('ALL');
+  const [unplannedCategoryFilter, setUnplannedCategoryFilter] = useState('ALL');
+  const [allEmployeesList, setAllEmployeesList] = useState([]);
+
+  // Sub-tab 1: Unplanned visits
   const [unplannedList, setUnplannedList] = useState([]);
   const [unplannedTotal, setUnplannedTotal] = useState(0);
   const [unplannedLoading, setUnplannedLoading] = useState(false);
@@ -203,6 +211,22 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
   const [unplannedSearch, setUnplannedSearch] = useState('');
   const [unplannedPage, setUnplannedPage] = useState(1);
   const [unplannedPageSize, setUnplannedPageSize] = useState(15);
+
+  // Sub-tab 2: Consolidated visits
+  const [consolidatedList, setConsolidatedList] = useState([]);
+  const [consolidatedTotal, setConsolidatedTotal] = useState(0);
+  const [consolidatedSummary, setConsolidatedSummary] = useState({ totalPlanned: 0, totalAdhered: 0, totalUnplanned: 0, overallAdherencePct: '0%' });
+  const [consolidatedLoading, setConsolidatedLoading] = useState(false);
+  const [consolidatedPage, setConsolidatedPage] = useState(1);
+  const [consolidatedPageSize, setConsolidatedPageSize] = useState(15);
+
+  // Sub-tab 3: Planned vs Unplanned summary
+  const [pvuList, setPvuList] = useState([]);
+  const [pvuTotal, setPvuTotal] = useState(0);
+  const [pvuTotals, setPvuTotals] = useState({ totalPlanned: 0, totalAdhered: 0, totalUnplanned: 0, totalCombined: 0, overallAdherencePct: '0%' });
+  const [pvuLoading, setPvuLoading] = useState(false);
+  const [pvuPage, setPvuPage] = useState(1);
+  const [pvuPageSize, setPvuPageSize] = useState(15);
 
   // ── unmapped visits tab & pagination ────────────────────────────────────────
   const [unmappedList, setUnmappedList] = useState([]);
@@ -317,13 +341,37 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
     return filteredAdhDealers.slice(start, start + adhDealerPageSize);
   }, [filteredAdhDealers, adhDealerPage, adhDealerPageSize]);
 
-  // Load unplanned visits for admin tab
+  // Load all employees for officer dropdown (so ASMs, SOs, etc. are always available)
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const emps = await api.getEmployees();
+        if (mounted && Array.isArray(emps)) {
+          setAllEmployeesList(emps);
+        }
+      } catch (_) {}
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  // Filter available officers for dropdown based on unplannedRoleFilter
+  const filteredOfficerOptions = useMemo(() => {
+    let list = allEmployeesList.length > 0 ? allEmployeesList : (adh?.by_employee || []);
+    if (unplannedRoleFilter !== 'ALL') {
+      list = list.filter(e => (e.role || '').toUpperCase() === unplannedRoleFilter.toUpperCase());
+    }
+    return list;
+  }, [allEmployeesList, adh, unplannedRoleFilter]);
+
+  // Load unplanned visits (Tab 1)
   const loadAdminUnplannedVisits = async (isForceRefresh = false) => {
     setUnplannedLoading(true);
     try {
       const res = await api.getUnplannedVisits({
         periodMonth: month,
         employeeCode: unplannedOfficerFilter,
+        role: unplannedRoleFilter,
         search: unplannedSearch,
         refresh: isForceRefresh ? '1' : undefined,
         limit: unplannedPageSize,
@@ -343,12 +391,68 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
     }
   };
 
+  // Load consolidated visits (Tab 2)
+  const loadConsolidatedVisits = async () => {
+    setConsolidatedLoading(true);
+    try {
+      const res = await api.getConsolidatedVisits({
+        periodMonth: month,
+        employeeCode: unplannedOfficerFilter,
+        role: unplannedRoleFilter,
+        category: unplannedCategoryFilter,
+        search: unplannedSearch,
+        limit: consolidatedPageSize,
+        offset: (consolidatedPage - 1) * consolidatedPageSize
+      });
+      setConsolidatedList(res.rows || []);
+      setConsolidatedTotal(res.total || 0);
+      if (res.summary) setConsolidatedSummary(res.summary);
+    } catch (err) {
+      onShowToast?.(err.message || 'Failed to fetch consolidated visits', 'error');
+      setConsolidatedList([]);
+      setConsolidatedTotal(0);
+    } finally {
+      setConsolidatedLoading(false);
+    }
+  };
+
+  // Load planned vs unplanned summary (Tab 3)
+  const loadPlannedVsUnplanned = async () => {
+    setPvuLoading(true);
+    try {
+      const res = await api.getPlannedVsUnplanned({
+        periodMonth: month,
+        employeeCode: unplannedOfficerFilter,
+        role: unplannedRoleFilter,
+        category: unplannedCategoryFilter,
+        search: unplannedSearch,
+        limit: pvuPageSize,
+        offset: (pvuPage - 1) * pvuPageSize
+      });
+      setPvuList(res.rows || []);
+      setPvuTotal(res.total || 0);
+      if (res.totals) setPvuTotals(res.totals);
+    } catch (err) {
+      onShowToast?.(err.message || 'Failed to fetch planned vs unplanned summary', 'error');
+      setPvuList([]);
+      setPvuTotal(0);
+    } finally {
+      setPvuLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (tab === 'unplanned') {
-      loadAdminUnplannedVisits();
+      if (unplannedSubTab === 'unplanned') {
+        loadAdminUnplannedVisits();
+      } else if (unplannedSubTab === 'consolidated') {
+        loadConsolidatedVisits();
+      } else if (unplannedSubTab === 'planned_vs_unplanned') {
+        loadPlannedVsUnplanned();
+      }
     }
     // eslint-disable-next-line
-  }, [tab, month, unplannedOfficerFilter, unplannedPage, unplannedPageSize]);
+  }, [tab, unplannedSubTab, month, unplannedOfficerFilter, unplannedRoleFilter, unplannedCategoryFilter, unplannedPage, unplannedPageSize, consolidatedPage, consolidatedPageSize, pvuPage, pvuPageSize]);
 
   const [exportingUnplanned, setExportingUnplanned] = useState(false);
   const [exportingUnmapped, setExportingUnmapped] = useState(false);
@@ -359,9 +463,11 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
       await api.exportUnplannedVisitsExcel({
         periodMonth: month,
         employeeCode: unplannedOfficerFilter,
+        role: unplannedRoleFilter,
+        category: unplannedCategoryFilter,
         search: unplannedSearch
       });
-      onShowToast?.(`Unplanned visits Excel exported successfully`, 'success');
+      onShowToast?.(`Unplanned visits 3-sheet Excel exported successfully`, 'success');
     } catch (err) {
       onShowToast?.(err.message || 'Failed to export unplanned visits to Excel', 'error');
     } finally {
@@ -374,13 +480,24 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
       onShowToast?.('No unplanned visits to export', 'error');
       return;
     }
-    const head = 'Visit Date,Employee Code,Employee Name,Customer Code,Mapped SAP Code,Customer Name,Customer Type,Route,Branch,Check In,Check Out,Duration,Status,Plan Type,Reason,Remarks\n';
-    const body = unplannedList.map(u => [
-      u.visit_date, u.employee_code, `"${u.employee_name || ''}"`,
-      u.customer_code, u.mapped_sap_code || '', `"${u.customer_name || ''}"`,
-      u.customer_type || '', `"${u.route || ''}"`, `"${u.branch || ''}"`,
-      u.check_in_time || '', u.check_out_time || '', u.duration || '',
-      u.visit_status || '', 'UNPLANNED', `"${u.reason || ''}"`, `"${(u.remarks || '').replace(/"/g, '""')}"`
+    const head = 'SI,Date of Visit,Customer Code,Customer Name,Route,Type,Branch,Employee Code,Employee Name,Role,Check In Time,Check Out Time,Duration,Visit Status(Productive / Non productive),Remarks,Purpose Of Visit\n';
+    const body = unplannedList.map((u, idx) => [
+      u.si || idx + 1,
+      `"${u.date_of_visit || u.visit_date || ''}"`,
+      `"${u.customer_code || ''}"`,
+      `"${(u.customer_name || '').replace(/"/g, '""')}"`,
+      `"${(u.route || '').replace(/"/g, '""')}"`,
+      `"${u.type || u.customer_type || 'Non Star'}"`,
+      `"${(u.branch || '').replace(/"/g, '""')}"`,
+      `"${u.employee_code || ''}"`,
+      `"${(u.employee_name || '').replace(/"/g, '""')}"`,
+      `"${u.role || 'SO'}"`,
+      `"${u.check_in_time || ''}"`,
+      `"${u.check_out_time || ''}"`,
+      `"${u.duration || ''}"`,
+      `"${u.visit_status || 'Productive'}"`,
+      `"${(u.remarks || '').replace(/"/g, '""')}"`,
+      `"${(u.purpose_of_visit || '').replace(/"/g, '""')}"`
     ].join(',')).join('\n');
     const blob = new Blob([head + body], { type: 'text/csv;charset=utf-8;' });
     const a = document.createElement('a');
@@ -388,6 +505,88 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
     a.download = `Unplanned_Visits_${month}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
+  };
+
+  const exportConsolidatedCsv = () => {
+    if (!consolidatedList.length) {
+      onShowToast?.('No consolidated records to export', 'error');
+      return;
+    }
+    const head = 'Month,SO/ASM/RSM NAME,Role,Category,Zone,Branch,Customer Code,Customer Name,DJP no. of visit of planned,DJP No. of visit adhered,DJP Adherence %,Unplanned Visit,concat\n';
+    const body = consolidatedList.map(c => [
+      `"${c.month || ''}"`,
+      `"${(c.officer_name || '').replace(/"/g, '""')}"`,
+      `"${c.role || ''}"`,
+      `"${c.category || ''}"`,
+      `"${c.zone || ''}"`,
+      `"${(c.branch || '').replace(/"/g, '""')}"`,
+      `"${c.customer_code || ''}"`,
+      `"${(c.customer_name || '').replace(/"/g, '""')}"`,
+      c.planned_visits || 0,
+      c.adhered_visits || 0,
+      `"${c.adherence_pct || '0%'}"`,
+      c.unplanned_visits || 0,
+      `"${(c.concat || '').replace(/"/g, '""')}"`
+    ].join(',')).join('\n');
+    const blob = new Blob([head + body], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `Consolidated_Visits_${month}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const exportPlannedVsUnplannedCsv = () => {
+    if (!pvuList.length) {
+      onShowToast?.('No planned vs unplanned records to export', 'error');
+      return;
+    }
+    const head = 'SO/ASM/RSM NAME,Role,Category,DJP no. of visit of planned,DJP No. of visit adhered,Planned Adhered %,Sum of Unplanned Visit,Total Planned + Unplanned\n';
+    const body = pvuList.map(p => [
+      `"${(p.officer_name || p.officer_name_effective || '').replace(/"/g, '""')}"`,
+      `"${p.role || p.role_effective || ''}"`,
+      `"${p.category || ''}"`,
+      p.planned_visits || 0,
+      p.adhered_visits || 0,
+      `"${p.adherence_pct || '0%'}"`,
+      p.unplanned_visits || 0,
+      p.total_planned_unplanned || 0
+    ].join(',')).join('\n');
+    const totalRow = [
+      '"Total / Grand Total"',
+      '""',
+      '""',
+      pvuTotals.totalPlanned || 0,
+      pvuTotals.totalAdhered || 0,
+      `"${pvuTotals.overallAdherencePct || '0%'}"`,
+      pvuTotals.totalUnplanned || 0,
+      pvuTotals.totalCombined || 0
+    ].join(',');
+    const blob = new Blob([head + body + '\n' + totalRow], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `Planned_vs_Unplanned_${month}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const handleExportCsv = () => {
+    if (unplannedSubTab === 'unplanned') exportUnplannedCsv();
+    else if (unplannedSubTab === 'consolidated') exportConsolidatedCsv();
+    else if (unplannedSubTab === 'planned_vs_unplanned') exportPlannedVsUnplannedCsv();
+  };
+
+  const handleRefreshUnplanned = (isForce = false) => {
+    if (unplannedSubTab === 'unplanned') {
+      setUnplannedPage(1);
+      loadAdminUnplannedVisits(isForce);
+    } else if (unplannedSubTab === 'consolidated') {
+      setConsolidatedPage(1);
+      loadConsolidatedVisits();
+    } else if (unplannedSubTab === 'planned_vs_unplanned') {
+      setPvuPage(1);
+      loadPlannedVsUnplanned();
+    }
   };
 
   // Load unmapped visits for admin tab
@@ -921,7 +1120,36 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
       {/* ═══════════════════════════ ADHERENCE ═══════════════════════════ */}
       {tab === 'adherence' && (
         <>
-          <div className="filter-card">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 6, background: '#F1F5F9', padding: 4, borderRadius: 8, border: '1px solid #CBD5E1' }}>
+              <button
+                type="button"
+                className={`btn ${adherenceMode === 'excel' ? 'btn-primary' : 'btn-outline'}`}
+                onClick={() => setAdherenceMode('excel')}
+                style={{ fontSize: '.8rem', padding: '6px 16px', height: 34, display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <FileSpreadsheet size={15} /> Zone Adherence Report (All 4 Roles)
+              </button>
+              <button
+                type="button"
+                className={`btn ${adherenceMode === 'diagnostics' ? 'btn-primary' : 'btn-outline'}`}
+                onClick={() => setAdherenceMode('diagnostics')}
+                style={{ fontSize: '.8rem', padding: '6px 16px', height: 34, display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <Activity size={15} /> Technical Diagnostics & C2 Regen
+              </button>
+            </div>
+          </div>
+
+          {adherenceMode === 'excel' ? (
+            <AdherenceReportView
+              onShowToast={onShowToast}
+              selectedPeriod={month}
+              selectedCycle={adhCycle}
+            />
+          ) : (
+            <>
+              <div className="filter-card">
             <div className="filter-grid">
               <div className="form-group">
                 <label className="form-label">Plan Month</label>
@@ -1424,12 +1652,133 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
               <div>Upload the SFA visit report on the ingestion screen, then run the check.</div>
             </div>
           )}
+            </>
+          )}
         </>
       )}
 
-      {/* ═══════════════════════════ UNPLANNED VISITS ═══════════════════════════ */}
+      {/* ═══════════════════════════ UNPLANNED VISITS (3 SUB-TABS) ═══════════════════════════ */}
       {tab === 'unplanned' && (
         <>
+          {/* ── Sub-tab Switcher Bar ── */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            marginBottom: 16,
+            background: 'var(--bg-surface, #fff)',
+            padding: '8px 12px',
+            borderRadius: 8,
+            border: '1px solid var(--border-subtle, #e2e8f0)',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+          }}>
+            <button
+              type="button"
+              className={`op-subtab-btn ${unplannedSubTab === 'unplanned' ? 'active' : ''}`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 18px',
+                borderRadius: 6,
+                fontWeight: 650,
+                fontSize: '.85rem',
+                border: 'none',
+                cursor: 'pointer',
+                background: unplannedSubTab === 'unplanned' ? '#991B1B' : 'transparent',
+                color: unplannedSubTab === 'unplanned' ? '#fff' : 'var(--text-secondary, #475569)',
+                transition: 'all .15s ease'
+              }}
+              onClick={() => setUnplannedSubTab('unplanned')}
+            >
+              <AlertTriangle size={15} />
+              <span>Unplanned</span>
+              {unplannedTotal > 0 && (
+                <span style={{
+                  background: unplannedSubTab === 'unplanned' ? 'rgba(255,255,255,0.25)' : 'var(--color-warning-bg, #fef3c7)',
+                  color: unplannedSubTab === 'unplanned' ? '#fff' : 'var(--color-warning, #b45309)',
+                  padding: '1px 8px',
+                  borderRadius: 10,
+                  fontSize: '.72rem',
+                  fontWeight: 700
+                }}>
+                  {unplannedTotal}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              className={`op-subtab-btn ${unplannedSubTab === 'consolidated' ? 'active' : ''}`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 18px',
+                borderRadius: 6,
+                fontWeight: 650,
+                fontSize: '.85rem',
+                border: 'none',
+                cursor: 'pointer',
+                background: unplannedSubTab === 'consolidated' ? '#1E3A8A' : 'transparent',
+                color: unplannedSubTab === 'consolidated' ? '#fff' : 'var(--text-secondary, #475569)',
+                transition: 'all .15s ease'
+              }}
+              onClick={() => setUnplannedSubTab('consolidated')}
+            >
+              <ClipboardList size={15} />
+              <span>Consolidated</span>
+              {consolidatedTotal > 0 && (
+                <span style={{
+                  background: unplannedSubTab === 'consolidated' ? 'rgba(255,255,255,0.25)' : 'var(--color-info-bg, #e0f2fe)',
+                  color: unplannedSubTab === 'consolidated' ? '#fff' : 'var(--color-info, #0369a1)',
+                  padding: '1px 8px',
+                  borderRadius: 10,
+                  fontSize: '.72rem',
+                  fontWeight: 700
+                }}>
+                  {consolidatedTotal}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              className={`op-subtab-btn ${unplannedSubTab === 'planned_vs_unplanned' ? 'active' : ''}`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 18px',
+                borderRadius: 6,
+                fontWeight: 650,
+                fontSize: '.85rem',
+                border: 'none',
+                cursor: 'pointer',
+                background: unplannedSubTab === 'planned_vs_unplanned' ? '#166534' : 'transparent',
+                color: unplannedSubTab === 'planned_vs_unplanned' ? '#fff' : 'var(--text-secondary, #475569)',
+                transition: 'all .15s ease'
+              }}
+              onClick={() => setUnplannedSubTab('planned_vs_unplanned')}
+            >
+              <GitCompare size={15} />
+              <span>Planned vs Unplanned</span>
+              {pvuTotal > 0 && (
+                <span style={{
+                  background: unplannedSubTab === 'planned_vs_unplanned' ? 'rgba(255,255,255,0.25)' : 'var(--color-success-bg, #dcfce7)',
+                  color: unplannedSubTab === 'planned_vs_unplanned' ? '#fff' : 'var(--color-success, #15803d)',
+                  padding: '1px 8px',
+                  borderRadius: 10,
+                  fontSize: '.72rem',
+                  fontWeight: 700
+                }}>
+                  {pvuTotal}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* ── Filters Card ── */}
           <div className="filter-card">
             <div className="filter-grid">
               <div className="form-group">
@@ -1438,8 +1787,33 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                   type="month"
                   className="form-control"
                   value={month}
-                  onChange={e => { setMonth(e.target.value); setUnplannedPage(1); }}
+                  onChange={e => {
+                    setMonth(e.target.value);
+                    setUnplannedPage(1);
+                    setConsolidatedPage(1);
+                    setPvuPage(1);
+                  }}
                 />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Role</label>
+                <select
+                  className="form-control"
+                  value={unplannedRoleFilter}
+                  onChange={e => {
+                    setUnplannedRoleFilter(e.target.value);
+                    setUnplannedPage(1);
+                    setConsolidatedPage(1);
+                    setPvuPage(1);
+                  }}
+                >
+                  <option value="ALL">All Roles</option>
+                  <option value="SO">Sales Officer (SO)</option>
+                  <option value="ASM">Area Sales Mgr (ASM)</option>
+                  <option value="RSM">Regional Sales Mgr (RSM)</option>
+                  <option value="ZH">Zonal Head (ZH)</option>
+                </select>
               </div>
 
               <div className="form-group">
@@ -1447,16 +1821,44 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                 <select
                   className="form-control"
                   value={unplannedOfficerFilter}
-                  onChange={e => { setUnplannedOfficerFilter(e.target.value); setUnplannedPage(1); }}
+                  onChange={e => {
+                    setUnplannedOfficerFilter(e.target.value);
+                    setUnplannedPage(1);
+                    setConsolidatedPage(1);
+                    setPvuPage(1);
+                  }}
                 >
-                  <option value="ALL">All Officers</option>
-                  {(adh?.by_employee || []).map(e => (
+                  <option value="ALL">All Officers ({filteredOfficerOptions.length})</option>
+                  {filteredOfficerOptions.map(e => (
                     <option key={e.emp_code} value={e.emp_code}>
-                      {e.emp_name ? `${e.emp_name} (${e.emp_code})` : e.emp_code}
+                      {e.emp_name ? `${e.emp_name} (${e.emp_code || e.role || ''})` : e.emp_code}
                     </option>
                   ))}
                 </select>
               </div>
+
+              {unplannedSubTab !== 'unplanned' && (
+                <div className="form-group">
+                  <label className="form-label">Category</label>
+                  <select
+                    className="form-control"
+                    value={unplannedCategoryFilter}
+                    onChange={e => {
+                      setUnplannedCategoryFilter(e.target.value);
+                      setConsolidatedPage(1);
+                      setPvuPage(1);
+                    }}
+                  >
+                    <option value="ALL">All Categories</option>
+                    <option value="Growing">Growing</option>
+                    <option value="De-growing">De-growing</option>
+                    <option value="Need to Grow">Need to Grow</option>
+                    <option value="Zero Lifter">Zero Lifter</option>
+                    <option value="Prospective">Prospective</option>
+                    <option value="Churn">Churn</option>
+                  </select>
+                </div>
+              )}
 
               <div className="form-group">
                 <label className="form-label">Search</label>
@@ -1464,20 +1866,24 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                   <Search size={14} className="input-icon" />
                   <input
                     className="form-control"
-                    placeholder="Customer code, name, route, branch..."
+                    placeholder="Customer code, name, officer, branch..."
                     value={unplannedSearch}
                     onChange={e => setUnplannedSearch(e.target.value)}
                     onKeyDown={e => {
                       if (e.key === 'Enter') {
-                        setUnplannedPage(1);
-                        loadAdminUnplannedVisits();
+                        handleRefreshUnplanned();
                       }
                     }}
                   />
                   {unplannedSearch && (
                     <button
                       type="button"
-                      onClick={() => { setUnplannedSearch(''); setUnplannedPage(1); }}
+                      onClick={() => {
+                        setUnplannedSearch('');
+                        setUnplannedPage(1);
+                        setConsolidatedPage(1);
+                        setPvuPage(1);
+                      }}
                       style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)' }}
                     >
                       <X size={13} />
@@ -1490,27 +1896,26 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                 <button
                   type="button"
                   className="btn btn-primary"
-                  onClick={() => { setUnplannedPage(1); loadAdminUnplannedVisits(true); }}
-                  disabled={unplannedLoading}
+                  onClick={() => handleRefreshUnplanned(true)}
+                  disabled={unplannedLoading || consolidatedLoading || pvuLoading}
                 >
-                  <RefreshCw size={15} className={unplannedLoading ? 'spin' : ''} /> Refresh
+                  <RefreshCw size={15} className={(unplannedLoading || consolidatedLoading || pvuLoading) ? 'spin' : ''} /> Refresh
                 </button>
                 <button
                   type="button"
                   className="btn btn-outline"
                   onClick={handleExportUnplannedExcel}
-                  disabled={unplannedList.length === 0 || exportingUnplanned}
+                  disabled={exportingUnplanned}
                   style={{ color: '#16A34A', borderColor: '#16A34A', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                  title="Export all unplanned visits to styled Excel spreadsheet"
+                  title="Export all 3 tabs (Unplanned, Consolidated, Planned vs Unplanned) to styled Excel spreadsheet"
                 >
                   <FileSpreadsheet size={15} className={exportingUnplanned ? 'spin' : ''} />
-                  <span>{exportingUnplanned ? 'Exporting…' : 'Export Excel'}</span>
+                  <span>{exportingUnplanned ? 'Exporting…' : 'Export Excel (3 Sheets)'}</span>
                 </button>
                 <button
                   type="button"
                   className="btn btn-outline"
-                  onClick={exportUnplannedCsv}
-                  disabled={unplannedList.length === 0}
+                  onClick={handleExportCsv}
                 >
                   <Download size={15} /> Export CSV
                 </button>
@@ -1519,7 +1924,7 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, flexWrap: 'wrap', gap: 8, fontSize: '.78rem' }}>
               <span style={{ color: 'var(--text-tertiary)' }}>
-                Visits made to dealers or counters outside the officer's scheduled DJP monthly plan.
+                Rule: When the dealer isn't visited on the planned date of visit, it is marked as unplanned.
               </span>
               <span style={{
                 background: 'var(--color-info-bg, #E0F2FE)',
@@ -1533,129 +1938,413 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
             </div>
           </div>
 
-          <div className="kpi-grid">
-            <Kpi
-              label="Total Unplanned Visits"
-              value={unplannedTotal}
-              sub={`for month ${month}`}
-              tone={unplannedTotal > 0 ? 'var(--color-warning)' : 'var(--color-success)'}
-            />
-            <Kpi
-              label="Sync Window"
-              value="Till T-1 Day"
-              sub="Protects against intraday incomplete logs"
-              tone="var(--color-info)"
-            />
-            <Kpi
-              label="Plan Classification"
-              value="Unplanned"
-              sub="Dealer not on officer's target plan"
-            />
-          </div>
-
-          <div className="content-card">
-            <div className="card-title-bar">
-              <div>
-                <div className="card-title">Unplanned Visits Log</div>
-                <div className="card-subtitle">
-                  {unplannedLoading ? 'Loading…' : `${unplannedTotal} visit(s) identified outside scheduled plans`}
-                </div>
+          {/* ═══════════ SUB-TAB 1: UNPLANNED ═══════════ */}
+          {unplannedSubTab === 'unplanned' && (
+            <>
+              <div className="kpi-grid">
+                <Kpi
+                  label="Total Unplanned Visits"
+                  value={unplannedTotal}
+                  sub={`for month ${month}`}
+                  tone={unplannedTotal > 0 ? 'var(--color-warning)' : 'var(--color-success)'}
+                />
+                <Kpi
+                  label="Sync Window"
+                  value="Till T-1 Day"
+                  sub="Protects against intraday incomplete logs"
+                  tone="var(--color-info)"
+                />
+                <Kpi
+                  label="Planned vs Unplanned Rule"
+                  value="Unscheduled Date / Not on Plan"
+                  sub="Dealer not visited on scheduled date"
+                />
               </div>
-            </div>
 
-            <div className="table-responsive">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Visit Date</th>
-                    <th>Officer</th>
-                    <th>Customer Code</th>
-                    <th>Customer Name</th>
-                    <th>Area / Branch</th>
-                    <th>Route</th>
-                    <th>Check In / Out</th>
-                    <th>Duration</th>
-                    <th>Plan Type</th>
-                    <th>Reason</th>
-                    <th>Remarks</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {unplannedList.map((u, i) => (
-                    <tr key={u.id || i}>
-                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '.78rem', whiteSpace: 'nowrap' }}>
-                        {u.visit_date}
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{u.employee_name || u.employee_code}</div>
-                        <div style={{ fontSize: '.72rem', color: 'var(--text-tertiary)' }}>{u.employee_code}</div>
-                      </td>
-                      <td>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: '.78rem' }}>
-                          {u.customer_code}
-                        </div>
-                        {u.mapped_sap_code && (
-                          <div style={{ fontSize: '.7rem', color: 'var(--text-tertiary)' }}>
-                            SAP: {u.mapped_sap_code}
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{u.customer_name}</div>
-                        {u.customer_type && (
-                          <span style={{ fontSize: '.7rem', color: 'var(--text-secondary)' }}>
-                            {u.customer_type}
-                          </span>
-                        )}
-                      </td>
-                      <td>{u.branch || '—'}</td>
-                      <td>{u.route || '—'}</td>
-                      <td style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>
-                        {u.check_in_time ? `${u.check_in_time} → ${u.check_out_time || '—'}` : '—'}
-                      </td>
-                      <td style={{ fontSize: '.78rem' }}>{u.duration || '—'}</td>
-                      <td>
-                        <span style={{
-                          background: 'var(--color-warning-bg, #FEF3C7)',
-                          color: '#B45309',
-                          padding: '3px 8px',
-                          borderRadius: 4,
-                          fontSize: '.72rem',
-                          fontWeight: 700
-                        }}>
-                          Unplanned
-                        </span>
-                      </td>
-                      <td style={{ fontSize: '.78rem', color: 'var(--text-secondary)' }}>
-                        {u.reason || "Dealer not on officer's plan"}
-                      </td>
-                      <td style={{ fontSize: '.78rem', color: 'var(--text-tertiary)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={u.remarks || ''}>
-                        {u.remarks || '—'}
-                      </td>
-                    </tr>
-                  ))}
-                  {!unplannedLoading && unplannedList.length === 0 && (
-                    <tr>
-                      <td colSpan={11} style={{ textAlign: 'center', padding: 48, color: 'var(--text-tertiary)' }}>
-                        No unplanned visits found for {month}. All visits adhered to beat plans!
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+              <div className="content-card">
+                <div className="card-title-bar">
+                  <div>
+                    <div className="card-title">Unplanned Visits Log</div>
+                    <div className="card-subtitle">
+                      {unplannedLoading ? 'Loading…' : `${unplannedTotal} visit(s) identified outside scheduled plans`}
+                    </div>
+                  </div>
+                </div>
 
-            <PaginationControls
-              page={unplannedPage}
-              totalPages={Math.max(1, Math.ceil(unplannedTotal / unplannedPageSize))}
-              totalItems={unplannedTotal}
-              pageSize={unplannedPageSize}
-              onPageChange={setUnplannedPage}
-              onPageSizeChange={sz => { setUnplannedPageSize(sz); setUnplannedPage(1); }}
-              pageSizeOptions={[15, 30, 50, 100]}
-              itemName="unplanned visits"
-            />
-          </div>
+                <div className="table-responsive">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style={{ width: 50 }}>SI</th>
+                        <th>Date of Visit</th>
+                        <th>Customer Code</th>
+                        <th>Customer Name</th>
+                        <th>Route</th>
+                        <th>Type</th>
+                        <th>Branch</th>
+                        <th>Employee Code</th>
+                        <th>Employee Name</th>
+                        <th>Role</th>
+                        <th>Check In Time</th>
+                        <th>Check Out Time</th>
+                        <th>Duration</th>
+                        <th>Visit Status</th>
+                        <th>Remarks</th>
+                        <th>Purpose Of Visit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {unplannedList.map((u, i) => (
+                        <tr key={u.id || i}>
+                          <td style={{ textAlign: 'center', fontWeight: 600, color: 'var(--text-tertiary)' }}>
+                            {u.si || ((unplannedPage - 1) * unplannedPageSize + i + 1)}
+                          </td>
+                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: '.78rem', whiteSpace: 'nowrap' }}>
+                            {u.date_of_visit || u.visit_date}
+                          </td>
+                          <td>
+                            <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: '.78rem' }}>
+                              {u.customer_code}
+                            </div>
+                            {u.mapped_sap_code && u.mapped_sap_code !== u.customer_code && (
+                              <div style={{ fontSize: '.7rem', color: 'var(--text-tertiary)' }}>
+                                SAP: {u.mapped_sap_code}
+                              </div>
+                            )}
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 600 }}>{u.customer_name}</div>
+                          </td>
+                          <td>{u.route || '—'}</td>
+                          <td>
+                            <span style={{ fontSize: '.72rem', padding: '2px 6px', borderRadius: 4, background: 'var(--bg-hover)' }}>
+                              {u.type || u.customer_type || 'Non Star'}
+                            </span>
+                          </td>
+                          <td>{u.branch || '—'}</td>
+                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: '.75rem' }}>{u.employee_code}</td>
+                          <td>
+                            <div style={{ fontWeight: 600 }}>{u.employee_name || u.employee_code}</div>
+                          </td>
+                          <td>
+                            <span style={{
+                              fontSize: '.72rem',
+                              fontWeight: 700,
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              background: u.role === 'ASM' ? 'var(--color-purple-bg, #EDE9FE)' : 'var(--color-info-bg, #E0F2FE)',
+                              color: u.role === 'ASM' ? '#7C3AED' : '#0369A1'
+                            }}>
+                              {u.role || 'SO'}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>{u.check_in_time || '—'}</td>
+                          <td style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>{u.check_out_time || '—'}</td>
+                          <td style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>{u.duration || '—'}</td>
+                          <td>
+                            <span style={{
+                              background: (u.visit_status || '').toLowerCase().includes('productive') && !(u.visit_status || '').toLowerCase().includes('non')
+                                ? 'var(--color-success-bg, #DCFCE7)'
+                                : 'var(--color-warning-bg, #FEF3C7)',
+                              color: (u.visit_status || '').toLowerCase().includes('productive') && !(u.visit_status || '').toLowerCase().includes('non')
+                                ? '#15803D'
+                                : '#B45309',
+                              padding: '2px 8px',
+                              borderRadius: 4,
+                              fontSize: '.72rem',
+                              fontWeight: 700
+                            }}>
+                              {u.visit_status || 'Productive'}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: '.78rem', color: 'var(--text-tertiary)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={u.remarks || ''}>
+                            {u.remarks || '—'}
+                          </td>
+                          <td style={{ fontSize: '.78rem' }}>{u.purpose_of_visit || 'Routine Visit'}</td>
+                        </tr>
+                      ))}
+                      {!unplannedLoading && unplannedList.length === 0 && (
+                        <tr>
+                          <td colSpan={16} style={{ textAlign: 'center', padding: 48, color: 'var(--text-tertiary)' }}>
+                            No unplanned visits found for {month}. All visits adhered to beat plans!
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <PaginationControls
+                  page={unplannedPage}
+                  totalPages={Math.max(1, Math.ceil(unplannedTotal / unplannedPageSize))}
+                  totalItems={unplannedTotal}
+                  pageSize={unplannedPageSize}
+                  onPageChange={setUnplannedPage}
+                  onPageSizeChange={sz => { setUnplannedPageSize(sz); setUnplannedPage(1); }}
+                  pageSizeOptions={[15, 30, 50, 100]}
+                  itemName="unplanned visits"
+                />
+              </div>
+            </>
+          )}
+
+          {/* ═══════════ SUB-TAB 2: CONSOLIDATED ═══════════ */}
+          {unplannedSubTab === 'consolidated' && (
+            <>
+              <div className="kpi-grid">
+                <Kpi
+                  label="Total Planned Visits"
+                  value={consolidatedSummary.totalPlanned}
+                  sub="Scheduled DJP target visits"
+                  tone="var(--color-info)"
+                />
+                <Kpi
+                  label="Total Adhered Visits"
+                  value={consolidatedSummary.totalAdhered}
+                  sub="Visits completed on planned date"
+                  tone="var(--color-success)"
+                />
+                <Kpi
+                  label="Total Unplanned Visits"
+                  value={consolidatedSummary.totalUnplanned}
+                  sub="Visits outside scheduled plan"
+                  tone="var(--color-warning)"
+                />
+                <Kpi
+                  label="Overall Adherence"
+                  value={consolidatedSummary.overallAdherencePct}
+                  sub="Adhered ÷ Planned"
+                  tone="var(--color-primary)"
+                />
+              </div>
+
+              <div className="content-card">
+                <div className="card-title-bar">
+                  <div>
+                    <div className="card-title">Consolidated Officer & Dealer Adherence</div>
+                    <div className="card-subtitle">
+                      {consolidatedLoading ? 'Loading…' : `${consolidatedTotal} dealer target record(s) matching filter`}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="table-responsive">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Month</th>
+                        <th>SO/ASM/RSM NAME</th>
+                        <th>Role</th>
+                        <th>Category</th>
+                        <th>Zone</th>
+                        <th>Branch</th>
+                        <th>Customer Code</th>
+                        <th>Customer Name</th>
+                        <th style={{ textAlign: 'right' }}>DJP no. of visit of planned</th>
+                        <th style={{ textAlign: 'right' }}>DJP No. of visit adhered</th>
+                        <th style={{ textAlign: 'right' }}>DJP Adherence %</th>
+                        <th style={{ textAlign: 'right' }}>Unplanned Visit</th>
+                        <th>concat</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {consolidatedList.map((c, i) => (
+                        <tr key={`${c.customer_code}-${c.officer_name}-${i}`}>
+                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: '.78rem', whiteSpace: 'nowrap' }}>
+                            {c.month}
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 600 }}>{c.officer_name}</div>
+                          </td>
+                          <td>
+                            <span style={{
+                              fontSize: '.72rem',
+                              fontWeight: 700,
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              background: c.role === 'ASM' ? 'var(--color-purple-bg, #EDE9FE)' : 'var(--color-info-bg, #E0F2FE)',
+                              color: c.role === 'ASM' ? '#7C3AED' : '#0369A1'
+                            }}>
+                              {c.role}
+                            </span>
+                          </td>
+                          <td>{c.category}</td>
+                          <td>{c.zone}</td>
+                          <td>{c.branch}</td>
+                          <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: '.78rem' }}>
+                            {c.customer_code}
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 600 }}>{c.customer_name}</div>
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 600 }}>{c.planned_visits}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--color-success)' }}>{c.adhered_visits}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700 }}>
+                            <span style={{
+                              color: parseInt(c.adherence_pct) >= 100 ? 'var(--color-success)' : parseInt(c.adherence_pct) >= 50 ? 'var(--color-warning)' : 'var(--color-danger)'
+                            }}>
+                              {c.adherence_pct}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 600, color: c.unplanned_visits > 0 ? 'var(--color-warning)' : 'inherit' }}>
+                            {c.unplanned_visits}
+                          </td>
+                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--text-tertiary)' }}>
+                            {c.concat}
+                          </td>
+                        </tr>
+                      ))}
+                      {!consolidatedLoading && consolidatedList.length === 0 && (
+                        <tr>
+                          <td colSpan={13} style={{ textAlign: 'center', padding: 48, color: 'var(--text-tertiary)' }}>
+                            No consolidated records found for {month}.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <PaginationControls
+                  page={consolidatedPage}
+                  totalPages={Math.max(1, Math.ceil(consolidatedTotal / consolidatedPageSize))}
+                  totalItems={consolidatedTotal}
+                  pageSize={consolidatedPageSize}
+                  onPageChange={setConsolidatedPage}
+                  onPageSizeChange={sz => { setConsolidatedPageSize(sz); setConsolidatedPage(1); }}
+                  pageSizeOptions={[15, 30, 50, 100]}
+                  itemName="consolidated records"
+                />
+              </div>
+            </>
+          )}
+
+          {/* ═══════════ SUB-TAB 3: PLANNED VS UNPLANNED ═══════════ */}
+          {unplannedSubTab === 'planned_vs_unplanned' && (
+            <>
+              <div className="kpi-grid">
+                <Kpi
+                  label="Total Planned Visits"
+                  value={pvuTotals.totalPlanned}
+                  sub="Scheduled DJP beat visits"
+                  tone="var(--color-info)"
+                />
+                <Kpi
+                  label="Total Adhered Visits"
+                  value={pvuTotals.totalAdhered}
+                  sub="Visits adhering to schedule"
+                  tone="var(--color-success)"
+                />
+                <Kpi
+                  label="Sum of Unplanned Visits"
+                  value={pvuTotals.totalUnplanned}
+                  sub="Unscheduled & off-plan visits"
+                  tone="var(--color-warning)"
+                />
+                <Kpi
+                  label="Total Planned + Unplanned"
+                  value={pvuTotals.totalCombined}
+                  sub="Adhered + Unplanned Visits"
+                  tone="var(--color-primary)"
+                />
+              </div>
+
+              <div className="content-card">
+                <div className="card-title-bar">
+                  <div>
+                    <div className="card-title">Planned vs Unplanned Pivot Summary</div>
+                    <div className="card-subtitle">
+                      {pvuLoading ? 'Loading…' : `${pvuTotal} grouped category breakdown row(s)`}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="table-responsive">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>SO/ASM/RSM NAME</th>
+                        <th>Role</th>
+                        <th>Category</th>
+                        <th style={{ textAlign: 'right' }}>DJP no. of visit of planned</th>
+                        <th style={{ textAlign: 'right' }}>DJP No. of visit adhered</th>
+                        <th style={{ textAlign: 'right' }}>Planned Adhered %</th>
+                        <th style={{ textAlign: 'right' }}>Sum of Unplanned Visit</th>
+                        <th style={{ textAlign: 'right' }}>Total Planned + Unplanned</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pvuList.map((p, i) => (
+                        <tr key={`${p.officer_name_effective}-${p.category}-${i}`} style={{ background: p.officer_name ? 'var(--bg-hover)' : 'inherit' }}>
+                          <td style={{ fontWeight: p.officer_name ? 700 : 400 }}>
+                            {p.officer_name || ''}
+                          </td>
+                          <td>
+                            {p.role ? (
+                              <span style={{
+                                fontSize: '.72rem',
+                                fontWeight: 700,
+                                padding: '2px 6px',
+                                borderRadius: 4,
+                                background: p.role === 'ASM' ? 'var(--color-purple-bg, #EDE9FE)' : 'var(--color-info-bg, #E0F2FE)',
+                                color: p.role === 'ASM' ? '#7C3AED' : '#0369A1'
+                              }}>
+                                {p.role}
+                              </span>
+                            ) : ''}
+                          </td>
+                          <td style={{ fontWeight: 500 }}>{p.category}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 600 }}>{p.planned_visits}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--color-success)' }}>{p.adhered_visits}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700 }}>
+                            <span style={{
+                              color: parseInt(p.adherence_pct) >= 100 ? 'var(--color-success)' : parseInt(p.adherence_pct) >= 50 ? 'var(--color-warning)' : 'var(--color-danger)'
+                            }}>
+                              {p.adherence_pct}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 600, color: p.unplanned_visits > 0 ? 'var(--color-warning)' : 'inherit' }}>
+                            {p.unplanned_visits}
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--color-primary)' }}>
+                            {p.total_planned_unplanned}
+                          </td>
+                        </tr>
+                      ))}
+                      {!pvuLoading && pvuList.length === 0 && (
+                        <tr>
+                          <td colSpan={8} style={{ textAlign: 'center', padding: 48, color: 'var(--text-tertiary)' }}>
+                            No planned vs unplanned summary data found for {month}.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: 'var(--bg-active, #f1f5f9)', fontWeight: 700, borderTop: '2px solid var(--border-color, #cbd5e1)' }}>
+                        <td colSpan={3} style={{ fontWeight: 800, fontSize: '.85rem' }}>Total / Grand Total</td>
+                        <td style={{ textAlign: 'right', fontWeight: 800 }}>{pvuTotals.totalPlanned}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--color-success)' }}>{pvuTotals.totalAdhered}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 800 }}>{pvuTotals.overallAdherencePct}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--color-warning)' }}>{pvuTotals.totalUnplanned}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--color-primary)' }}>{pvuTotals.totalCombined}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                <PaginationControls
+                  page={pvuPage}
+                  totalPages={Math.max(1, Math.ceil(pvuTotal / pvuPageSize))}
+                  totalItems={pvuTotal}
+                  pageSize={pvuPageSize}
+                  onPageChange={setPvuPage}
+                  onPageSizeChange={sz => { setPvuPageSize(sz); setPvuPage(1); }}
+                  pageSizeOptions={[15, 30, 50, 100]}
+                  itemName="summary rows"
+                />
+              </div>
+            </>
+          )}
         </>
       )}
 

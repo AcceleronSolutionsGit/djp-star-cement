@@ -197,18 +197,47 @@ router.put('/djp/dealer-targets/:id', async (req, res) => {
     const { id } = req.params;
     const body = { ...req.body };
     delete body.id; // ensure ID is not updated
-    
-    if (Object.keys(body).length === 0) {
-      return res.json({ message: 'No fields to update' });
+
+    let targetRow = null;
+    if (/^\d+$/.test(id)) {
+      targetRow = await dbGet('SELECT id FROM dealer_visit_targets WHERE id = ?', [id]);
+    }
+    if (!targetRow) {
+      targetRow = await dbGet('SELECT id FROM dealer_visit_targets WHERE sap_code = ? OR sfa_code = ? ORDER BY id DESC LIMIT 1', [id, id]);
+    }
+    const targetId = targetRow ? targetRow.id : id;
+
+    const validColumns = new Set([
+      'generation_run_code', 'period_month', 'cycle_code', 'dealer_id', 'dealer_name',
+      'sap_code', 'sfa_code', 'linked_dealer_code', 'area', 'dm_area', 'block', 'sbg_block',
+      'branch', 'zone', 'region', 'cust_type', 'territory_code', 'territory_name',
+      'so_code', 'so_name', 'so_emp_code', 'asm_name', 'asm_code', 'rsm_name', 'rsm_code',
+      'zh_name', 'zh_code', 'potential', 'sbg_potential', 'previous_sales', 'current_sales',
+      'lysm_sales', 'rsar_six_month_avg', 'dp_six_month_avg', 'final_volume', 'score_a',
+      'score_b', 'score_c', 'total_score', 'priority', 'priority_label', 'grade', 'category',
+      'dealer_status', 'sbg_status', 'rsar_status', 'dp_status', 'so_visits', 'asm_visits',
+      'rsm_visits', 'zh_visits', 'total_visits'
+    ]);
+
+    // Map dealer_type to cust_type if applicable
+    if (body.dealer_type && !body.cust_type) {
+      body.cust_type = body.dealer_type;
     }
 
     const setClauses = [];
     const values = [];
     for (const [key, value] of Object.entries(body)) {
-      setClauses.push(`${key} = ?`);
-      values.push(value);
+      if (validColumns.has(key)) {
+        setClauses.push(`${key} = ?`);
+        values.push(value);
+      }
     }
-    values.push(id);
+
+    if (setClauses.length === 0) {
+      return res.json({ message: 'No valid fields to update' });
+    }
+
+    values.push(targetId);
 
     await dbRun(
       `UPDATE dealer_visit_targets SET ${setClauses.join(', ')} WHERE id = ?`,
@@ -217,23 +246,37 @@ router.put('/djp/dealer-targets/:id', async (req, res) => {
 
     // After updating, recalculate total_visits if any visit count was changed
     if ('so_visits' in body || 'asm_visits' in body || 'rsm_visits' in body || 'zh_visits' in body) {
-      const row = await dbGet('SELECT so_visits, asm_visits, rsm_visits, zh_visits FROM dealer_visit_targets WHERE id = ?', [id]);
+      const row = await dbGet('SELECT so_visits, asm_visits, rsm_visits, zh_visits FROM dealer_visit_targets WHERE id = ?', [targetId]);
       if (row) {
-        const total = (row.so_visits || 0) + (row.asm_visits || 0) + (row.rsm_visits || 0) + (row.zh_visits || 0);
-        await dbRun('UPDATE dealer_visit_targets SET total_visits = ? WHERE id = ?', [total, id]);
+        const total = (parseFloat(row.so_visits) || 0) + (parseFloat(row.asm_visits) || 0) + (parseFloat(row.rsm_visits) || 0) + (parseFloat(row.zh_visits) || 0);
+        await dbRun('UPDATE dealer_visit_targets SET total_visits = ? WHERE id = ?', [total, targetId]);
       }
     }
 
     res.json({ message: 'Target updated successfully' });
   } catch (err) {
     console.error('Failed to update visit target:', err);
-    res.status(500).json({ error: 'Failed to update visit target' });
+    res.status(500).json({ error: 'Failed to update visit target: ' + err.message });
   }
 });
 router.get('/djp/export-pjp-trade', exportPjpTradeExcel);
 router.get('/djp/export-master', exportMasterExcel);
 router.get('/djp/export-visits', exportVisitsExcel);
 router.get('/djp/export-sfa-logs', exportSfaLogsExcel);
+router.get('/djp/export-adherence-report', async (req, res) => {
+  try {
+    const { buildAdherenceWorkbook } = await import('../services/adherenceExport.service.js');
+    const { periodMonth, cycleCode, asOnDate } = req.query;
+    const wb = await buildAdherenceWorkbook({ periodMonth, cycleCode, asOnDate });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=Trade_DJP_Adherence_${periodMonth || '2026-06'}_${cycleCode || 'ALL'}.xlsx`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error('[exportAdherenceReport]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 router.get('/djp/reconciliation', getReconciliationDiagnostics);
 router.get('/djp/plan', getDjpPlan);
 // The Master sheet on screen — same 42 columns as the M.xlsx download
@@ -333,6 +376,8 @@ router.get('/templates/:name', downloadTemplate);
 import { syncSfaDataFromApi, getSfaSyncStatus } from '../services/sfaSync.service.js';
 import { 
   getUnplannedVisits, 
+  getConsolidatedVisits,
+  getPlannedVsUnplannedSummary,
   getUnmappedVisits,
   exportUnplannedVisitsToWorkbook,
   exportUnmappedVisitsToWorkbook,
@@ -369,11 +414,29 @@ router.get('/sfa/unplanned-visits', async (req, res) => {
   }
 });
 
+router.get('/sfa/unplanned-visits/consolidated', async (req, res) => {
+  try {
+    const result = await getConsolidatedVisits(req.query);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/sfa/unplanned-visits/planned-vs-unplanned', async (req, res) => {
+  try {
+    const result = await getPlannedVsUnplannedSummary(req.query);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/sfa/unplanned-visits/export-excel', async (req, res) => {
   try {
     const wb = await exportUnplannedVisitsToWorkbook(req.query);
     const month = req.query.periodMonth || 'All';
-    res.setHeader('Content-Disposition', `attachment; filename="Unplanned_Visits_${month}.xlsx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="Unplanned_Visits_Report_${month}.xlsx"`);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     await wb.xlsx.write(res);
     res.end();

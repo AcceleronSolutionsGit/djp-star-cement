@@ -3190,6 +3190,8 @@ export async function getAdherenceReport(req, res) {
         cycle: d.cycle_code, role: d.role,
         emp_code: d.emp_code, emp_name: d.emp_name,
         sap_code: d.dealer_sap_code, dealer_name: d.dealer_name,
+        category: d.category || 'Other',
+        area: d.area || '',
         planned: d.planned,
         mtd_due: Math.round(d.mtd_planned * 100) / 100,
         adhered: d.adhered, adhered_capped: d.adhered_capped, adhered_days: d.adhered_days,

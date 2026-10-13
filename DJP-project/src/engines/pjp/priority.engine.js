@@ -27,7 +27,6 @@
  */
 export const DEFAULT_CATEGORY_SCORES = {
   'Zero lifter': 40,
-  'Zero Lifter': 40,
   'Prospective': 30,
   'Need to Grow': 25,
   'De-growing': 20,
@@ -73,6 +72,15 @@ export function calculateSOPriorityScores(dealers, scoreBConfig = {}) {
 
       // Score B: configured Score B based on category (Out of 40)
       let sB = DEFAULT_CATEGORY_SCORES[d.finalCategory];
+      if (sB === undefined) {
+        const lowerCat = String(d.finalCategory || '').toLowerCase().trim();
+        for (const [k, v] of Object.entries(DEFAULT_CATEGORY_SCORES)) {
+          if (k.toLowerCase().trim() === lowerCat) {
+            sB = v;
+            break;
+          }
+        }
+      }
       if (sB === undefined) {
         if (typeof scoreBConfig === 'object' && scoreBConfig[d.finalCategory] !== undefined) {
           sB = Number(scoreBConfig[d.finalCategory]);

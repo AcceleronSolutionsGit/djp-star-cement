@@ -263,6 +263,27 @@ export async function analyseAdherence(opts = {}) {
     addActual(key(l.employee_name), key(l.canonical_code), l);
   }
 
+  // Look up area and category (dealer_status) for dealers
+  const dimRows = await dbAll(
+    `SELECT sap_code, sfa_code, area, dealer_status, category FROM dealer_visit_targets WHERE period_month = ?`,
+    [periodMonth]
+  ).catch(() => []);
+  const masterRows = await dbAll(
+    `SELECT sap_code, sfa_code, area FROM master_dealers`
+  ).catch(() => []);
+  const dealerDims = new Map();
+  for (const m of masterRows) {
+    const val = { area: m.area || '', category: 'New / Other' };
+    if (m.sap_code) dealerDims.set(key(m.sap_code), val);
+    if (m.sfa_code) dealerDims.set(key(m.sfa_code), val);
+  }
+  for (const d of dimRows) {
+    const cat = d.dealer_status || d.category || 'Other';
+    const area = d.area || '';
+    if (d.sap_code) dealerDims.set(key(d.sap_code), { area: area || dealerDims.get(key(d.sap_code))?.area || '', category: cat });
+    if (d.sfa_code) dealerDims.set(key(d.sfa_code), { area: area || dealerDims.get(key(d.sfa_code))?.area || '', category: cat });
+  }
+
   // ── 4. fold the plan down to one row per (cycle, role, employee, dealer) ──
   const dealerRows = new Map();
   for (const p of planned) {
@@ -270,6 +291,7 @@ export async function analyseAdherence(opts = {}) {
     if (!dealer) continue;
     const k = `${p.cycle_code}|${p.emp_role}|${key(p.emp_code)}|${dealer}`;
     if (!dealerRows.has(k)) {
+      const dim = dealerDims.get(dealer) || {};
       dealerRows.set(k, {
         cycle_code: p.cycle_code,
         role: p.emp_role,
@@ -278,6 +300,8 @@ export async function analyseAdherence(opts = {}) {
         dealer_sap_code: norm(p.dealer_sap_code),
         dealer_name: p.dealer_name,
         dealer_id: p.dealer_id,
+        category: dim.category || 'Other',
+        area: dim.area || '',
         planned: 0,
         planned_dates: []
       });

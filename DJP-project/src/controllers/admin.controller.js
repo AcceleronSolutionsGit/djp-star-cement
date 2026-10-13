@@ -68,6 +68,14 @@ export async function getFilterOptions(req, res) {
       ) AS so_subquery ORDER BY so_name ASC
     `);
 
+    const asms = await dbAll(`
+      SELECT DISTINCT asm_name FROM (
+        SELECT asm_name FROM dealer_visit_targets WHERE asm_name IS NOT NULL AND asm_name != ""
+        UNION
+        SELECT asm_name FROM master_dealer_so_mapping WHERE asm_name IS NOT NULL AND asm_name != ""
+      ) AS asm_subquery ORDER BY asm_name ASC
+    `);
+
     const statuses = await dbAll(`
       SELECT DISTINCT dealer_status as name FROM dealer_visit_targets WHERE dealer_status IS NOT NULL ORDER BY dealer_status ASC
     `);
@@ -76,6 +84,7 @@ export async function getFilterOptions(req, res) {
       zones: zones.map(z => z.zone),
       areas: areas.map(a => a.area),
       salesOfficers: sos.map(s => s.so_name),
+      asms: asms.map(a => a.asm_name),
       dealerStatuses: statuses.map(s => s.name)
     });
   } catch (err) {
