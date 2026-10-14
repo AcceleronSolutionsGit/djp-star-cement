@@ -216,8 +216,8 @@ export async function matchAndUpsertCanonicalDealer({
           rawBlock || null, block || null,
           effectiveZone || null, cleanRegion || null,
           soName || null, cleanEmpCode || null,
-          isProspect ? null : (asmName || matchedDealer.asm_name || null),
-          isProspect ? null : (cleanAsmCode || matchedDealer.asm_code || null),
+          asmName || matchedDealer.asm_name || null,
+          cleanAsmCode || matchedDealer.asm_code || null,
           matchStatus, matchMethod, matchConfidence, batchCode, matchedDealer.id
         ]
       );

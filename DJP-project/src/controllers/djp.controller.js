@@ -292,6 +292,18 @@ export async function getDealerVisitTargets(req, res) {
       dbGet(countSql, countParams)
     ]);
 
+    const soMappings = await dbAll(
+      `SELECT so_name, so_emp_code, asm_name, asm_code, area 
+       FROM master_dealer_so_mapping 
+       WHERE asm_name IS NOT NULL AND asm_name != ''`
+    ).catch(() => []);
+    const soAsmMap = new Map();
+    for (const m of soMappings) {
+      if (m.so_emp_code) soAsmMap.set(String(m.so_emp_code).trim(), m.asm_name);
+      if (m.so_name) soAsmMap.set(String(m.so_name).trim().toUpperCase(), m.asm_name);
+      if (m.area) soAsmMap.set(String(m.area).trim().toUpperCase(), m.asm_name);
+    }
+
     const formattedTargets = targets.map(t => {
       const soVisits = parseFloat(t.so_visits) || 0;
       const asmVisits = parseFloat(t.asm_visits) || 0;
@@ -317,8 +329,11 @@ export async function getDealerVisitTargets(req, res) {
         ? parseFloat(t.zh_visits_pct)
         : (totalVisits > 0 ? Math.round((zhVisits / totalVisits) * 10000) / 100 : 0);
 
+      const resolvedAsm = t.asm_name || soAsmMap.get(t.so_emp_code) || soAsmMap.get((t.so_name || '').toUpperCase()) || soAsmMap.get((t.area || '').toUpperCase()) || '';
+
       return {
         ...t,
+        asm_name: resolvedAsm,
         total_visits: totalVisits,
         so_visits_pct: soVisitsPct,
         asm_visits_pct: asmVisitsPct,
@@ -620,10 +635,23 @@ export async function buildMasterWorkbook(uniqueTargets, targetPeriod) {
   });
   headerRow.height = 58;   // the header text wraps to three lines in places
 
+  // Pre-load SO -> ASM mapping so prospects (or rows missing asm_name) always have their ASM populated
+  const soMappings = await dbAll(
+    `SELECT so_name, so_emp_code, asm_name, asm_code, area 
+     FROM master_dealer_so_mapping 
+     WHERE asm_name IS NOT NULL AND asm_name != ''`
+  ).catch(() => []);
+  const soAsmMap = new Map();
+  for (const m of soMappings) {
+    if (m.so_emp_code) soAsmMap.set(String(m.so_emp_code).trim(), m.asm_name);
+    if (m.so_name) soAsmMap.set(String(m.so_name).trim().toUpperCase(), m.asm_name);
+    if (m.area) soAsmMap.set(String(m.area).trim().toUpperCase(), m.asm_name);
+  }
+
   // ── row 5+: data ──────────────────────────────────────────────────────────
   const EDGE = { style: 'thin', color: { argb: 'FFD9D9D9' } };
   uniqueTargets.forEach((t, idx) => {
-    const values = rowToArray(buildRow(t, idx));
+    const values = rowToArray(buildRow(t, idx, soAsmMap));
     const row = ws.getRow(FIRST_DATA_ROW + idx);
     values.forEach((v, i) => {
       const def  = MASTER_COLUMNS[i];
@@ -1126,8 +1154,21 @@ export async function getMasterView(req, res) {
       });
     }
 
+    // Pre-load SO -> ASM mapping so prospects (or rows missing asm_name) always have their ASM populated
+    const soMappings = await dbAll(
+      `SELECT so_name, so_emp_code, asm_name, asm_code, area 
+       FROM master_dealer_so_mapping 
+       WHERE asm_name IS NOT NULL AND asm_name != ''`
+    ).catch(() => []);
+    const soAsmMap = new Map();
+    for (const m of soMappings) {
+      if (m.so_emp_code) soAsmMap.set(String(m.so_emp_code).trim(), m.asm_name);
+      if (m.so_name) soAsmMap.set(String(m.so_name).trim().toUpperCase(), m.asm_name);
+      if (m.area) soAsmMap.set(String(m.area).trim().toUpperCase(), m.asm_name);
+    }
+
     // Build every row first — Sl.No. must number the whole sheet, not the page.
-    const all = dedupeTargets(targets).map((t, i) => buildRow(t, i));
+    const all = dedupeTargets(targets).map((t, i) => buildRow(t, i, soAsmMap));
 
     const q = String(search || '').trim().toLowerCase();
     const filtered = q

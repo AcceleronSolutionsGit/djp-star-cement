@@ -182,7 +182,7 @@ function toDate(v) {
  * workbook carries data rather than pre-formatted strings. Formatting is applied from
  * COLUMNS[].fmt at write time, exactly as the client file does it.
  */
-export function buildRow(t, index) {
+export function buildRow(t, index, soAsmMap = null) {
   const potential = (t.sbg_potential !== null && t.sbg_potential !== undefined)
     ? Number(t.sbg_potential)
     : (t.potential !== null && t.potential !== undefined ? Number(t.potential) : null);
@@ -193,6 +193,14 @@ export function buildRow(t, index) {
   const soName       = s(t.so_name);
   const dealerName   = s(t.dealer_name);
   const hasPotential = potential !== null && potential > 0;
+
+  // Resolve ASM if missing on row (e.g. prospect rows where ASM was historically not populated)
+  let asmName = s(t.asm_name);
+  if (!asmName && soAsmMap) {
+    const soKey = s(t.so_emp_code) || soName.toUpperCase();
+    const areaKey = s(t.dm_area || t.area).toUpperCase();
+    asmName = soAsmMap.get(s(t.so_emp_code)) || soAsmMap.get(soName.toUpperCase()) || soAsmMap.get(areaKey) || '';
+  }
 
   // NON STAR is the master's word for a prospect (see custType). Category is checked
   // too, so a prospect still reads as one if the type column is missing.
@@ -213,7 +221,7 @@ export function buildRow(t, index) {
     zone:            s(t.zone),
     zh_name:         s(t.zh_name),
     rsm_name:        s(t.rsm_name),
-    asm_name:        s(t.asm_name),
+    asm_name:        asmName,
     area:            s(t.dm_area || t.area),
     area_strategy:   '',
     so_name:         soName,

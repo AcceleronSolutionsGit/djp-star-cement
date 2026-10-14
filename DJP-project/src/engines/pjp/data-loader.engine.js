@@ -153,8 +153,10 @@ export async function loadDealersWithMappings(options = {}) {
     let zhCode = d.zh_code;
     let rsmName = d.rsm_name;
     let rsmCode = d.rsm_code;
+    let asmName = d.asm_name;
+    let asmCode = d.asm_code;
 
-    if (isProspect && (!zhName || !rsmName)) {
+    if (isProspect && (!zhName || !rsmName || !asmName)) {
       const h = await resolveProspectHierarchy({
         soEmpCode: d.so_emp_code,
         soName: d.so_name,
@@ -164,12 +166,13 @@ export async function loadDealersWithMappings(options = {}) {
       });
       if (!zhName) { zhName = h.zh_name; zhCode = h.zh_code; }
       if (!rsmName) { rsmName = h.rsm_name; rsmCode = h.rsm_code; }
+      if (!asmName) { asmName = h.asm_name; asmCode = h.asm_code; }
     }
 
     return {
       ...d,
-      asm_name: isProspect ? null : (d.asm_name || null),
-      asm_code: isProspect ? null : (d.asm_code || null),
+      asm_name: asmName || d.asm_name || null,
+      asm_code: asmCode || d.asm_code || null,
       rsm_name: rsmName || null,
       rsm_code: rsmCode || null,
       zh_name: zhName || null,

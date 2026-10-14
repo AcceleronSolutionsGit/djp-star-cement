@@ -587,10 +587,9 @@ async function persistPjpResults(results, reportMonth, cycleCode, generationRunC
     if (processedKeys.has(key)) continue;
     processedKeys.add(key);
 
-    const isProspect = r.cust_type === 'NON STAR' || r.finalCategory === 'Prospective' || r.dealer_type === 'PROSPECTIVE';
-    const finalAsmName = isProspect ? null : (r.asmName || null);
-    const finalAsmCode = isProspect ? null : (r.asmCode || null);
-    const finalAsmVisits = isProspect ? 0 : (r.asmVisits || 0);
+    const finalAsmName = r.asmName || null;
+    const finalAsmCode = r.asmCode || null;
+    const finalAsmVisits = r.asmVisits || 0;
 
     const totalVisits = (r.soVisits || 0) + finalAsmVisits + (r.rsmVisits || 0) + (r.zhVisits || 0);
     const soVisitsPct = totalVisits > 0 ? Math.round((r.soVisits / totalVisits) * 10000) / 100 : 0;

@@ -183,14 +183,14 @@ export async function reconcileUniverse(options = {}) {
     const soCode = m.so_emp_code || d.so_emp_code || null;
     const soName = m.so_name || d.so_name || null;
     const isProspect = d.dealer_type === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED';
-    const asmCode = isProspect ? null : (m.asm_code || d.asm_code || null);
-    const asmName = isProspect ? null : (m.asm_name || d.asm_name || null);
+    let asmCode = m.asm_code || d.asm_code || null;
+    let asmName = m.asm_name || d.asm_name || null;
     let rsmCode = m.rsm_code || d.rsm_code || null;
     let rsmName = m.rsm_name || d.rsm_name || null;
     let zhCode = m.zh_code || d.zh_code || null;
     let zhName = m.zh_name || d.zh_name || null;
 
-    if (isProspect && (!zhName || !rsmName)) {
+    if (isProspect && (!zhName || !rsmName || !asmName)) {
       const h = await resolveProspectHierarchy({
         soEmpCode: soCode,
         soName,
@@ -200,12 +200,11 @@ export async function reconcileUniverse(options = {}) {
       });
       if (!zhName) { zhName = h.zh_name; zhCode = h.zh_code; }
       if (!rsmName) { rsmName = h.rsm_name; rsmCode = h.rsm_code; }
+      if (!asmName) { asmName = h.asm_name; asmCode = h.asm_code; }
     }
 
-    // Check hierarchy completeness (ASM is intentionally not mapped for prospects)
-    const isHierarchyComplete = isProspect
-      ? Boolean(soCode && soName && rsmCode && rsmName && zhCode && zhName)
-      : Boolean(soCode && soName && asmCode && asmName && rsmCode && rsmName && zhCode && zhName);
+    // Check hierarchy completeness
+    const isHierarchyComplete = Boolean(soCode && soName && rsmCode && rsmName && zhCode && zhName);
     if (!isHierarchyComplete) {
       missingHierarchyCount++;
       const missingRoles = isProspect

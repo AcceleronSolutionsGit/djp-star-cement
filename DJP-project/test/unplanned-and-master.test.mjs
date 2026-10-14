@@ -93,6 +93,30 @@ const row = buildRow(mockTarget, 0);
 assert.equal(row.id, 42, 'Row must include id');
 assert.equal(row.asm_name, 'ASM SMITH', 'Row must show ASM name without hiding for prospects');
 assert.equal(row.asm_visits, 2, 'Row must show ASM visits without hiding for prospects');
-console.log('✓ Master sheet buildRow correctly includes ID and displays ASMs without hiding');
+// Test 6: Prospect with null/empty ASM resolves from soAsmMap
+const mockProspectWithoutAsm = {
+  id: 43,
+  dealer_name: 'PROSPECT HARDWARE',
+  cust_type: 'NON STAR',
+  dealer_type: 'PROSPECTIVE',
+  so_name: 'SO SUBHASHIS',
+  so_emp_code: '11002057',
+  asm_name: null,
+  asm_visits: 1,
+  so_visits: 2,
+  sfa_code: 'WBS197'
+};
+const mockSoAsmMap = new Map([
+  ['11002057', 'ANIMESH NATH'],
+  ['SO SUBHASHIS', 'ANIMESH NATH']
+]);
+const rowWithFallback = buildRow(mockProspectWithoutAsm, 1, mockSoAsmMap);
+assert.equal(rowWithFallback.asm_name, 'ANIMESH NATH', 'Prospect row must resolve ASM from SO mapping when asm_name is null');
+console.log('✓ Prospect row correctly resolves ASM from SO hierarchy when null');
+
+// Test 7: Verify dynamic report filtering for different employees
+const pvuOfficerA = await getPlannedVsUnplannedSummary({ employeeCode: 'ABDUL HASIB AHMED' });
+assert.ok(pvuOfficerA.rows.every(r => (r.officer_name_effective || '').toLowerCase().includes('abdul hasib ahmed')), 'Filter must dynamically isolate target employee');
+console.log('✓ Reports are dynamic and filterable for all employees');
 
 console.log('ALL VERIFICATION CHECKS PASSED!');

@@ -141,8 +141,8 @@ export async function importProspectDealers(filePath, batchCode = null) {
     if (!soEmpCode && hierarchy.so_emp_code) soEmpCode = hierarchy.so_emp_code;
     if (!soName && hierarchy.so_name) soName = hierarchy.so_name;
 
-    const asmName = null;
-    const asmCode = null;
+    const asmName = hierarchy.asm_name || null;
+    const asmCode = hierarchy.asm_code || null;
     const rsmName = hierarchy.rsm_name;
     const rsmCode = hierarchy.rsm_code;
     const zhName = hierarchy.zh_name;
@@ -160,8 +160,8 @@ export async function importProspectDealers(filePath, batchCode = null) {
       region: zone,
       soName,
       soEmpCode,
-      asmName: null, // Prospects are not mapped to ASM
-      asmCode: null,
+      asmName,
+      asmCode,
       zhName,
       zhCode,
       rsmName,

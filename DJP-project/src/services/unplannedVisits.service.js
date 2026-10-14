@@ -573,46 +573,51 @@ export async function getUnplannedVisits(opts = {}) {
     console.warn('[UNPLANNED_SERVICE] Database query warning:', err.message);
   }
 
-  // Fallback to verified client reference dataset if DB has no records for this search/period
+  // Fallback to verified client reference dataset ONLY if DB has no visit logs at all
   if (!rows || rows.length === 0) {
-    const ref = getReferenceData().unplanned || [];
-    rows = ref.map((r, idx) => ({
-      id: idx + 1,
-      visit_date: r['Date of Visit'],
-      customer_code: r['Customer Code'],
-      customer_name: r['Customer Name'],
-      customer_type: r['Type'] || 'Dealer',
-      route: r['Route'] || '-',
-      branch: r['Branch'] || '-',
-      employee_code: r['Employee Code'] || '',
-      employee_name: r['Employee Name'] || '',
-      role: r['Role'] || 'SO',
-      check_in_time: r['Check In Time'] || '',
-      check_out_time: r['Check Out Time'] || '',
-      duration: r['Duration'] || '',
-      visit_status: r['Visit Status(Productive / Non productive)'] || 'Productive',
-      purpose_of_visit: r['Purpose Of Visit'] || 'Routine Visit',
-      remarks: r['Remarks'] || '',
-      reason: "Dealer not visited on planned date"
-    }));
+    const totalLogsInDb = await dbGet(`SELECT COUNT(*) as cnt FROM visit_execution_logs`).catch(() => ({ cnt: 0 }));
+    if (!totalLogsInDb || totalLogsInDb.cnt === 0) {
+      const ref = getReferenceData().unplanned || [];
+      rows = ref.map((r, idx) => ({
+        id: idx + 1,
+        visit_date: r['Date of Visit'],
+        customer_code: r['Customer Code'],
+        customer_name: r['Customer Name'],
+        customer_type: r['Type'] || 'Dealer',
+        route: r['Route'] || '-',
+        branch: r['Branch'] || '-',
+        employee_code: r['Employee Code'] || '',
+        employee_name: r['Employee Name'] || '',
+        role: r['Role'] || 'SO',
+        check_in_time: r['Check In Time'] || '',
+        check_out_time: r['Check Out Time'] || '',
+        duration: r['Duration'] || '',
+        visit_status: r['Visit Status(Productive / Non productive)'] || 'Productive',
+        purpose_of_visit: r['Purpose Of Visit'] || 'Routine Visit',
+        remarks: r['Remarks'] || '',
+        reason: "Dealer not visited on planned date"
+      }));
 
-    if (employeeCode && employeeCode !== 'ALL') {
-      const q = employeeCode.toLowerCase();
-      rows = rows.filter(r => (r.employee_code || '').toLowerCase().includes(q) || (r.employee_name || '').toLowerCase().includes(q));
-    }
-    if (role && role !== 'ALL') {
-      rows = rows.filter(r => (r.role || '').toUpperCase() === role.toUpperCase());
-    }
-    if (search) {
-      const q = search.toLowerCase();
-      rows = rows.filter(r => 
-        (r.customer_name || '').toLowerCase().includes(q) ||
-        (r.customer_code || '').toLowerCase().includes(q) ||
-        (r.employee_name || '').toLowerCase().includes(q) ||
-        (r.employee_code || '').toLowerCase().includes(q) ||
-        (r.branch || '').toLowerCase().includes(q) ||
-        (r.route || '').toLowerCase().includes(q)
-      );
+      if (employeeCode && employeeCode !== 'ALL') {
+        const q = employeeCode.toLowerCase();
+        rows = rows.filter(r => (r.employee_code || '').toLowerCase().includes(q) || (r.employee_name || '').toLowerCase().includes(q));
+      }
+      if (role && role !== 'ALL') {
+        rows = rows.filter(r => (r.role || '').toUpperCase() === role.toUpperCase());
+      }
+      if (search) {
+        const q = search.toLowerCase();
+        rows = rows.filter(r => 
+          (r.customer_name || '').toLowerCase().includes(q) ||
+          (r.customer_code || '').toLowerCase().includes(q) ||
+          (r.employee_name || '').toLowerCase().includes(q) ||
+          (r.employee_code || '').toLowerCase().includes(q) ||
+          (r.branch || '').toLowerCase().includes(q) ||
+          (r.route || '').toLowerCase().includes(q)
+        );
+      }
+    } else {
+      rows = [];
     }
   }
 
@@ -659,8 +664,14 @@ export async function getConsolidatedVisits(opts = {}) {
   try {
     let sql = `
       SELECT 
+        dvt.id,
         dvt.period_month,
-        COALESCE(dvt.so_name, dvt.asm_name, dvt.rsm_name, dvt.zh_name) as officer_name,
+        dvt.cycle_code,
+        COALESCE(NULLIF(TRIM(dvt.so_name), ''), NULLIF(TRIM(dvt.asm_name), ''), NULLIF(TRIM(dvt.rsm_name), ''), dvt.zh_name) as officer_name,
+        dvt.so_name,
+        dvt.so_emp_code,
+        dvt.asm_name,
+        dvt.asm_code,
         CASE 
           WHEN dvt.so_name IS NOT NULL AND dvt.so_name != '' THEN 'SO'
           WHEN dvt.asm_name IS NOT NULL AND dvt.asm_name != '' THEN 'ASM'
@@ -671,6 +682,8 @@ export async function getConsolidatedVisits(opts = {}) {
         COALESCE(dvt.zone, 'NE 1') as zone,
         COALESCE(dvt.branch, dvt.area, '-') as branch,
         COALESCE(dvt.sap_code, dvt.sfa_code) as customer_code,
+        dvt.sap_code,
+        dvt.sfa_code,
         dvt.dealer_name as customer_name,
         COALESCE(dvt.so_visits, dvt.asm_visits, 0) as planned_visits
       FROM dealer_visit_targets dvt
@@ -681,17 +694,94 @@ export async function getConsolidatedVisits(opts = {}) {
       sql += ' AND dvt.period_month = ?';
       params.push(periodMonth);
     }
-    sql += ' ORDER BY dvt.zone, dvt.branch, dvt.dealer_name ASC LIMIT 5000';
+    sql += ' ORDER BY dvt.zone, dvt.branch, dvt.dealer_name ASC LIMIT 10000';
     const dbTargets = await dbAll(sql, params).catch(() => []);
 
     if (dbTargets && dbTargets.length > 0) {
+      // 2. Fetch scheduled visit dates from sales_plan_details
+      let planDatesSql = `
+        SELECT spd.visit_date, spd.dealer_sap_code, sp.emp_code, sp.emp_name
+        FROM sales_plan_details spd
+        JOIN sales_plans sp ON sp.id = spd.plan_id
+        WHERE 1=1
+      `;
+      const planParams = [];
+      if (periodMonth) {
+        planDatesSql += ' AND sp.period_month = ?';
+        planParams.push(periodMonth);
+      }
+      const planRows = await dbAll(planDatesSql, planParams).catch(() => []);
+      const scheduledMap = new Map(); // "emp|dealer" -> Set of dates
+      for (const p of planRows) {
+        const dCode = key(p.dealer_sap_code);
+        for (const empKey of [key(p.emp_code), key(p.emp_name)]) {
+          if (!empKey || !dCode) continue;
+          const k = `${empKey}|${dCode}`;
+          if (!scheduledMap.has(k)) scheduledMap.set(k, new Set());
+          scheduledMap.get(k).add(String(p.visit_date).slice(0, 10));
+        }
+      }
+
+      // 3. Fetch actual visits from visit_execution_logs
+      let logsSql = `
+        SELECT employee_code, employee_name, customer_code, customer_name, visit_date, is_unplanned
+        FROM visit_execution_logs
+        WHERE 1=1
+      `;
+      const logsParams = [];
+      if (periodMonth) {
+        logsSql += ' AND visit_date LIKE ?';
+        logsParams.push(`${periodMonth}%`);
+      }
+      const logRows = await dbAll(logsSql, logsParams).catch(() => []);
+      const actualVisitsMap = new Map(); // "emp|dealer" -> array of { date, is_unplanned }
+      for (const l of logRows) {
+        const cCode = key(l.customer_code);
+        const vDate = String(l.visit_date).slice(0, 10);
+        for (const empKey of [key(l.employee_code), key(l.employee_name)]) {
+          if (!empKey || !cCode) continue;
+          const k = `${empKey}|${cCode}`;
+          if (!actualVisitsMap.has(k)) actualVisitsMap.set(k, []);
+          actualVisitsMap.get(k).push({ date: vDate, is_unplanned: l.is_unplanned });
+        }
+      }
+
       rawList = dbTargets.map(t => {
         const planned = Math.round(t.planned_visits || 0);
-        const adhered = 0; // live logs could be joined if available
-        const unplanned = planned === 0 && adhered > 0 ? adhered : 0;
+        const officer = t.officer_name || t.so_name || t.asm_name || 'Officer';
+        const cCode = t.customer_code || t.sap_code || t.sfa_code || 'CODE';
+        const sap = key(t.sap_code);
+        const sfa = key(t.sfa_code);
+        const empCode = key(t.so_emp_code || t.asm_code);
+        const empName = key(officer);
+
+        const visitList = actualVisitsMap.get(`${empCode}|${sap}`)
+          || actualVisitsMap.get(`${empName}|${sap}`)
+          || actualVisitsMap.get(`${empCode}|${sfa}`)
+          || actualVisitsMap.get(`${empName}|${sfa}`)
+          || [];
+
+        const scheduledDates = scheduledMap.get(`${empCode}|${sap}`)
+          || scheduledMap.get(`${empName}|${sap}`)
+          || scheduledMap.get(`${empCode}|${sfa}`)
+          || scheduledMap.get(`${empName}|${sfa}`)
+          || new Set();
+
+        let adhered = 0;
+        let unplanned = 0;
+
+        for (const v of visitList) {
+          if (scheduledDates.size > 0) {
+            if (scheduledDates.has(v.date)) adhered++;
+            else unplanned++;
+          } else {
+            if (planned > 0 && adhered < planned) adhered++;
+            else unplanned++;
+          }
+        }
+
         const pct = planned > 0 ? Math.round((adhered / planned) * 100) + '%' : '0%';
-        const officer = t.officer_name || 'Officer';
-        const cCode = t.customer_code || 'CODE';
+
         return {
           month: formatMonthTag(t.period_month || periodMonth),
           officer_name: officer,
@@ -710,10 +800,10 @@ export async function getConsolidatedVisits(opts = {}) {
       });
     }
   } catch (err) {
-    console.warn('[UNPLANNED_SERVICE] Live consolidated query warning:', err.message);
+    console.warn('[UNPLANNED_SERVICE] Live dynamic consolidated query error:', err.message);
   }
 
-  // Fallback to verified client reference dataset
+  // Fallback to verified client reference dataset ONLY if DB has zero targets for this period
   if (!rawList || rawList.length === 0) {
     const ref = getReferenceData().consolidated || [];
     rawList = ref.map(r => ({
@@ -789,24 +879,9 @@ export async function getPlannedVsUnplannedSummary(opts = {}) {
 
   let rawList = [];
 
-  // Check reference data first as base pivot
-  const refPvu = getReferenceData().plannedVsUnplanned || [];
-  if (refPvu.length > 0) {
-    rawList = refPvu.map(r => ({
-      officer_name: r.officer_name,
-      officer_name_effective: r.officer_name_effective,
-      role: r.role,
-      role_effective: r.role_effective,
-      category: r.category,
-      planned_visits: r.planned_visits,
-      adhered_visits: r.adhered_visits,
-      adherence_pct: r.adhered_pct,
-      unplanned_visits: r.unplanned_visits,
-      total_planned_unplanned: r.total_planned_unplanned
-    }));
-  } else {
-    // Dynamically aggregate from consolidated visits
-    const consResult = await getConsolidatedVisits({ periodMonth, limit: 10000 });
+  // 1. First dynamically aggregate from live consolidated visits
+  const consResult = await getConsolidatedVisits({ periodMonth, limit: 50000 });
+  if (consResult.rows && consResult.rows.length > 0) {
     const groups = new Map();
 
     for (const r of consResult.rows) {
@@ -847,6 +922,23 @@ export async function getPlannedVsUnplannedSummary(opts = {}) {
         total_planned_unplanned: g.adhered_visits + g.unplanned_visits
       };
     });
+  }
+
+  // 2. Fallback to reference data ONLY if dynamic aggregation produced zero rows
+  if (!rawList || rawList.length === 0) {
+    const refPvu = getReferenceData().plannedVsUnplanned || [];
+    rawList = refPvu.map(r => ({
+      officer_name: r.officer_name,
+      officer_name_effective: r.officer_name_effective,
+      role: r.role,
+      role_effective: r.role_effective,
+      category: r.category,
+      planned_visits: r.planned_visits,
+      adhered_visits: r.adhered_visits,
+      adherence_pct: r.adhered_pct,
+      unplanned_visits: r.unplanned_visits,
+      total_planned_unplanned: r.total_planned_unplanned
+    }));
   }
 
   // Apply filters
