@@ -199,4 +199,3 @@ export async function resolveProspectHierarchy({ soEmpCode, soName, area, zone, 
     method: 'EMPLOYEE_FALLBACK'
   };
 }
-}
