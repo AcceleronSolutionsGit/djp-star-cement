@@ -37,124 +37,217 @@ export async function importDealerPerformance(filePath, batchCode = null) {
   const sourceFileName = path.basename(filePath);
   const workbook = XLSX.readFile(filePath, { cellDates: true });
 
-  let selectedSheetName = null;
-  let headerRowIdx = -1;
-  let headers = [];
-  let rawRows = [];
+  /**
+   * Dynamically detect reference year from headers (target column, dates, or year patterns).
+   * Ensures future years (2026, 2027, etc.) and prior-year relative terms scale automatically.
+   */
+  function extractReferenceYear(rawHeaderRow) {
+    if (!rawHeaderRow || !Array.isArray(rawHeaderRow)) return new Date().getFullYear();
+
+    // 1. Look for explicit target column year first (the reporting target year is the primary reference)
+    for (const cell of rawHeaderRow) {
+      if (!cell) continue;
+      const s = String(cell).trim();
+      if (/\b(tgt|target)\b/i.test(s) && !/prorata/i.test(s)) {
+        const ym = parseMonthKey(s.replace(/\b(tgt|target|sale|sales|dealer)\b/gi, '').trim());
+        if (ym) {
+          const y = parseInt(ym.slice(0, 4), 10);
+          if (y >= 2020 && y <= 2035) return y;
+        }
+      }
+    }
+
+    // 2. Scan for 4-digit years (2020-2035) and 2-digit years across all headers
+    const detectedYears = [];
+    for (const cell of rawHeaderRow) {
+      if (!cell) continue;
+      const s = String(cell).trim();
+      const m4 = s.match(/\b(20[2-3]\d)\b/);
+      if (m4) {
+        detectedYears.push(parseInt(m4[1], 10));
+      }
+      const m2 = s.match(/['\-\/\s](2[0-9]|3[0-5])\b/);
+      if (m2) {
+        detectedYears.push(2000 + parseInt(m2[1], 10));
+      }
+    }
+
+    if (detectedYears.length > 0) {
+      return Math.max(...detectedYears);
+    }
+
+    return new Date().getFullYear();
+  }
+
+  function evaluateCandidate(rawHeaderRow) {
+    const normalized = rawHeaderRow.map(normalizeHeader);
+    const sapIdx = normalized.findIndex(h => h === 'sap' || h === 'sap code' || h === 'customer code');
+    const sfaIdx = normalized.findIndex(h => h === 'dealer code' || h === 'code' || h === 'sfa code');
+    const codeIdx = sapIdx !== -1 ? sapIdx : sfaIdx;
+    const nameIdx = normalized.findIndex(h => h === 'dealers name' || h === 'dealer name' || h === 'customer name' || h === 'account name');
+    const areaIdx = normalized.findIndex(h => h === 'area' || h === 'branch');
+    const regionIdx = normalized.findIndex(h => h === 'region' || h === 'zone');
+    const doaIdx = normalized.findIndex(h =>
+      h === 'doa' ||
+      h === 'date of activation' ||
+      h === 'activation date' ||
+      h === 'dealer start date' ||
+      h.startsWith('doa') ||
+      h.includes('date of activation') ||
+      h.includes('activation')
+    );
+
+    if (codeIdx === -1 && nameIdx === -1) {
+      return null;
+    }
+
+    const refYear = extractReferenceYear(rawHeaderRow);
+    const monthMap = [];
+    let targetColIdx = -1;
+    let targetYM = null;
+    let prorataColIdx = -1;
+
+    for (let c = 0; c < normalized.length; c++) {
+      const h = normalized[c];
+      if (c === codeIdx || c === nameIdx || c === sfaIdx) continue;
+
+      const isProrata = /prorata/i.test(h);
+      const isTarget = /\b(tgt|target)\b/i.test(h) && !isProrata;
+
+      if (isTarget && targetColIdx === -1) {
+        targetColIdx = c;
+        const rawHeader = String(rawHeaderRow[c] || '');
+        const cleaned = rawHeader.replace(/\b(tgt|target|prorata|sale|dealer)\b/gi, '').trim();
+        targetYM = parseMonthKey(cleaned, refYear);
+        continue;
+      } else if (isProrata && prorataColIdx === -1) {
+        prorataColIdx = c;
+        continue;
+      }
+
+      const parsedYM = parseMonthKey(rawHeaderRow[c], refYear);
+      if (parsedYM) {
+        monthMap.push({ colIdx: c, periodYM: parsedYM });
+      }
+    }
+
+    return {
+      codeIdx,
+      sapIdx,
+      sfaIdx,
+      nameIdx,
+      areaIdx,
+      regionIdx,
+      doaIdx,
+      targetColIdx,
+      targetYM,
+      prorataColIdx,
+      monthMap,
+      headers: normalized
+    };
+  }
+
+  let bestCandidate = null;
+  const sheetScanDiagnostics = [];
 
   for (const sName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sName];
+    if (!sheet) continue;
     fixSheetRef(sheet);
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
     if (!rows || rows.length < 2) continue;
 
     for (let i = 0; i < Math.min(20, rows.length); i++) {
       const row = rows[i];
-      if (!row) continue;
-      const normalized = row.map(normalizeHeader);
-      if (
-        normalized.some(h => h === 'customer code' || h === 'dealer name' || h === 'dealers name' || h === 'sap code' || h === 'sap' || h === 'account name') &&
-        normalized.some(h => h.includes('2') || h.includes('prev year') || h.includes('sales') || h.includes('sale') || h.includes('tgt') || h.includes('target') || h === 'doa' || h.includes('activation') || /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/.test(h))
-      ) {
-        selectedSheetName = sName;
-        headerRowIdx = i;
-        headers = normalized;
-        rawRows = rows;
-        break;
+      if (!row || row.every(c => c === null || c === undefined || String(c).trim() === '')) continue;
+
+      // 1. Single row candidate
+      const cand1 = evaluateCandidate(row);
+      if (cand1) {
+        let score = cand1.monthMap.length * 200 + rows.length;
+        if (/performance|dlrwise|sales|dealer|all/i.test(sName)) score += 50;
+        if (cand1.codeIdx !== -1 && cand1.nameIdx !== -1) score += 30;
+        if (cand1.targetColIdx !== -1) score += 20;
+
+        if (cand1.monthMap.length > 0) {
+          if (!bestCandidate || score > bestCandidate.score) {
+            bestCandidate = {
+              score,
+              sheetName: sName,
+              headerRowIdx: i,
+              isMultiRow: false,
+              rawHeaderRow: row,
+              rawRows: rows,
+              ...cand1
+            };
+          }
+        } else {
+          sheetScanDiagnostics.push(`Sheet "${sName}" row ${i}: found ${row.length} columns (codeIdx=${cand1.codeIdx}, nameIdx=${cand1.nameIdx}), but 0 monthly columns.`);
+        }
+      }
+
+      // 2. Combined two-row header candidate (for split or merged headers across rows i and i+1)
+      if (i + 1 < rows.length) {
+        const nextRow = rows[i + 1] || [];
+        const maxLen = Math.max(row.length, nextRow.length);
+        const combinedRow = [];
+        for (let c = 0; c < maxLen; c++) {
+          const top = row[c] !== null && row[c] !== undefined ? String(row[c]).trim() : '';
+          const btm = nextRow[c] !== null && nextRow[c] !== undefined ? String(nextRow[c]).trim() : '';
+          combinedRow.push(top && btm ? `${top} ${btm}` : (top || btm));
+        }
+
+        const cand2 = evaluateCandidate(combinedRow);
+        if (cand2 && cand2.monthMap.length > 0) {
+          let score = cand2.monthMap.length * 200 + rows.length;
+          if (/performance|dlrwise|sales|dealer|all/i.test(sName)) score += 50;
+          if (cand2.codeIdx !== -1 && cand2.nameIdx !== -1) score += 30;
+          if (cand2.targetColIdx !== -1) score += 20;
+
+          // Only prefer multi-row header if it found strictly more months or cand1 had none
+          if (!bestCandidate || score > bestCandidate.score) {
+            bestCandidate = {
+              score,
+              sheetName: sName,
+              headerRowIdx: i,
+              isMultiRow: true,
+              rawHeaderRow: combinedRow,
+              rawRows: rows,
+              ...cand2
+            };
+          }
+        }
       }
     }
-    if (headerRowIdx !== -1) break;
   }
 
-  if (headerRowIdx === -1) {
-    throw new Error(`[DEALER_PERFORMANCE] Could not find valid header row in: ${sourceFileName}`);
+  if (!bestCandidate || bestCandidate.monthMap.length === 0) {
+    console.error(`[DEALER_PERFORMANCE] Sheet scan diagnostics:\n${sheetScanDiagnostics.join('\n')}`);
+    throw new Error(`[DEALER_PERFORMANCE] No monthly columns found in any sheet of: ${sourceFileName}. Scanned sheets: [${workbook.SheetNames.join(', ')}]. Expected columns like Jan-26, Feb-26, Sep'26 SALE, etc. Check header rows in the workbook.`);
   }
 
-  console.log(`[DEALER_PERFORMANCE] Using sheet: ${selectedSheetName}, header row: ${headerRowIdx}`);
+  const selectedSheetName = bestCandidate.sheetName;
+  const headerRowIdx = bestCandidate.headerRowIdx;
+  const headers = bestCandidate.headers;
+  const rawRows = bestCandidate.rawRows;
+  const sapIdx = bestCandidate.sapIdx;
+  const sfaIdx = bestCandidate.sfaIdx;
+  const codeIdx = bestCandidate.codeIdx;
+  const nameIdx = bestCandidate.nameIdx;
+  const areaIdx = bestCandidate.areaIdx;
+  const regionIdx = bestCandidate.regionIdx;
+  const doaIdx = bestCandidate.doaIdx;
+  const targetColIdx = bestCandidate.targetColIdx;
+  const targetYM = bestCandidate.targetYM;
+  const prorataColIdx = bestCandidate.prorataColIdx;
+  const monthMap = bestCandidate.monthMap;
 
-  // Map header columns — prefer explicit SAP column over SFA/generic code
-  const sapIdx = headers.findIndex(h => h === 'sap' || h === 'sap code' || h === 'customer code');
-  const sfaIdx = headers.findIndex(h => h === 'dealer code' || h === 'code' || h === 'sfa code');
-  const codeIdx = sapIdx !== -1 ? sapIdx : sfaIdx;
-  const nameIdx = headers.findIndex(h => h === 'dealers name' || h === 'dealer name' || h === 'customer name' || h === 'account name');
-  const areaIdx = headers.findIndex(h => h === 'area' || h === 'branch');
-  const regionIdx = headers.findIndex(h => h === 'region' || h === 'zone');
-  const doaIdx = headers.findIndex(h =>
-    h === 'doa' ||
-    h === 'date of activation' ||
-    h === 'activation date' ||
-    h === 'dealer start date' ||
-    h.startsWith('doa') ||
-    h.includes('date of activation') ||
-    h.includes('activation')
-  );
-
-  // Identify monthly columns dynamically
-  const monthMap = []; // Array of { colIdx, periodYM }
-  const prevMonthNames = {
-    'prev year jan': '2025-01',
-    'prev year feb': '2025-02',
-    'prev year mar': '2025-03',
-    'prev year apr': '2025-04',
-    'prev year may': '2025-05',
-    'prev year jun': '2025-06',
-    'prev year jul': '2025-07',
-    'prev year aug': '2025-08',
-    'prev year sep': '2025-09',
-    'prev year oct': '2025-10',
-    'prev year nov': '2025-11',
-    'prev year dec': '2025-12'
-  };
-
-  // Identify target and prorata target columns dynamically
-  let targetColIdx = -1;
-  let targetYM = null;
-  let prorataColIdx = -1;
-
-  for (let c = 0; c < headers.length; c++) {
-    const h = headers[c];
-    if (c === codeIdx || c === nameIdx || c === sfaIdx) continue;
-
-    const isProrata = /prorata/i.test(h);
-    const isTarget = /\b(tgt|target)\b/i.test(h) && !isProrata;
-
-    if (isTarget && targetColIdx === -1) {
-      targetColIdx = c;
-      const rawHeader = String(rawRows[headerRowIdx][c] || '');
-      const cleaned = rawHeader.replace(/\b(tgt|target|prorata|sale|dealer)\b/gi, '').trim();
-      targetYM = parseMonthKey(cleaned);
-      continue;
-    } else if (isProrata && prorataColIdx === -1) {
-      prorataColIdx = c;
-      continue;
-    }
-
-    if (prevMonthNames[h]) {
-      monthMap.push({ colIdx: c, periodYM: prevMonthNames[h] });
-      continue;
-    }
-
-    const parsedYM = parseMonthKey(rawRows[headerRowIdx][c]);
-    if (parsedYM) {
-      monthMap.push({ colIdx: c, periodYM: parsedYM });
-    }
-  }
+  console.log(`[DEALER_PERFORMANCE] Using sheet: "${selectedSheetName}", header row: ${headerRowIdx} (found ${monthMap.length} monthly columns)`);
 
   const latestPeriodInMap = monthMap.length > 0 
     ? [...monthMap].sort((a, b) => b.periodYM.localeCompare(a.periodYM))[0].periodYM 
     : null;
 
-  if (monthMap.length === 0) {
-    // Diagnostic: show what headers were found and why none parsed as months
-    const headerDiag = headers.map((h, c) => {
-      const raw = String(rawRows[headerRowIdx][c] || '');
-      const parsed = parseMonthKey(raw);
-      const skipped = (c === codeIdx || c === nameIdx || c === sfaIdx) ? ' [SKIPPED:id-col]' : '';
-      return `  [${c}] raw=${JSON.stringify(raw)} normalized=${JSON.stringify(h)} parsed=${JSON.stringify(parsed)}${skipped}`;
-    }).join('\n');
-    console.error(`[DEALER_PERFORMANCE] Header diagnostics:\n${headerDiag}`);
-    throw new Error(`[DEALER_PERFORMANCE] No monthly columns found. Expected columns like Jan-26, Feb-26, Sep'26 SALE, etc. Found ${headers.length} columns but none parsed as month-year. Check header row ${headerRowIdx} in sheet "${selectedSheetName}".`);
-  }
 
   let rowsRead = 0;
   let recordsInserted = 0;
@@ -229,7 +322,10 @@ export async function importDealerPerformance(filePath, batchCode = null) {
     recordsToInsert.length = 0;
   };
 
-  for (let i = headerRowIdx + 1; i < rawRows.length; i++) {
+  const dataStartRow = bestCandidate.isMultiRow ? headerRowIdx + 2 : headerRowIdx + 1;
+  const rawHeaderRow = bestCandidate.rawHeaderRow;
+
+  for (let i = dataStartRow; i < rawRows.length; i++) {
     const row = rawRows[i];
     if (!row || row.every(c => c === null || c === undefined || String(c).trim() === '')) continue;
     rowsRead++;
@@ -283,13 +379,6 @@ export async function importDealerPerformance(filePath, batchCode = null) {
     // The DLRWISE export names some months twice — "Jun'26 SALE" as the headline figure
     // and "Jun-26 SALE" as the last cell of the monthly series. Both parse to the same
     // period, so one of them has to win.
-    //
-    // This used to keep the LARGER of the two silently, which meant editing the smaller
-    // column had no effect at all: a figure corrected downwards in one place was simply
-    // ignored, with nothing on screen to say so. The later column now wins — the monthly
-    // series is the canonical run of months — and a disagreement is reported as a
-    // warning naming the dealer, the two column headers and the two values, so a
-    // half-edited sheet is visible instead of silent.
     const seenHeader = new Map();
     for (const { colIdx, periodYM } of monthMap) {
       const val = row[colIdx];
@@ -301,7 +390,7 @@ export async function importDealerPerformance(filePath, batchCode = null) {
         const prev = seenInRow.get(periodYM);
         if (Math.abs(prev - quantity) > 1e-9) {
           const prevHeader = seenHeader.get(periodYM);
-          const thisHeader = String(rawRows[headerRowIdx][colIdx] ?? `column ${colIdx + 1}`);
+          const thisHeader = String(rawHeaderRow[colIdx] ?? `column ${colIdx + 1}`);
           warnings.push(
             `${dealerName || sapCode || 'row ' + rowsRead}: ${periodYM} appears twice with different values — ` +
             `"${prevHeader}" = ${prev}, "${thisHeader}" = ${quantity}. Using ${quantity} (the later column). ` +
@@ -310,7 +399,7 @@ export async function importDealerPerformance(filePath, batchCode = null) {
         }
       }
       seenInRow.set(periodYM, quantity);
-      seenHeader.set(periodYM, String(rawRows[headerRowIdx][colIdx] ?? `column ${colIdx + 1}`));
+      seenHeader.set(periodYM, String(rawHeaderRow[colIdx] ?? `column ${colIdx + 1}`));
     }
 
     // If targetYM is defined or latestPeriodInMap is available, make sure target period exists in seenInRow even if sale wasn't entered

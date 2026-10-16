@@ -144,7 +144,22 @@ router.post('/plans/visits/unplanned/:requestId/approve', approveUnplannedVisit)
 router.get('/plans/visits/unplanned', getUnplannedVisitRequests);
 
 // Upload APIs
-router.post('/uploads/file', authMiddleware, uploadMiddleware.single('file'), uploadFile);
+const handleFileUpload = (req, res, next) => {
+  uploadMiddleware.single('file')(req, res, (err) => {
+    if (err) {
+      console.error('[Upload Middleware Error]', err.message);
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({
+          error: 'File size exceeds maximum allowed limit (100MB). Please reduce file size or contact system admin.'
+        });
+      }
+      return res.status(400).json({ error: err.message || 'File upload failed' });
+    }
+    next();
+  });
+};
+
+router.post('/uploads/file', authMiddleware, handleFileUpload, uploadFile);
 router.post('/uploads/process', authMiddleware, processUpload);
 router.get('/admin/batches', getUploadBatches);
 router.delete('/admin/batches/:batchCode', authMiddleware, deleteUploadBatch);

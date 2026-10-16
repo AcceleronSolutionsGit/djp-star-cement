@@ -39,10 +39,19 @@ async function readJson(res, fallbackMessage) {
   try {
     data = JSON.parse(text);
   } catch {
+    if (res.status === 413 || /413 Request Entity Too Large/i.test(text)) {
+      throw new Error(`File is too large for the web server (HTTP 413 Request Entity Too Large). Nginx client_max_body_size must be configured (e.g. client_max_body_size 100M; in /etc/nginx/nginx.conf).`);
+    }
+    if (res.status === 504 || /504 Gateway Time-out/i.test(text)) {
+      throw new Error(`The server timed out while processing this large file (HTTP 504 Gateway Time-out). The upload may still be processing in the background — check Ingestion History in a minute.`);
+    }
+    if (res.status === 502 || /502 Bad Gateway/i.test(text)) {
+      throw new Error(`The backend server is temporarily unavailable (HTTP 502 Bad Gateway). Please ensure the Node service is running and try again.`);
+    }
     const looksLikeHtml = /^\s*</.test(text);
     throw new Error(
       looksLikeHtml
-        ? `The server returned a web page instead of data (HTTP ${res.status}). That usually means the request timed out or the API is not reachable through the dev proxy. The job may still be running — check the server console.`
+        ? `The server returned an HTML error page (HTTP ${res.status}). That usually means the file size exceeds web server/proxy limits (413) or the request timed out (504).`
         : `${fallbackMessage} (HTTP ${res.status}): ${text.slice(0, 200)}`
     );
   }
@@ -161,9 +170,7 @@ export const api = {
       method: 'POST',
       body: formData
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'File upload failed');
-    return data;
+    return readJson(res, 'File upload failed');
   },
 
   getReconciliation: async (periodMonth = '2026-06', cycleCode = 'C1') => {

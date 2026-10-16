@@ -36,8 +36,8 @@ const rawBasePath = process.env.BASE_PATH || process.env.APP_BASE_PATH || '';
 const basePath = rawBasePath ? (rawBasePath.startsWith('/') ? rawBasePath : `/${rawBasePath}`).replace(/\/$/, '') : '';
 
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 // Serve static admin panel UI
 const adminPath = path.resolve(__dirname, '../admin-panel');
@@ -72,6 +72,19 @@ if (basePath) {
   });
   app.use(`${basePath}/api`, apiRoutes);
 }
+
+// Global JSON error handler — ensures API responses are ALWAYS valid JSON and never HTML stack traces
+app.use((err, req, res, next) => {
+  console.error('[Global Error Handler]', err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  const status = err.status || err.statusCode || (err.code === 'LIMIT_FILE_SIZE' ? 413 : 500);
+  res.status(status).json({
+    error: err.message || 'Internal server error',
+    code: err.code || 'INTERNAL_ERROR'
+  });
+});
 
 // Run startup migrations then start server
 runStartupMigrations().then(() => {

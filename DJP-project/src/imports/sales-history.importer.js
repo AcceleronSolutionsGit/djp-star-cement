@@ -4,19 +4,19 @@ import { logMatchingAudit } from '../engines/canonical-matching.engine.js';
 import { normalizeCode } from '../engines/normalization.engine.js';
 import path from 'path';
 
-const MONTH_ABBREV = {
+export const MONTH_ABBREV = {
   jan: '01', feb: '02', mar: '03', apr: '04',
   may: '05', jun: '06', jul: '07', aug: '08',
   sep: '09', oct: '10', nov: '11', dec: '12'
 };
 
-const MONTH_FULL = {
+export const MONTH_FULL = {
   january: '01', february: '02', march: '03', april: '04',
   may: '05', june: '06', july: '07', august: '08',
   september: '09', october: '10', november: '11', december: '12'
 };
 
-export function parseMonthKey(key) {
+export function parseMonthKey(key, referenceYear = null) {
   if (!key) return null;
 
   // 1. JS Date object
@@ -38,6 +38,11 @@ export function parseMonthKey(key) {
   if (
     /%|\b(tgt|target|prorata|shortfall|achv|achievement|varience|variance|growth|avg|average|vs|var|diff|difference|percent|percentage|mtd|ytd|ftd|\d+d)\b/i.test(s)
   ) {
+    return null;
+  }
+
+  // Exclude dealer count/status columns like "Aug'26 DEALER" or "Targeted Dealer" that do not represent sales volume
+  if (/\b(dealer|dealers|dlr)\b/i.test(s) && !/\b(sale|sales|qty|quantity|vol|volume|mt|mts|act|actual)\b/i.test(s)) {
     return null;
   }
 
@@ -73,6 +78,20 @@ export function parseMonthKey(key) {
     .replace(/[()[\]{}]/g, ' ')
     .replace(/\s*\b(sales|sale|qty|quantity|vol|volume|mt|mts|dealer|dlr|actual|actuals|act)\b/gi, '')
     .trim();
+
+  // Dynamic previous year month expressions: "Prev Year Jan", "LY Sep", "Last Year-Aug", "Jan (Prev Year)", "PY Mar"
+  const prevYrMatch = cleaned.match(/\b(prev(?:ious)?\s*(?:year|yr)?|last\s*year|ly|py)\s*[-_/ ]*([a-z]{3,9})\b/i) ||
+                      cleaned.match(/\b([a-z]{3,9})\s*[-_/ ]*(prev(?:ious)?\s*(?:year|yr)?|last\s*year|ly|py)\b/i);
+  if (prevYrMatch) {
+    const monthPart = (prevYrMatch[1].length >= 3 && !/prev|last|ly|py/i.test(prevYrMatch[1]) ? prevYrMatch[1] : prevYrMatch[2]).toLowerCase().slice(0, 3);
+    const mm = MONTH_ABBREV[monthPart] || MONTH_FULL[monthPart];
+    if (mm) {
+      let baseYear = referenceYear ? parseInt(referenceYear, 10) : new Date().getFullYear();
+      if (baseYear < 100) baseYear += 2000;
+      const y = baseYear - 1;
+      return `${y}-${mm}`;
+    }
+  }
 
   // 4. String month abbreviations like Apr-24, April-2024, Apr 2024, June26
   const abbrev = cleaned.match(/^([A-Za-z]{3,9})[-_/ ]?(\d{2,4})$/);
@@ -110,6 +129,19 @@ export function parseMonthKey(key) {
       const y = date.getUTCFullYear();
       const m = String(date.getUTCMonth() + 1).padStart(2, '0');
       return `${y}-${m}`;
+    }
+  }
+
+  // 8. Solo month name fallback when referenceYear is provided (e.g. "Sep" with referenceYear 2026 => "2026-09")
+  if (referenceYear) {
+    const soloMonth = cleaned.toLowerCase().replace(/[^a-z]/g, '');
+    if (soloMonth.length >= 3) {
+      const mm = MONTH_ABBREV[soloMonth.slice(0, 3)] || MONTH_FULL[soloMonth];
+      if (mm) {
+        let baseYear = parseInt(referenceYear, 10);
+        if (baseYear < 100) baseYear += 2000;
+        return `${baseYear}-${mm}`;
+      }
     }
   }
 
