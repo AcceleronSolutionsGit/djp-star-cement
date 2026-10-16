@@ -21,7 +21,14 @@ import path from 'path';
 
 function normalizeHeader(h) {
   if (!h) return '';
-  return String(h).trim().toLowerCase().replace(/[\r\n]+/g, ' ').replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ');
+  return String(h)
+    .replace(/[\u00A0\u1680\u2000-\u200B\u202F\u205F\u3000\uFEFF]/g, ' ')
+    .replace(/[\u2011\u2012\u2013\u2014\u2015\u2212\uFE63\uFF0D]/g, '-')
+    .trim()
+    .toLowerCase()
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/[_\-]+/g, ' ')
+    .replace(/\s+/g, ' ');
 }
 
 export async function importDealerPerformance(filePath, batchCode = null) {
@@ -47,7 +54,7 @@ export async function importDealerPerformance(filePath, batchCode = null) {
       const normalized = row.map(normalizeHeader);
       if (
         normalized.some(h => h === 'customer code' || h === 'dealer name' || h === 'dealers name' || h === 'sap code' || h === 'sap' || h === 'account name') &&
-        normalized.some(h => h.includes('26') || h.includes('25') || h.includes('prev year') || h.includes('sales') || h.includes('sale') || h.includes('jan') || h.includes('jun') || h === 'doa' || h.includes('activation'))
+        normalized.some(h => h.includes('2') || h.includes('prev year') || h.includes('sales') || h.includes('sale') || h.includes('tgt') || h.includes('target') || h === 'doa' || h.includes('activation') || /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/.test(h))
       ) {
         selectedSheetName = sName;
         headerRowIdx = i;
@@ -116,8 +123,10 @@ export async function importDealerPerformance(filePath, batchCode = null) {
       const rawHeader = String(rawRows[headerRowIdx][c] || '');
       const cleaned = rawHeader.replace(/\b(tgt|target|prorata|sale|dealer)\b/gi, '').trim();
       targetYM = parseMonthKey(cleaned);
+      continue;
     } else if (isProrata && prorataColIdx === -1) {
       prorataColIdx = c;
+      continue;
     }
 
     if (prevMonthNames[h]) {
@@ -136,7 +145,15 @@ export async function importDealerPerformance(filePath, batchCode = null) {
     : null;
 
   if (monthMap.length === 0) {
-    throw new Error(`[DEALER_PERFORMANCE] No monthly columns found. Expected columns like Jan-26, Feb-26, etc.`);
+    // Diagnostic: show what headers were found and why none parsed as months
+    const headerDiag = headers.map((h, c) => {
+      const raw = String(rawRows[headerRowIdx][c] || '');
+      const parsed = parseMonthKey(raw);
+      const skipped = (c === codeIdx || c === nameIdx || c === sfaIdx) ? ' [SKIPPED:id-col]' : '';
+      return `  [${c}] raw=${JSON.stringify(raw)} normalized=${JSON.stringify(h)} parsed=${JSON.stringify(parsed)}${skipped}`;
+    }).join('\n');
+    console.error(`[DEALER_PERFORMANCE] Header diagnostics:\n${headerDiag}`);
+    throw new Error(`[DEALER_PERFORMANCE] No monthly columns found. Expected columns like Jan-26, Feb-26, Sep'26 SALE, etc. Found ${headers.length} columns but none parsed as month-year. Check header row ${headerRowIdx} in sheet "${selectedSheetName}".`);
   }
 
   let rowsRead = 0;

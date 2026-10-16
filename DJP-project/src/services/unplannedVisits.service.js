@@ -181,12 +181,12 @@ export async function buildDealerLookupIndex() {
  * Reconcile SFA visit execution logs against planned visits and master dealers.
  *
  * CORE BUSINESS LOGIC RULE:
- * "Unplanned and planned logic is mainly when the dealer isn't visited on the date of visit that is planned it becomes unplanned."
+ * Only visits that are made outside of the plans are unplanned visits.
  *
  * That is:
- * - A visit is PLANNED if and only if the officer visited the scheduled dealer ON THE PLANNED VISIT DATE.
- * - If the dealer was visited on a date that was NOT on the plan, or the dealer was never scheduled on the plan,
- *   it is marked as UNPLANNED (is_unplanned = 1).
+ * - A visit is PLANNED if the visited dealer/customer is included in the officer's plan for that period.
+ * - If a visit was made to a dealer/customer that is NOT on the officer's plan (or unmapped),
+ *   it was made outside of the plan and is marked as UNPLANNED (is_unplanned = 1).
  */
 export async function reconcileUnplannedVisits(opts = {}) {
   await ensureVisitExecutionLogsSchema();
@@ -369,7 +369,7 @@ export async function reconcileUnplannedVisits(opts = {}) {
     }
 
     if (!dealer) {
-      // Unmapped visit: customer is not known to master dealers or targets
+      // Unmapped visit: customer is not known to master dealers or targets (made outside of plan)
       const item = {
         id: l.id,
         visit_date: vDate,
@@ -388,11 +388,14 @@ export async function reconcileUnplannedVisits(opts = {}) {
         purpose_of_visit: l.purpose_of_visit,
         remarks: l.remarks,
         is_unmapped: 1,
-        is_unplanned: 0,
-        reason: 'Customer code not found in any dealer master'
+        is_unplanned: 1,
+        unplanned_type: 'DEALER_NOT_ON_PLAN',
+        reason: 'Customer not on plan / unmapped'
       };
       unmappedVisits.push(item);
       unmappedIds.push(l.id);
+      unplannedVisits.push(item);
+      unplannedIds.push(l.id);
       continue;
     }
 
@@ -418,16 +421,15 @@ export async function reconcileUnplannedVisits(opts = {}) {
     let reason = 'Planned';
     let unplannedType = 'PLANNED';
 
-    // Core rule: when the dealer isn't visited on the date of visit that is planned, it becomes unplanned!
-    if (!dateScheduled) {
+    // Core rule: only visits that are made outside of the plans are unplanned visits!
+    if (!dealerPlanned) {
       isUnplanned = true;
-      if (!dealerPlanned) {
-        unplannedType = 'DEALER_NOT_ON_PLAN';
-        reason = "Dealer not on officer's plan";
-      } else {
-        unplannedType = 'UNSCHEDULED_DATE';
-        reason = "Dealer not visited on planned date";
-      }
+      unplannedType = 'DEALER_NOT_ON_PLAN';
+      reason = "Dealer not on officer's plan";
+    } else {
+      isUnplanned = false;
+      unplannedType = 'PLANNED';
+      reason = 'Planned';
     }
 
     const item = {
@@ -465,18 +467,18 @@ export async function reconcileUnplannedVisits(opts = {}) {
   // 6. Update flags in database in chunks
   try {
     const CHUNK_SIZE = 500;
-    if (unplannedIds.length > 0) {
-      for (let i = 0; i < unplannedIds.length; i += CHUNK_SIZE) {
-        const slice = unplannedIds.slice(i, i + CHUNK_SIZE);
-        const placeholders = slice.map(() => '?').join(',');
-        await dbRun(`UPDATE visit_execution_logs SET is_unplanned = 1, is_unmapped = 0 WHERE id IN (${placeholders})`, slice);
-      }
-    }
     if (unmappedIds.length > 0) {
       for (let i = 0; i < unmappedIds.length; i += CHUNK_SIZE) {
         const slice = unmappedIds.slice(i, i + CHUNK_SIZE);
         const placeholders = slice.map(() => '?').join(',');
-        await dbRun(`UPDATE visit_execution_logs SET is_unplanned = 0, is_unmapped = 1 WHERE id IN (${placeholders})`, slice);
+        await dbRun(`UPDATE visit_execution_logs SET is_unplanned = 1, is_unmapped = 1 WHERE id IN (${placeholders})`, slice);
+      }
+    }
+    if (unplannedIds.length > 0) {
+      for (let i = 0; i < unplannedIds.length; i += CHUNK_SIZE) {
+        const slice = unplannedIds.slice(i, i + CHUNK_SIZE);
+        const placeholders = slice.map(() => '?').join(',');
+        await dbRun(`UPDATE visit_execution_logs SET is_unplanned = 1 WHERE id IN (${placeholders})`, slice);
       }
     }
     if (plannedIds.length > 0) {
@@ -770,14 +772,12 @@ export async function getConsolidatedVisits(opts = {}) {
         let adhered = 0;
         let unplanned = 0;
 
-        for (const v of visitList) {
-          if (scheduledDates.size > 0) {
-            if (scheduledDates.has(v.date)) adhered++;
-            else unplanned++;
-          } else {
-            if (planned > 0 && adhered < planned) adhered++;
-            else unplanned++;
-          }
+        if (planned > 0) {
+          adhered = visitList.length;
+          unplanned = 0;
+        } else {
+          adhered = 0;
+          unplanned = visitList.length;
         }
 
         const pct = planned > 0 ? Math.round((adhered / planned) * 100) + '%' : '0%';

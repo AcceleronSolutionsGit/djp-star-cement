@@ -26,11 +26,18 @@ export function parseMonthKey(key) {
     return `${y}-${m}`;
   }
 
-  const s = String(key || '').trim();
+  // Normalize Unicode spaces (NBSP, zero-width, etc.) to standard ASCII space
+  // and normalize all Unicode dashes (en-dash, em-dash, non-breaking hyphen, minus) to '-'
+  let s = String(key || '')
+    .replace(/[\u00A0\u1680\u2000-\u200B\u202F\u205F\u3000\uFEFF]/g, ' ')
+    .replace(/[\u2011\u2012\u2013\u2014\u2015\u2212\uFE63\uFF0D]/g, '-')
+    .trim();
   if (!s) return null;
 
-  // Exclude non-month metric/summary keywords
-  if (/\b(tgt|target|prorata|shortfall|achv|achievement|varience|variance|growth|avg|average|vs)\b/i.test(s)) {
+  // Exclude non-month metric/summary keywords, percentages, partial month run-rates (3D, MTD, etc.)
+  if (
+    /%|\b(tgt|target|prorata|shortfall|achv|achievement|varience|variance|growth|avg|average|vs|var|diff|difference|percent|percentage|mtd|ytd|ftd|\d+d)\b/i.test(s)
+  ) {
     return null;
   }
 
@@ -59,8 +66,13 @@ export function parseMonthKey(key) {
     }
   }
 
-  // Clean apostrophes and trailing sales/qty/vol words like "June'26 Sales", "May'26", "Jun-26 (Sales)", "June-25 SALE", "May'26 DEALER"
-  const cleaned = s.replace(/['`’]/g, '').replace(/\s*\b(sales|sale|qty|quantity|vol|volume|mt|dealer|dlr)\b/gi, '').trim();
+  // Clean quotes/apostrophes (straight U+0027, backtick U+0060, curly U+2018/U+2019, prime U+2032, modifier U+02BC/U+02BB, acute U+00B4)
+  // remove parentheses/brackets, and strip trailing sales/qty/vol words like "June'26 Sales", "May'26", "Jun-26 (Sales)", "June-25 SALE", "May'26 DEALER"
+  const cleaned = s
+    .replace(/['\u0060\u00B4\u2018\u2019\u2032\u02BC\u02BB]/g, '')
+    .replace(/[()[\]{}]/g, ' ')
+    .replace(/\s*\b(sales|sale|qty|quantity|vol|volume|mt|mts|dealer|dlr|actual|actuals|act)\b/gi, '')
+    .trim();
 
   // 4. String month abbreviations like Apr-24, April-2024, Apr 2024, June26
   const abbrev = cleaned.match(/^([A-Za-z]{3,9})[-_/ ]?(\d{2,4})$/);
@@ -73,7 +85,7 @@ export function parseMonthKey(key) {
   }
 
   // 5. String month first with year like 2024-Apr or 24-Apr
-  const yearFirstAbbrev = s.match(/^(\d{2,4})[-_/ ]?([A-Za-z]{3,9})$/);
+  const yearFirstAbbrev = cleaned.match(/^(\d{2,4})[-_/ ]?([A-Za-z]{3,9})$/);
   if (yearFirstAbbrev) {
     let year = yearFirstAbbrev[1];
     if (year.length === 2) year = '20' + year;
