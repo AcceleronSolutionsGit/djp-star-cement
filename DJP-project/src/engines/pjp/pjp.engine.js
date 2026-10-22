@@ -372,8 +372,8 @@ export async function calculatePJP(reportMonth, cycleCode, options = {}) {
     dealerName: d.dealerName || d.dealer_name,
     dealerId: d.dealerId || d.dealer_id || d.id,
     dealerType: d.dealerType || d.dealer_type,
-    cust_type: d.cust_type || d.dealerType || d.dealer_type || 'RSAR',
-    custType: d.cust_type || d.dealerType || d.dealer_type || 'RSAR',
+    cust_type: d.cust_type || d.custType || (d.finalCategory === 'Prospective' ? 'NON STAR' : (d.dealerType === 'RSAR' || d.dealer_type === 'RSAR' ? 'RSAR' : 'DEALER')),
+    custType: d.custType || d.cust_type || (d.finalCategory === 'Prospective' ? 'NON STAR' : (d.dealerType === 'RSAR' || d.dealer_type === 'RSAR' ? 'RSAR' : 'DEALER')),
     territoryCode: d.territory_code || d.territoryCode || null,
     territoryName: d.territory_name || d.territoryName || d.dm_area || null,
 
