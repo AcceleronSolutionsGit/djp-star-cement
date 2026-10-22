@@ -175,13 +175,12 @@ export default function App() {
     }
   };
 
-  // Master Report Export
+  // Master Report Export (Whole Month)
   const handleExportMaster = async () => {
     try {
-      showToast('Preparing Master Report Excel file...', 'info');
+      showToast('Preparing Master Report Excel file (Whole Month)...', 'info');
       const period = selectedPeriod || '2026-09';
-      const cycle = selectedCycle || 'C1';
-      const res = await fetch(`${API_BASE}/djp/export-master?periodMonth=${encodeURIComponent(period)}&cycleCode=${encodeURIComponent(cycle)}`);
+      const res = await fetch(`${API_BASE}/djp/export-master?periodMonth=${encodeURIComponent(period)}`);
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
         throw new Error(errJson.error || 'Failed to download Master Excel file');
@@ -190,12 +189,12 @@ export default function App() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `M_${period}_${cycle}.xlsx`);
+      link.setAttribute('download', `M_${period}.xlsx`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      showToast('Master Report Excel downloaded successfully!', 'success');
+      showToast('Master Report Excel (Whole Month) downloaded successfully!', 'success');
     } catch (err) {
       showToast(err.message || 'Failed to download Master Report Excel', 'error');
     }

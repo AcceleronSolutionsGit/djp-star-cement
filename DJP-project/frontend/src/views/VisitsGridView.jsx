@@ -421,15 +421,15 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
               <span>Upload Excel</span>
             </button>
             <a
-              href={`${API_BASE}/djp/export-master${filters.periodMonth && filters.periodMonth !== 'ALL' ? `?periodMonth=${encodeURIComponent(filters.periodMonth)}&cycleCode=${encodeURIComponent(filters.cycleCode || 'C1')}` : ''}`}
+              href={`${API_BASE}/djp/export-master${filters.periodMonth && filters.periodMonth !== 'ALL' ? `?periodMonth=${encodeURIComponent(filters.periodMonth)}` : ''}`}
               className="btn btn-outline"
               style={{ padding: '5px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', color: '#16a34a', borderColor: '#16a34a', fontWeight: 600 }}
-              title="Download 22-column Master Report Excel"
+              title="Download Master Report Excel (M.xlsx - Whole Month)"
               target="_blank"
               rel="noreferrer"
             >
               <FileSpreadsheet size={15} />
-              <span>Masters Excel</span>
+              <span>Masters Excel (Whole Month)</span>
             </a>
             <a
               href={`${API_BASE}/djp/export-visits${filters.periodMonth && filters.periodMonth !== 'ALL' ? `?periodMonth=${encodeURIComponent(filters.periodMonth)}&cycleCode=${encodeURIComponent(filters.cycleCode || 'C1')}` : ''}`}

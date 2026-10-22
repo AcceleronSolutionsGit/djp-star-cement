@@ -539,10 +539,9 @@ export const api = {
    * The Master sheet as JSON — the same 42 columns the M.xlsx download carries.
    * Both come from src/services/masterSheet.service.js on the server.
    */
-  getMasterView: async ({ month, cycle, page = 1, pageSize = 100, search = '' } = {}) => {
+  getMasterView: async ({ month, page = 1, pageSize = 100, search = '' } = {}) => {
     const q = new URLSearchParams();
     if (month && month !== 'ALL') q.append('periodMonth', month);
-    if (cycle && cycle !== 'ALL') q.append('cycleCode', cycle);
     q.append('page', page);
     q.append('pageSize', pageSize);
     if (search) q.append('search', search);
@@ -553,11 +552,10 @@ export const api = {
     return data;
   },
 
-  /** Download the Master sheet as M_<month>_<cycle>.xlsx. */
-  downloadMasterExcel: async (month, cycle) => {
+  /** Download the Master sheet as M_<month>.xlsx for the whole month. */
+  downloadMasterExcel: async (month) => {
     const q = new URLSearchParams();
     if (month && month !== 'ALL') q.append('periodMonth', month);
-    if (cycle && cycle !== 'ALL') q.append('cycleCode', cycle);
 
     const res = await fetchWithAuth(`${API_BASE}/djp/export-master?${q.toString()}`);
     if (!res.ok) {
@@ -571,7 +569,7 @@ export const api = {
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href = url;
-    a.download = `M_${month || 'latest'}_${cycle || 'C1'}.xlsx`;
+    a.download = `M_${month || 'latest'}.xlsx`;
     document.body.appendChild(a);
     a.click();
     a.remove();

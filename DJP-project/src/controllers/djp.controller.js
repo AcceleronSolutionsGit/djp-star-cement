@@ -513,35 +513,40 @@ export async function exportPjpTradeExcel(req, res) {
 }
 
 /**
- * Export Master Report matching M_SAMPLE_EXPECTED.xlsx exactly (22 columns, sheet 'Report')
+ * Export Master Report matching M.xlsx for the whole month (not restricted to C1/C2).
  */
 export async function exportMasterExcel(req, res) {
   try {
-    const { periodMonth, cycleCode } = req.query;
+    const { periodMonth } = req.query;
     let targetPeriod = periodMonth && periodMonth !== 'ALL' ? periodMonth : null;
-    let targetCycle  = cycleCode && cycleCode !== 'ALL' ? cycleCode : 'C1';
 
     if (!targetPeriod) {
       const latest = await dbGet(
-        `SELECT period_month, cycle_code FROM dealer_visit_targets
+        `SELECT period_month FROM dealer_visit_targets
           WHERE period_month IS NOT NULL ORDER BY period_month DESC LIMIT 1`);
       if (latest) {
         targetPeriod = latest.period_month;
-        if (latest.cycle_code) targetCycle = latest.cycle_code;
       } else {
         targetPeriod = '2026-06';
       }
     }
 
+    // Always fetch for the entire month across all cycles (whole month)
     let targets = await dbAll(
       `SELECT * FROM dealer_visit_targets
-        WHERE period_month = ? AND cycle_code = ?
-        ORDER BY sap_code ASC, id ASC`, [targetPeriod, targetCycle]);
+        WHERE period_month = ?
+        ORDER BY sap_code ASC, id ASC`, [targetPeriod]);
 
     if (!targets || targets.length === 0) {
-      targets = await dbAll(
-        `SELECT * FROM dealer_visit_targets WHERE period_month = ? ORDER BY sap_code ASC, id ASC`,
-        [targetPeriod]);
+      const latest = await dbGet(
+        `SELECT period_month FROM dealer_visit_targets
+          WHERE period_month IS NOT NULL ORDER BY period_month DESC LIMIT 1`);
+      if (latest) {
+        targetPeriod = latest.period_month;
+        targets = await dbAll(
+          `SELECT * FROM dealer_visit_targets WHERE period_month = ? ORDER BY sap_code ASC, id ASC`,
+          [targetPeriod]);
+      }
     }
 
     if (!targets || targets.length === 0) {
@@ -552,7 +557,7 @@ export async function exportMasterExcel(req, res) {
 
     const buf = await buildMasterWorkbook(dedupeTargets(targets), targetPeriod);
 
-    const filename = `M_${targetPeriod}_${targetCycle}.xlsx`;
+    const filename = `M_${targetPeriod}.xlsx`;
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.send(buf);
@@ -1117,16 +1122,15 @@ export async function getInputReadiness(req, res) {
  */
 export async function getMasterView(req, res) {
   try {
-    const { periodMonth, cycleCode, search } = req.query;
+    const { periodMonth, search } = req.query;
     const page     = Math.max(1, parseInt(req.query.page, 10) || 1);
     const pageSize = Math.min(500, Math.max(10, parseInt(req.query.pageSize, 10) || 100));
 
     let targetPeriod = periodMonth && periodMonth !== 'ALL' ? periodMonth : null;
-    let targetCycle  = cycleCode && cycleCode !== 'ALL' ? cycleCode : 'C1';
 
     if (!targetPeriod) {
       const latest = await dbGet(
-        `SELECT period_month, cycle_code FROM dealer_visit_targets
+        `SELECT period_month FROM dealer_visit_targets
           WHERE period_month IS NOT NULL ORDER BY period_month DESC LIMIT 1`);
       if (!latest) {
         return res.status(400).json({
@@ -1135,18 +1139,24 @@ export async function getMasterView(req, res) {
         });
       }
       targetPeriod = latest.period_month;
-      if (latest.cycle_code) targetCycle = latest.cycle_code;
     }
 
+    // Always fetch for the entire month across all cycles
     let targets = await dbAll(
       `SELECT * FROM dealer_visit_targets
-        WHERE period_month = ? AND cycle_code = ?
-        ORDER BY sap_code ASC, id ASC`, [targetPeriod, targetCycle]);
+        WHERE period_month = ?
+        ORDER BY sap_code ASC, id ASC`, [targetPeriod]);
 
     if (!targets || targets.length === 0) {
-      targets = await dbAll(
-        `SELECT * FROM dealer_visit_targets WHERE period_month = ? ORDER BY sap_code ASC, id ASC`,
-        [targetPeriod]);
+      const latest = await dbGet(
+        `SELECT period_month FROM dealer_visit_targets
+          WHERE period_month IS NOT NULL ORDER BY period_month DESC LIMIT 1`);
+      if (latest) {
+        targetPeriod = latest.period_month;
+        targets = await dbAll(
+          `SELECT * FROM dealer_visit_targets WHERE period_month = ? ORDER BY sap_code ASC, id ASC`,
+          [targetPeriod]);
+      }
     }
 
     if (!targets || targets.length === 0) {
@@ -1198,7 +1208,7 @@ export async function getMasterView(req, res) {
     const headers = buildHeaders(targetPeriod);
     res.json({
       period_month: targetPeriod,
-      cycle_code: targetCycle,
+      cycle_code: 'ALL',
       sheet_name: MASTER_SHEET_NAME,
       header_row: HEADER_ROW,
       first_data_row: FIRST_DATA_ROW,

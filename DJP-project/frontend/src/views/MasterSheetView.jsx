@@ -138,7 +138,7 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
     setLoading(true); setError(null);
     try {
       const res = await api.getMasterView({
-        month: selectedPeriod, cycle: selectedCycle, page, pageSize, search: query
+        month: selectedPeriod, page, pageSize, search: query
       });
       setData(res);
     } catch (e) {
@@ -147,10 +147,10 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
     } finally {
       setLoading(false);
     }
-  }, [selectedPeriod, selectedCycle, page, pageSize, query]);
+  }, [selectedPeriod, page, pageSize, query]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { setPage(1); }, [selectedPeriod, selectedCycle, query]);
+  useEffect(() => { setPage(1); }, [selectedPeriod, query]);
 
   const columns = useMemo(
     () => (data?.columns || []).filter(c => showHidden || !c.hidden),
@@ -162,8 +162,8 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
   const download = async () => {
     setDownloading(true);
     try {
-      await api.downloadMasterExcel(selectedPeriod, selectedCycle);
-      onShowToast?.('success', 'Master sheet downloaded.');
+      await api.downloadMasterExcel(selectedPeriod);
+      onShowToast?.('success', 'Master sheet (Whole Month) downloaded.');
     } catch (e) {
       onShowToast?.('error', e.message || 'Download failed.');
     } finally {
@@ -235,7 +235,7 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
           <div className="ms-title"><Table2 size={18} /> Master Sheet</div>
           <div className="ms-sub">
             {data
-              ? <>Sheet <code>{JSON.stringify(data.sheet_name)}</code> · {data.period_month} {data.cycle_code}
+              ? <>Sheet <code>{JSON.stringify(data.sheet_name)}</code> · {data.period_month} (Whole Month)
                   {' '}· anchor <strong>B2 = {data.anchor}</strong>
                   {' '}· {data.total_unfiltered.toLocaleString()} rows · 42 columns</>
               : 'The same 42 columns as the Excel download'}
@@ -281,7 +281,7 @@ export default function MasterSheetView({ onShowToast, selectedPeriod, selectedC
         </button>
 
         <button className="ms-btn primary" onClick={download} disabled={downloading || !data || uploading}>
-          <Download size={14} /> {downloading ? 'Preparing…' : 'Download M.xlsx'}
+          <Download size={14} /> {downloading ? 'Preparing…' : 'Download M.xlsx (Whole Month)'}
         </button>
       </div>
 

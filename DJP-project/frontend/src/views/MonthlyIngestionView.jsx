@@ -343,15 +343,15 @@ export default function MonthlyIngestionView({
               <span>Excel Schema Guide</span>
             </button>
             <a
-              href={`${API_BASE}/djp/export-master`}
+              href={`${API_BASE}/djp/export-master${selectedPeriod ? `?periodMonth=${encodeURIComponent(selectedPeriod)}` : ''}`}
               className="btn btn-outline"
               target="_blank"
               rel="noreferrer"
               style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#16a34a', borderColor: '#16a34a', fontWeight: 600 }}
-              title="Download 22-column Master Report Excel"
+              title="Download Master Report Excel (M.xlsx - Whole Month)"
             >
               <FileSpreadsheet size={16} />
-              <span>Download Masters Excel</span>
+              <span>Download Masters Excel (Whole Month)</span>
             </a>
             <a
               href={`${API_BASE}/djp/export-visits`}
