@@ -418,17 +418,27 @@ export async function getLatestAvailableSalesPeriod(planningMonth = null) {
       'SELECT MAX(period_year_month) as max_period FROM sales_history WHERE period_year_month <= ?',
       [prevMonth]
     );
+    if (!row || !row.max_period) {
+      row = await dbGet(
+        'SELECT MAX(period_year_month) as max_period FROM dealer_performance_history WHERE period_year_month <= ?',
+        [prevMonth]
+      );
+    }
   }
   if (!row || !row.max_period) {
     row = await dbGet('SELECT MAX(period_year_month) as max_period FROM sales_history');
+  }
+  if (!row || !row.max_period) {
+    row = await dbGet('SELECT MAX(period_year_month) as max_period FROM dealer_performance_history');
   }
   return row?.max_period || null;
 }
 
 /**
  * Verify that all 5 required Excel input documents have been uploaded and validated.
+ * @param {string|null} [planningMonth] - Optional target plan month
  */
-export async function checkAllExcelInputsAvailable() {
+export async function checkAllExcelInputsAvailable(planningMonth = null) {
   const requiredInputs = [
     { key: 'DEALER_MAPPING', label: 'Dealer - SO Territory Hierarchy Mapping (.xlsx)' },
     { key: 'SBG', label: 'SBG Dealer Master & Counter Potential (.xlsx)' },
@@ -447,7 +457,7 @@ export async function checkAllExcelInputsAvailable() {
   const available = new Set(batches.filter(b => b.cnt > 0).map(b => b.file_type));
   if (available.has('RSAR_SALES')) available.add('SALES_HISTORY');
 
-  const latestAvailableSalesPeriod = await getLatestAvailableSalesPeriod();
+  const latestAvailableSalesPeriod = await getLatestAvailableSalesPeriod(planningMonth);
 
   const missing = requiredInputs.filter(req => !available.has(req.key));
   return {

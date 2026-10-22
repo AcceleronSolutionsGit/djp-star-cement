@@ -43,11 +43,13 @@ const tag = p => `${MON[p.m - 1]}'${String(p.y).slice(2)}`;
 
 /**
  * The three month-dependent header labels, for a given planning month.
- * O = month − 1, R = month − 2, Q = same month as O, one year earlier.
+ * O = latest sales anchor (defaults to month − 1), R = anchor − 1, Q = same month as O, one year earlier.
+ * Supports penultimate month anchors (e.g. May sales for July plan).
  */
-export function monthLabels(periodMonth) {
-  const o = shift(periodMonth, -1);
-  const r = shift(periodMonth, -2);
+export function monthLabels(periodMonth, salesAnchor = null) {
+  let o = salesAnchor ? ym(salesAnchor) : shift(periodMonth, -1);
+  if (!o) o = shift(periodMonth, -1);
+  const r = o ? shift(`${o.y}-${String(o.m).padStart(2, '0')}`, -1) : shift(periodMonth, -2);
   if (!o || !r) return { O: "Current Month Sales", Q: 'LYSM Sales', R: 'Previous Month Sales' };
   const q = { y: o.y - 1, m: o.m };
   return { O: `${tag(o)} Sales`, Q: `${tag(q)} (Sales)`, R: `${tag(r)} Sales` };
@@ -120,8 +122,8 @@ export const HEADER_ROW = 4;
 export const FIRST_DATA_ROW = 5;
 
 /** Headers for a planning month, with the three month-dependent labels filled in. */
-export function buildHeaders(periodMonth) {
-  const L = monthLabels(periodMonth);
+export function buildHeaders(periodMonth, salesAnchor = null) {
+  const L = monthLabels(periodMonth, salesAnchor);
   return COLUMNS.map(c => {
     if (c.key === 'current_sales')  return L.O;
     if (c.key === 'lysm_sales')     return L.Q;

@@ -2,7 +2,7 @@ import { generateFullPjpDjpSolution } from '../engines/djp-generator.engine.js';
 import { calculatePJP } from '../engines/pjp/pjp.engine.js';
 import { generateDealerTrace } from '../engines/pjp/pjp-validator.engine.js';
 import { reconcileUniverse } from '../engines/pjp/reconciliation.service.js';
-import { checkAllExcelInputsAvailable } from '../engines/pjp/data-loader.engine.js';
+import { checkAllExcelInputsAvailable, getLatestAvailableSalesPeriod } from '../engines/pjp/data-loader.engine.js';
 import { AutoPlanGenerator } from '../engines/autoPlanGenerator.js';
 import { dbAll, dbGet, dbRun } from '../config/database.js';
 import XLSX from 'xlsx';
@@ -619,8 +619,9 @@ export async function buildMasterWorkbook(uniqueTargets, targetPeriod) {
   sourceRow.height = 22;
 
   // ── row 4: headers ────────────────────────────────────────────────────────
+  const salesAnchor = await getLatestAvailableSalesPeriod(targetPeriod);
   const headerRow = ws.getRow(HEADER_ROW);
-  buildHeaders(targetPeriod).forEach((h, i) => {
+  buildHeaders(targetPeriod, salesAnchor).forEach((h, i) => {
     const cell = headerRow.getCell(i + 1);
     cell.value = h;
     cell.font  = { bold: true, size: 10, color: { argb: 'FFFFFFFF' } };
@@ -1094,7 +1095,8 @@ export async function getReconciliationDiagnostics(req, res) {
  */
 export async function getInputReadiness(req, res) {
   try {
-    const status = await checkAllExcelInputsAvailable();
+    const planningMonth = req.query.planMonth || req.query.periodMonth || null;
+    const status = await checkAllExcelInputsAvailable(planningMonth);
     res.json(status);
   } catch (err) {
     console.error('Error getting input readiness:', err);
@@ -1191,6 +1193,8 @@ export async function getMasterView(req, res) {
       return out;
     });
 
+    const salesAnchor = await getLatestAvailableSalesPeriod(targetPeriod);
+    const headers = buildHeaders(targetPeriod, salesAnchor);
     res.json({
       period_month: targetPeriod,
       cycle_code: targetCycle,
@@ -1198,8 +1202,9 @@ export async function getMasterView(req, res) {
       header_row: HEADER_ROW,
       first_data_row: FIRST_DATA_ROW,
       anchor: anchorDate(targetPeriod)?.toISOString().slice(0, 10) || null,
+      sales_anchor: salesAnchor,
       columns: MASTER_COLUMNS.map((c, i) => ({
-        col: c.col, key: c.key, header: buildHeaders(targetPeriod)[i],
+        col: c.col, key: c.key, header: headers[i],
         source: c.source, align: c.align || 'left', fmt: c.fmt,
         hidden: !!c.hidden, width: c.width
       })),

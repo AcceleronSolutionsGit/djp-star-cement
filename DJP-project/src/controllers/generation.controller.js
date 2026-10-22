@@ -356,7 +356,7 @@ export async function generateAllLegacy(req, res) {
     const periodMonth = planMonth;
 
     // Enforce that ALL 5 Excel input files are available before generating DJP
-    const inputCheck = await checkAllExcelInputsAvailable();
+    const inputCheck = await checkAllExcelInputsAvailable(periodMonth);
     if (!inputCheck.allAvailable) {
       return res.status(400).json({
         error: `Cannot generate DJP: All 5 Excel input files must be uploaded and validated first. Currently missing: ${inputCheck.missing.join(', ')}.`

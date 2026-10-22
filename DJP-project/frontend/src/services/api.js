@@ -150,8 +150,9 @@ export const api = {
     return res.json();
   },
 
-  getInputReadiness: async () => {
-    const res = await fetchWithAuth(`${API_BASE}/admin/readiness`);
+  getInputReadiness: async (planningMonth = null) => {
+    const qs = planningMonth ? `?planMonth=${encodeURIComponent(planningMonth)}` : '';
+    const res = await fetchWithAuth(`${API_BASE}/admin/readiness${qs}`);
     if (!res.ok) throw new Error('Failed to fetch input readiness');
     return res.json();
   },

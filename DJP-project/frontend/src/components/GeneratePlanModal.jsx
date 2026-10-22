@@ -45,13 +45,20 @@ export default function GeneratePlanModal({ open, onClose, onConfirm, initialMon
     setLoading(true);
     setTouched(false);
 
-    api.getInputReadiness()
+    api.getInputReadiness(initialMonth)
       .then(r => {
         if (cancelled) return;
         setReadiness(r);
-        // Default to the month AFTER the latest sales data, not today's month.
         const latest = r?.latestAvailableSalesPeriod;
-        setMonth(latest ? addMonths(latest, 1) : (initialMonth || new Date().toISOString().slice(0, 7)));
+        // If initialMonth was explicitly supplied, preserve it; otherwise default to penultimate-friendly month (latest + 2) or latest + 1
+        if (initialMonth) {
+          setMonth(initialMonth);
+        } else if (latest) {
+          // Standard business cycle: RSAR data through penultimate month M-2 => plan month M (latest + 2)
+          setMonth(addMonths(latest, 2));
+        } else {
+          setMonth(new Date().toISOString().slice(0, 7));
+        }
       })
       .catch(() => {
         if (cancelled) return;
@@ -66,14 +73,18 @@ export default function GeneratePlanModal({ open, onClose, onConfirm, initialMon
   if (!open) return null;
 
   const latest = readiness?.latestAvailableSalesPeriod || null;
-  const anchor = month ? addMonths(month, -1) : null;
+  const planPrev = month ? addMonths(month, -1) : null;
+  // Authoritative sales anchor: min(planPrev, latest) if latest is available, otherwise planPrev
+  const anchor = (latest && planPrev) ? (latest < planPrev ? latest : planPrev) : planPrev;
   const gap = latest && month ? monthsBetween(latest, month) : null;
   const ready = readiness?.allAvailable !== false;
 
-  // The engine anchors on min(planMonth - 1, latest sales). More than one month
-  // ahead means the anchor silently falls back and the plan is built on older sales.
-  const staleAnchor = gap !== null && gap > 1;
+  // Penultimate month (gap = 2) is a standard valid sales anchor for plan month M.
+  // Prior month (gap = 1) is also standard.
+  // The mandatory 3-month threshold is removed — plans can be generated without restriction.
+  const isPenultimate = gap === 2;
   const backwards = gap !== null && gap < 1;
+  const olderThanPenultimate = gap !== null && gap > 2;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -116,25 +127,28 @@ export default function GeneratePlanModal({ open, onClose, onConfirm, initialMon
                 <div>
                   Planning <strong>{label(month)}</strong>, anchored on{' '}
                   <strong>{label(anchor)}</strong> sales
+                  {isPenultimate && <span style={{ color: 'var(--star-blue, #1F5FA9)', marginLeft: 6, fontWeight: 600 }}>(Penultimate month anchor)</span>}
+                  {gap === 1 && <span style={{ color: 'var(--color-success, #16a34a)', marginLeft: 6, fontWeight: 600 }}>(Prior month anchor)</span>}
                 </div>
                 {!touched && latest && (
                   <div style={{ color: 'var(--text-tertiary)', marginTop: 4 }}>
-                    Defaulted from your uploaded data, not from today's date.
+                    {isPenultimate
+                      ? 'RSAR sales data extends to penultimate month — plans will anchor on ' + label(latest) + '.'
+                      : 'Derived from your uploaded sales data.'}
                   </div>
                 )}
               </div>
 
-              {staleAnchor && (
+              {olderThanPenultimate && (
                 <div style={{
                   display: 'flex', gap: 10, marginTop: 12, padding: '11px 13px',
                   borderRadius: 'var(--radius-md)', fontSize: '.8rem', lineHeight: 1.5,
-                  background: 'var(--color-warning-bg)', color: 'var(--color-warning)'
+                  background: 'var(--bg-hover, #F8FAFC)', color: 'var(--text-secondary)'
                 }}>
-                  <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1, color: '#f59e0b' }} />
                   <span>
-                    {label(month)} is {gap} months after your latest sales data. The engine will fall
-                    back to {label(latest)} as the sales anchor, so categories and volumes will be built
-                    on {gap - 1} month(s)-old figures. Upload newer sales, or plan {label(addMonths(latest, 1))} instead.
+                    {label(month)} is {gap} months after latest sales data ({label(latest)}).
+                    Calculations will anchor on {label(anchor)} sales without restriction.
                   </span>
                 </div>
               )}
@@ -143,12 +157,11 @@ export default function GeneratePlanModal({ open, onClose, onConfirm, initialMon
                 <div style={{
                   display: 'flex', gap: 10, marginTop: 12, padding: '11px 13px',
                   borderRadius: 'var(--radius-md)', fontSize: '.8rem', lineHeight: 1.5,
-                  background: 'var(--color-danger-bg)', color: 'var(--color-danger)'
+                  background: 'var(--color-warning-bg, #FEF3C7)', color: 'var(--color-warning, #92400E)'
                 }}>
                   <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
                   <span>
-                    {label(month)} is not after your latest sales month ({label(latest)}). You would be
-                    planning a month that has already been sold. Existing plans for {label(month)} will be replaced.
+                    {label(month)} is on or before latest sales month ({label(latest)}). Existing plans for {label(month)} will be replaced upon regeneration.
                   </span>
                 </div>
               )}
