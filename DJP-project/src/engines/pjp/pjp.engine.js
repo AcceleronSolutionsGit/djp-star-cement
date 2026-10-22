@@ -66,13 +66,13 @@ export async function calculatePJP(reportMonth, cycleCode, options = {}) {
     throw new Error(`Invalid planMonth: '${reportMonth}'. Month must be between 01 and 12.`);
   }
 
-  // Authoritative separation of Planning Month and Sales Anchor Month
+  // Authoritative separation of Planning Month, DP (M-1), and RSAR (penultimate M-2)
   const activeReportMonth = reportMonth;
-  const latestAvailableSalesPeriod = await getLatestAvailableSalesPeriod(activeReportMonth);
-  const calcContext = buildCalculationContext(activeReportMonth, latestAvailableSalesPeriod);
+  const latestAvailableRsarPeriod = await getLatestAvailableSalesPeriod(activeReportMonth);
+  const calcContext = buildCalculationContext(activeReportMonth, latestAvailableRsarPeriod);
 
   console.log(`\n================================================================`);
-  console.log(`CANONICAL PJP CALCULATION | Plan Month: ${calcContext.planningMonth} | Sales Anchor: ${calcContext.latestAvailableSalesPeriod} | Cycle: ${cycleCode}${roleType ? ` | Role: ${roleType}` : ''}`);
+  console.log(`CANONICAL PJP CALCULATION | Plan Month: ${calcContext.planningMonth} | DP Anchor (M-1): ${calcContext.dpAnchorPeriod} | RSAR Anchor (Penultimate): ${calcContext.rsarAnchorPeriod} | Cycle: ${cycleCode}${roleType ? ` | Role: ${roleType}` : ''}`);
   console.log(`================================================================`);
 
   // ──────────────────────────────────────────────
@@ -100,7 +100,7 @@ export async function calculatePJP(reportMonth, cycleCode, options = {}) {
   ]);
   const rulesRaw = await loadBusinessRulesRaw();
 
-  // Load Dealer Performance history (independent of RSAR)
+  // Load Dealer Performance history (independent of RSAR, anchored on M-1)
   const dpSalesByDealer = await loadDealerPerformanceHistory(calcContext.allRequiredPeriods);
   const {
     avgMap: dpSixMonthAvgMap,
@@ -109,15 +109,15 @@ export async function calculatePJP(reportMonth, cycleCode, options = {}) {
     prevSalesMap: dpPrevMap
   } = computeDpMetrics(
     dpSalesByDealer,
-    calcContext.sixMonthPeriods || calcContext.last6Periods || [],
-    calcContext.lysmSalesPeriod,
-    calcContext.currentSalesPeriod,
-    calcContext.previousSalesPeriod
+    calcContext.dpSixMonthPeriods,
+    calcContext.dpLysmSalesPeriod,
+    calcContext.dpCurrentSalesPeriod,
+    calcContext.dpPreviousSalesPeriod
   );
 
   console.log(`  Loaded ${allDealers.length} dealers`);
-  console.log(`  RSAR: ${rsarSalesByDealer.size} dealers with sales data (anchor: ${calcContext.latestAvailableSalesPeriod})`);
-  console.log(`  DP: ${dpSalesByDealer.size} dealers with performance data (LYSM entries: ${dpLysmMap.size})`);
+  console.log(`  RSAR: ${rsarSalesByDealer.size} dealers with sales data (anchor: ${calcContext.rsarAnchorPeriod})`);
+  console.log(`  DP: ${dpSalesByDealer.size} dealers with performance data (anchor: ${calcContext.dpAnchorPeriod}, LYSM entries: ${dpLysmMap.size})`);
   console.log(`  SBG Not Found: ${allDealers.filter(d => (d.sbg_status || d.sbgStatus) === 'SBG_NOT_FOUND').length} dealers`);
 
   if (debug) {
@@ -131,7 +131,7 @@ export async function calculatePJP(reportMonth, cycleCode, options = {}) {
   // STAGE 2: RSAR SALES AGGREGATION + COUNTER SHARE
   // ──────────────────────────────────────────────
   console.log('[2/10] Calculating RSAR sales aggregation and counter share...');
-  const dealerSalesAgg = aggregateDealerSales(rsarSalesByDealer, calcContext);
+  const dealerSalesAgg = aggregateDealerSales(rsarSalesByDealer, calcContext.rsarContext);
 
   for (const dealer of allDealers) {
     // Lookup RSAR sales by canonical codes (SAP > linked_dealer > SFA)

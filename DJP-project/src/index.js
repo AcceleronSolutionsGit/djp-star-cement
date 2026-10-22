@@ -15,7 +15,7 @@ dotenv.config();
  */
 async function runStartupMigrations() {
   try {
-    // Migration: add cycle_code to sales_plans (Phase 1 dual-cycle support)
+    // Migration 1: add cycle_code to sales_plans (Phase 1 dual-cycle support)
     const cols = await dbAll("SHOW COLUMNS FROM sales_plans");
     const hasCycleCode = cols.some(c => c.Field === 'cycle_code');
     if (!hasCycleCode) {
@@ -23,7 +23,33 @@ async function runStartupMigrations() {
       console.log('[Migration] ✓ Added cycle_code to sales_plans');
     }
   } catch (err) {
-    console.warn('[Migration] Warning during startup migration:', err.message);
+    console.warn('[Migration] Warning during startup migration (sales_plans):', err.message);
+  }
+
+  try {
+    // Migration 2: ensure matching_audit table exists
+    await dbRun(`CREATE TABLE IF NOT EXISTS matching_audit (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      batch_code VARCHAR(100) NOT NULL,
+      source_file VARCHAR(255),
+      source_sheet VARCHAR(255),
+      source_row INT,
+      source_type VARCHAR(100),
+      dealer_id VARCHAR(36),
+      sap_code VARCHAR(100),
+      sfa_code VARCHAR(100),
+      dealer_name VARCHAR(255),
+      match_method VARCHAR(50),
+      match_confidence DOUBLE,
+      match_status VARCHAR(50),
+      error_message TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_audit_batch (batch_code),
+      INDEX idx_audit_dealer (dealer_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    console.log('[Migration] ✓ Verified matching_audit table exists');
+  } catch (err) {
+    console.warn('[Migration] Warning during startup migration (matching_audit):', err.message);
   }
 }
 

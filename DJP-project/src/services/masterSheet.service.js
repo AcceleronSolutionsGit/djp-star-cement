@@ -31,7 +31,7 @@ function ym(periodMonth) {
 }
 
 /** Shift a YYYY-MM by n months. */
-function shift(periodMonth, n) {
+export function shift(periodMonth, n) {
   const p = ym(periodMonth);
   if (!p) return null;
   const d = new Date(Date.UTC(p.y, p.m - 1 + n, 1));

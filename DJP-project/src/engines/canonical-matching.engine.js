@@ -276,6 +276,53 @@ export async function logMatchingAudit({
       ]
     );
   } catch (err) {
-    console.error('Failed to log matching audit:', err);
+    if (err.code === 'ER_NO_SUCH_TABLE' || (err.message && err.message.includes('matching_audit'))) {
+      try {
+        await dbRun(`CREATE TABLE IF NOT EXISTS matching_audit (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          batch_code VARCHAR(100) NOT NULL,
+          source_file VARCHAR(255),
+          source_sheet VARCHAR(255),
+          source_row INT,
+          source_type VARCHAR(100),
+          dealer_id VARCHAR(36),
+          sap_code VARCHAR(100),
+          sfa_code VARCHAR(100),
+          dealer_name VARCHAR(255),
+          match_method VARCHAR(50),
+          match_confidence DOUBLE,
+          match_status VARCHAR(50),
+          error_message TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_audit_batch (batch_code),
+          INDEX idx_audit_dealer (dealer_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+        await dbRun(
+          `INSERT INTO matching_audit 
+          (batch_code, source_file, source_sheet, source_row, source_type, dealer_id, sap_code, sfa_code, dealer_name, match_method, match_confidence, match_status, error_message) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            batchCode,
+            sourceFile,
+            sourceSheet,
+            sourceRow,
+            sourceType,
+            dealerId,
+            sapCode,
+            sfaCode,
+            dealerName,
+            matchMethod,
+            matchConfidence,
+            matchStatus,
+            errorMessage
+          ]
+        );
+      } catch (retryErr) {
+        console.warn('Failed to log matching audit (after create attempt):', retryErr.message);
+      }
+    } else {
+      console.warn('Failed to log matching audit:', err.message);
+    }
   }
 }

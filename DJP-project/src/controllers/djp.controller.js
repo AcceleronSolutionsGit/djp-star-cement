@@ -10,7 +10,7 @@ import ExcelJS from 'exceljs';
 import {
   COLUMNS as MASTER_COLUMNS, SHEET_NAME as MASTER_SHEET_NAME,
   HEADER_ROW, FIRST_DATA_ROW, buildHeaders, buildSources,
-  buildRow, rowToArray, anchorDate, dedupeTargets
+  buildRow, rowToArray, anchorDate, dedupeTargets, shift
 } from '../services/masterSheet.service.js';
 
 /**
@@ -619,9 +619,9 @@ export async function buildMasterWorkbook(uniqueTargets, targetPeriod) {
   sourceRow.height = 22;
 
   // ── row 4: headers ────────────────────────────────────────────────────────
-  const salesAnchor = await getLatestAvailableSalesPeriod(targetPeriod);
+  // Columns O, Q, R are DLRWISE (Dealer Performance), strictly anchored on previous month (M-1)
   const headerRow = ws.getRow(HEADER_ROW);
-  buildHeaders(targetPeriod, salesAnchor).forEach((h, i) => {
+  buildHeaders(targetPeriod).forEach((h, i) => {
     const cell = headerRow.getCell(i + 1);
     cell.value = h;
     cell.font  = { bold: true, size: 10, color: { argb: 'FFFFFFFF' } };
@@ -1193,8 +1193,9 @@ export async function getMasterView(req, res) {
       return out;
     });
 
-    const salesAnchor = await getLatestAvailableSalesPeriod(targetPeriod);
-    const headers = buildHeaders(targetPeriod, salesAnchor);
+    const prevM = shift(targetPeriod, -1);
+    const dpAnchor = prevM ? `${prevM.y}-${String(prevM.m).padStart(2, '0')}` : targetPeriod;
+    const headers = buildHeaders(targetPeriod);
     res.json({
       period_month: targetPeriod,
       cycle_code: targetCycle,
@@ -1202,7 +1203,7 @@ export async function getMasterView(req, res) {
       header_row: HEADER_ROW,
       first_data_row: FIRST_DATA_ROW,
       anchor: anchorDate(targetPeriod)?.toISOString().slice(0, 10) || null,
-      sales_anchor: salesAnchor,
+      sales_anchor: dpAnchor,
       columns: MASTER_COLUMNS.map((c, i) => ({
         col: c.col, key: c.key, header: headers[i],
         source: c.source, align: c.align || 'left', fmt: c.fmt,

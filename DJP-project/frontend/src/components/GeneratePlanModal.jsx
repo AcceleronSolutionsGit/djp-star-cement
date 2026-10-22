@@ -121,19 +121,18 @@ export default function GeneratePlanModal({ open, onClose, onConfirm, initialMon
                 padding: '12px 14px', fontSize: '.82rem', lineHeight: 1.6
               }}>
                 <div>
-                  Sales data available through{' '}
+                  RSAR sales data available through{' '}
                   <strong>{latest ? label(latest) : 'unknown — no sales history uploaded'}</strong>
                 </div>
                 <div>
-                  Planning <strong>{label(month)}</strong>, anchored on{' '}
-                  <strong>{label(anchor)}</strong> sales
+                  Planning <strong>{label(month)}</strong>: Dealer Performance anchored on <strong>{label(planPrev)}</strong> (prior month), RSAR sales anchored on <strong>{label(anchor)}</strong>
                   {isPenultimate && <span style={{ color: 'var(--star-blue, #1F5FA9)', marginLeft: 6, fontWeight: 600 }}>(Penultimate month anchor)</span>}
                   {gap === 1 && <span style={{ color: 'var(--color-success, #16a34a)', marginLeft: 6, fontWeight: 600 }}>(Prior month anchor)</span>}
                 </div>
                 {!touched && latest && (
                   <div style={{ color: 'var(--text-tertiary)', marginTop: 4 }}>
                     {isPenultimate
-                      ? 'RSAR sales data extends to penultimate month — plans will anchor on ' + label(latest) + '.'
+                      ? 'RSAR retail sales extends to penultimate month (' + label(latest) + ') while Dealer Performance evaluates against ' + label(planPrev) + '.'
                       : 'Derived from your uploaded sales data.'}
                   </div>
                 )}

@@ -81,10 +81,12 @@ export default function MonthlyIngestionView({
   const loadBatches = async () => {
     setLoading(true);
     try {
+      const activePeriod = selectedPeriod || '2026-10';
+      const activeCycle = selectedCycle || 'C1';
       const [data, reconData, readinessData] = await Promise.allSettled([
         api.getBatches(),
-        api.getReconciliation('2026-06', 'C1'),
-        api.getInputReadiness()
+        api.getReconciliation(activePeriod, activeCycle),
+        api.getInputReadiness(activePeriod)
       ]);
       if (data.status === 'fulfilled') setBatches(data.value.batches || []);
       if (reconData.status === 'fulfilled') setReconciliation(reconData.value.reconciliationReport || reconData.value);
@@ -98,7 +100,7 @@ export default function MonthlyIngestionView({
 
   useEffect(() => {
     loadBatches();
-  }, []);
+  }, [selectedPeriod, selectedCycle, triggerReload]);
 
   const autoDetectType = (file) => {
     if (!file) return;
