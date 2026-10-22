@@ -51,6 +51,39 @@ async function runStartupMigrations() {
   } catch (err) {
     console.warn('[Migration] Warning during startup migration (matching_audit):', err.message);
   }
+
+  try {
+    // Migration 3: Clean dummy '-' placeholders from master_dealers and backfill from master_dealer_so_mapping
+    await dbRun(`UPDATE master_dealers SET so_name = NULL WHERE so_name IN ('-', 'NA', 'N/A')`);
+    await dbRun(`UPDATE master_dealers SET so_emp_code = NULL WHERE so_emp_code IN ('-', 'NA', 'N/A')`);
+    await dbRun(`UPDATE master_dealers SET asm_name = NULL WHERE asm_name IN ('-', 'NA', 'N/A')`);
+    await dbRun(`UPDATE master_dealers SET asm_code = NULL WHERE asm_code IN ('-', 'NA', 'N/A')`);
+    await dbRun(`UPDATE master_dealers SET rsm_name = NULL WHERE rsm_name IN ('-', 'NA', 'N/A')`);
+    await dbRun(`UPDATE master_dealers SET rsm_code = NULL WHERE rsm_code IN ('-', 'NA', 'N/A')`);
+    await dbRun(`UPDATE master_dealers SET zh_name = NULL WHERE zh_name IN ('-', 'NA', 'N/A')`);
+    await dbRun(`UPDATE master_dealers SET zh_code = NULL WHERE zh_code IN ('-', 'NA', 'N/A')`);
+
+    // Backfill master_dealers from master_dealer_so_mapping where hierarchy is missing
+    await dbRun(`
+      UPDATE master_dealers d
+      JOIN master_dealer_so_mapping m ON (d.id = m.dealer_id OR (d.sap_code IS NOT NULL AND d.sap_code = m.sap_code))
+      SET
+        d.dm_area = COALESCE(d.dm_area, m.area),
+        d.area = COALESCE(d.area, m.area),
+        d.so_name = COALESCE(d.so_name, NULLIF(NULLIF(m.so_name, '-'), 'NA')),
+        d.so_emp_code = COALESCE(d.so_emp_code, NULLIF(NULLIF(m.so_emp_code, '-'), 'NA')),
+        d.asm_name = COALESCE(d.asm_name, NULLIF(NULLIF(m.asm_name, '-'), 'NA')),
+        d.asm_code = COALESCE(d.asm_code, NULLIF(NULLIF(m.asm_code, '-'), 'NA')),
+        d.rsm_name = COALESCE(d.rsm_name, NULLIF(NULLIF(m.rsm_name, '-'), 'NA')),
+        d.rsm_code = COALESCE(d.rsm_code, NULLIF(NULLIF(m.rsm_code, '-'), 'NA')),
+        d.zh_name = COALESCE(d.zh_name, NULLIF(NULLIF(m.zh_name, '-'), 'NA')),
+        d.zh_code = COALESCE(d.zh_code, NULLIF(NULLIF(m.zh_code, '-'), 'NA'))
+      WHERE d.so_emp_code IS NULL OR d.asm_code IS NULL OR d.dm_area IS NULL
+    `);
+    console.log('[Migration] ✓ Healed dealer hierarchy from master_dealer_so_mapping');
+  } catch (err) {
+    console.warn('[Migration] Warning during startup hierarchy healing:', err.message);
+  }
 }
 
 const __filename = fileURLToPath(import.meta.url);

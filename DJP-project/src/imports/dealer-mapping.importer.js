@@ -330,6 +330,9 @@ export async function importDealerMapping(filePath, batchCode = null) {
     const internalId = matchResult.internalId;
 
     if (internalId) {
+      // Upsert authoritative relationship into master_dealer_so_mapping
+      const effectiveSoName = soName || (soEmpCode ? `SO ${soEmpCode}` : (rawDealerName ? `SO for ${rawDealerName}` : 'Unassigned SO'));
+
       // Update Dealer Mapping authoritative columns
       // dm_area is the authoritative Dealer Mapping area — always update from DM
       // counter_potential is the DM potential (separate from sbg_potential)
@@ -344,10 +347,14 @@ export async function importDealerMapping(filePath, batchCode = null) {
           doa = COALESCE(?, doa),
           territory_code = COALESCE(?, territory_code),
           territory_name = COALESCE(?, territory_name),
-          rsm_code = COALESCE(?, rsm_code),
-          rsm_name = COALESCE(?, rsm_name),
-          zh_code = COALESCE(?, zh_code),
-          zh_name = COALESCE(?, zh_name)
+          so_name = COALESCE(?, NULLIF(NULLIF(so_name, '-'), 'NA')),
+          so_emp_code = COALESCE(?, NULLIF(NULLIF(so_emp_code, '-'), 'NA')),
+          asm_name = COALESCE(?, NULLIF(NULLIF(asm_name, '-'), 'NA')),
+          asm_code = COALESCE(?, NULLIF(NULLIF(asm_code, '-'), 'NA')),
+          rsm_code = COALESCE(?, NULLIF(NULLIF(rsm_code, '-'), 'NA')),
+          rsm_name = COALESCE(?, NULLIF(NULLIF(rsm_name, '-'), 'NA')),
+          zh_code = COALESCE(?, NULLIF(NULLIF(zh_code, '-'), 'NA')),
+          zh_name = COALESCE(?, NULLIF(NULLIF(zh_name, '-'), 'NA'))
          WHERE id = ?`,
         [
           dmArea || null,
@@ -359,6 +366,10 @@ export async function importDealerMapping(filePath, batchCode = null) {
           doa,
           territoryCode || null,
           territoryName || null,
+          effectiveSoName || null,
+          soEmpCode || null,
+          asmName || null,
+          asmCode || null,
           rsmCode || null,
           rsmName || null,
           zhCode || null,
@@ -367,8 +378,6 @@ export async function importDealerMapping(filePath, batchCode = null) {
         ]
       );
 
-      // Upsert authoritative relationship into master_dealer_so_mapping
-      const effectiveSoName = soName || (soEmpCode ? `SO ${soEmpCode}` : (rawDealerName ? `SO for ${rawDealerName}` : 'Unassigned SO'));
       const existingMapping = await dbGet('SELECT id FROM master_dealer_so_mapping WHERE dealer_id = ?', [internalId]);
       
       if (existingMapping) {

@@ -156,6 +156,11 @@ export class AutoPlanGenerator {
    * @param {Map}   [options.sfaAdherenceByEmployee] - adherence map from analyseC1Adherence() for C2 regen
    */
   async generatePlan(empCode, periodMonth, role = 'SO', cycleCode = 'C1', options = {}) {
+    if (!empCode || String(empCode).trim() === '' || ['-', 'NA', 'N/A', 'NONE', 'NULL'].includes(String(empCode).trim().toUpperCase())) {
+      console.warn(`[AutoPlanGen] Rejecting plan generation for invalid/dummy employee code: "${empCode}"`);
+      return { planId: null, totalVisitsScheduled: 0 };
+    }
+
     const rules = await this.loadRules();
 
     // Resolve employee name and role.

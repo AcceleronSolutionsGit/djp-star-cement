@@ -200,10 +200,10 @@ export async function matchAndUpsertCanonicalDealer({
         normalized_block = COALESCE(?, normalized_block),
         zone = COALESCE(?, zone),
         region = COALESCE(?, region),
-        so_name = COALESCE(?, so_name),
-        so_emp_code = COALESCE(?, so_emp_code),
-        asm_name = ?,
-        asm_code = ?,
+        so_name = COALESCE(?, NULLIF(NULLIF(so_name, '-'), 'NA')),
+        so_emp_code = COALESCE(?, NULLIF(NULLIF(so_emp_code, '-'), 'NA')),
+        asm_name = COALESCE(?, NULLIF(NULLIF(asm_name, '-'), 'NA')),
+        asm_code = COALESCE(?, NULLIF(NULLIF(asm_code, '-'), 'NA')),
         match_status = ?,
         match_method = ?,
         match_confidence = ?,
@@ -216,8 +216,8 @@ export async function matchAndUpsertCanonicalDealer({
           rawBlock || null, block || null,
           effectiveZone || null, cleanRegion || null,
           soName || null, cleanEmpCode || null,
-          asmName || matchedDealer.asm_name || null,
-          cleanAsmCode || matchedDealer.asm_code || null,
+          asmName || (matchedDealer.asm_name && matchedDealer.asm_name !== '-' ? matchedDealer.asm_name : null),
+          cleanAsmCode || (matchedDealer.asm_code && matchedDealer.asm_code !== '-' ? matchedDealer.asm_code : null),
           matchStatus, matchMethod, matchConfidence, batchCode, matchedDealer.id
         ]
       );

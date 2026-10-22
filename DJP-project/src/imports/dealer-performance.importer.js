@@ -334,8 +334,8 @@ export async function importDealerPerformance(filePath, batchCode = null) {
     const sfaCode = normalizeCode(sfaIdx !== -1 ? row[sfaIdx] : null);
     const primaryCode = sapCode || sfaCode;
     const dealerName = nameIdx !== -1 ? String(row[nameIdx] || '').trim() : null;
-    const rowArea = areaIdx !== -1 && row[areaIdx] ? String(row[areaIdx]).trim() : '-';
-    const rowRegion = regionIdx !== -1 && row[regionIdx] ? String(row[regionIdx]).trim() : '-';
+    const rowArea = areaIdx !== -1 && row[areaIdx] ? String(row[areaIdx]).trim() : null;
+    const rowRegion = regionIdx !== -1 && row[regionIdx] ? String(row[regionIdx]).trim() : null;
     const rawDoa = doaIdx !== -1 && row[doaIdx] !== null && row[doaIdx] !== undefined ? row[doaIdx] : null;
     const parsedDoa = parseDOA(rawDoa);
 
@@ -435,8 +435,8 @@ export async function importDealerPerformance(filePath, batchCode = null) {
         ) VALUES (
           ?, ?, ?, 'STAR', 'ACTIVE',
           ?, ?, ?, ?, ?,
-          '-', '-', '-', '-', '-', '-', '-', '-',
-          '-', '-', NULL, 0,
+          NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+          NULL, NULL, NULL, 0,
           'SBG_NOT_FOUND', 'DP_MATCHED'
         )`,
         d

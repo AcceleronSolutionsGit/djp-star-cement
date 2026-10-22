@@ -70,7 +70,10 @@ export async function reconcileUniverse(options = {}) {
       d.zh_code
     FROM master_dealers d
     WHERE (d.status = 'ACTIVE' OR d.status = 'Active in SAP' OR d.status IS NULL)
-    ORDER BY d.id ASC
+    ORDER BY 
+      (CASE WHEN d.dm_area IS NOT NULL AND TRIM(d.dm_area) != '' THEN 0 ELSE 1 END),
+      (CASE WHEN d.so_emp_code IS NOT NULL AND TRIM(d.so_emp_code) != '' AND d.so_emp_code != '-' THEN 0 ELSE 1 END),
+      d.id ASC
   `);
 
   // ── Fetch mappings ──
@@ -98,12 +101,33 @@ export async function reconcileUniverse(options = {}) {
   `);
 
   const mappingByDealerId = new Map();
+  const mappingBySapCode = new Map();
+  const mappingByDealerName = new Map();
   for (const m of rawMappings) {
     if (m.dealer_id) {
       if (!mappingByDealerId.has(m.dealer_id)) mappingByDealerId.set(m.dealer_id, []);
       mappingByDealerId.get(m.dealer_id).push(m);
     }
+    const normSap = normalizeCode(m.sap_code);
+    if (normSap) {
+      if (!mappingBySapCode.has(normSap)) mappingBySapCode.set(normSap, []);
+      mappingBySapCode.get(normSap).push(m);
+    }
+    const normName = normalizeString(m.dealer_name);
+    if (normName) {
+      if (!mappingByDealerName.has(normName)) mappingByDealerName.set(normName, []);
+      mappingByDealerName.get(normName).push(m);
+    }
   }
+
+  const cleanHierarchyVal = (val) => {
+    if (val === null || val === undefined) return null;
+    const s = String(val).trim();
+    if (s === '' || s === '-' || s.toUpperCase() === 'NA' || s.toUpperCase() === 'N/A' || s.toUpperCase() === 'NONE' || s.toUpperCase() === 'NULL') {
+      return null;
+    }
+    return s;
+  };
 
   // ── Fetch RSAR sales records (by linked_dealer_code → canonical) ──
   const salesRows = await dbAll(`
@@ -165,7 +189,10 @@ export async function reconcileUniverse(options = {}) {
 
     // Merge hierarchy with explicit source precedence:
     // Dealer Mapping record > dealer master record
-    const mappings = mappingByDealerId.get(d.id) || [];
+    const mappings = (d.id && mappingByDealerId.get(d.id)) ||
+                     (d.sap_code && mappingBySapCode.get(normalizeCode(d.sap_code))) ||
+                     (d.dealer_name && mappingByDealerName.get(normalizeString(d.dealer_name))) ||
+                     [];
     const m = mappings[0] || {};
 
     if (mappings.length > 1) {
@@ -178,17 +205,17 @@ export async function reconcileUniverse(options = {}) {
       });
     }
 
-    const territoryCode = m.territory_code || d.territory_code || null;
-    const territoryName = m.territory_name || d.territory_name || null;
-    const soCode = m.so_emp_code || d.so_emp_code || null;
-    const soName = m.so_name || d.so_name || null;
+    const territoryCode = cleanHierarchyVal(m.territory_code) || cleanHierarchyVal(d.territory_code) || null;
+    const territoryName = cleanHierarchyVal(m.territory_name) || cleanHierarchyVal(d.territory_name) || null;
+    const soCode = cleanHierarchyVal(m.so_emp_code) || cleanHierarchyVal(d.so_emp_code) || null;
+    const soName = cleanHierarchyVal(m.so_name) || cleanHierarchyVal(d.so_name) || null;
     const isProspect = d.dealer_type === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED';
-    let asmCode = m.asm_code || d.asm_code || null;
-    let asmName = m.asm_name || d.asm_name || null;
-    let rsmCode = m.rsm_code || d.rsm_code || null;
-    let rsmName = m.rsm_name || d.rsm_name || null;
-    let zhCode = m.zh_code || d.zh_code || null;
-    let zhName = m.zh_name || d.zh_name || null;
+    let asmCode = cleanHierarchyVal(m.asm_code) || cleanHierarchyVal(d.asm_code) || null;
+    let asmName = cleanHierarchyVal(m.asm_name) || cleanHierarchyVal(d.asm_name) || null;
+    let rsmCode = cleanHierarchyVal(m.rsm_code) || cleanHierarchyVal(d.rsm_code) || null;
+    let rsmName = cleanHierarchyVal(m.rsm_name) || cleanHierarchyVal(d.rsm_name) || null;
+    let zhCode = cleanHierarchyVal(m.zh_code) || cleanHierarchyVal(d.zh_code) || null;
+    let zhName = cleanHierarchyVal(m.zh_name) || cleanHierarchyVal(d.zh_name) || null;
 
     if (isProspect && (!zhName || !rsmName || !asmName)) {
       const h = await resolveProspectHierarchy({

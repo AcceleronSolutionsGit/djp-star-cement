@@ -49,7 +49,9 @@ export async function generatePlansForAllRoles(periodMonth, cycleCode, planOptio
     const people = await dbAll(
       `SELECT DISTINCT ${codeCol} AS emp_code FROM dealer_visit_targets
        WHERE period_month = ? AND cycle_code = ?
-         AND ${codeCol} IS NOT NULL AND TRIM(${codeCol}) != ''`,
+         AND ${codeCol} IS NOT NULL 
+         AND TRIM(${codeCol}) != ''
+         AND TRIM(${codeCol}) NOT IN ('-', 'NA', 'N/A', 'NONE', 'NULL')`,
       [periodMonth, cycleCode]
     );
 

@@ -91,21 +91,21 @@ export async function loadDealersWithMappings(options = {}) {
       d.doa,
 
       -- Hierarchy from mapping (preferred) or dealer record
-      COALESCE(m.territory_code, d.territory_code) as territory_code,
-      COALESCE(m.territory_name, d.territory_name) as territory_name,
-      COALESCE(m.so_name, d.so_name) as so_name,
-      COALESCE(m.so_emp_code, d.so_emp_code) as so_emp_code,
-      COALESCE(m.asm_name, d.asm_name) as asm_name,
-      COALESCE(m.asm_code, d.asm_code) as asm_code,
-      COALESCE(m.rsm_name, d.rsm_name) as rsm_name,
-      COALESCE(m.rsm_code, d.rsm_code) as rsm_code,
-      COALESCE(m.zh_name, d.zh_name) as zh_name,
-      COALESCE(m.zh_code, d.zh_code) as zh_code,
+      COALESCE(NULLIF(NULLIF(m.territory_code, '-'), 'NA'), NULLIF(NULLIF(d.territory_code, '-'), 'NA')) as territory_code,
+      COALESCE(NULLIF(NULLIF(m.territory_name, '-'), 'NA'), NULLIF(NULLIF(d.territory_name, '-'), 'NA')) as territory_name,
+      COALESCE(NULLIF(NULLIF(m.so_name, '-'), 'NA'), NULLIF(NULLIF(d.so_name, '-'), 'NA')) as so_name,
+      COALESCE(NULLIF(NULLIF(m.so_emp_code, '-'), 'NA'), NULLIF(NULLIF(d.so_emp_code, '-'), 'NA')) as so_emp_code,
+      COALESCE(NULLIF(NULLIF(m.asm_name, '-'), 'NA'), NULLIF(NULLIF(d.asm_name, '-'), 'NA')) as asm_name,
+      COALESCE(NULLIF(NULLIF(m.asm_code, '-'), 'NA'), NULLIF(NULLIF(d.asm_code, '-'), 'NA')) as asm_code,
+      COALESCE(NULLIF(NULLIF(m.rsm_name, '-'), 'NA'), NULLIF(NULLIF(d.rsm_name, '-'), 'NA')) as rsm_name,
+      COALESCE(NULLIF(NULLIF(m.rsm_code, '-'), 'NA'), NULLIF(NULLIF(d.rsm_code, '-'), 'NA')) as rsm_code,
+      COALESCE(NULLIF(NULLIF(m.zh_name, '-'), 'NA'), NULLIF(NULLIF(d.zh_name, '-'), 'NA')) as zh_name,
+      COALESCE(NULLIF(NULLIF(m.zh_code, '-'), 'NA'), NULLIF(NULLIF(d.zh_code, '-'), 'NA')) as zh_code,
       m.linked_dealer_code as mapping_linked_code,
       m.branch as mapping_branch,
       d.branch
     FROM master_dealers d
-    LEFT JOIN master_dealer_so_mapping m ON d.id = m.dealer_id
+    LEFT JOIN master_dealer_so_mapping m ON (d.id = m.dealer_id OR (d.sap_code IS NOT NULL AND d.sap_code = m.sap_code))
     WHERE (d.status = 'ACTIVE' OR d.status = 'Active in SAP' OR d.status IS NULL)
     ${typeExclusion}
     ORDER BY d.id ASC
