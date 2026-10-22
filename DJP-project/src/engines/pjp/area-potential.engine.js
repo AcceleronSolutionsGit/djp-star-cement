@@ -20,7 +20,7 @@ export function normalizeArea(area) {
   return area.trim().toUpperCase();
 }
 
-const pot = d => d.potential ?? 0;
+const pot = d => parseFloat(d.potential ?? d.sbg_potential ?? d.counter_potential) || 0;
 
 /**
  * Calculate Area Potential, Area Potential Rank, and Area Potential Percentile

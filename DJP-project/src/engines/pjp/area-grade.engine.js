@@ -28,7 +28,7 @@ export function calculateAreaGradeMetrics(dealers, thresholds = {}) {
   // Group dealers by normalized area
   const areaGroups = new Map();
   for (const d of dealers) {
-    const areaKey = normalizeArea(d.area);
+    const areaKey = normalizeArea(d.area || d.dm_area);
     if (!areaGroups.has(areaKey)) areaGroups.set(areaKey, []);
     areaGroups.get(areaKey).push(d);
   }

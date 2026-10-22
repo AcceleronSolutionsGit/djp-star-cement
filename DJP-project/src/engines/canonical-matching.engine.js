@@ -73,7 +73,13 @@ export async function matchAndUpsertCanonicalDealer({
 
   // 2. Try SFA Code Match
   if (!matchedDealer && matchStatus !== 'AMBIGUOUS' && sfaCode) {
-    const sfaMatches = await dbAll('SELECT * FROM master_dealers WHERE sfa_code = ?', [sfaCode]);
+    let sfaQuery = 'SELECT * FROM master_dealers WHERE sfa_code = ?';
+    if (sourceType === 'PROSPECT_DEALERS' || dType === 'PROSPECTIVE') {
+      sfaQuery += " AND (dealer_type = 'PROSPECTIVE' OR prospect_status = 'PROSPECT_MATCHED')";
+    } else {
+      sfaQuery += " AND (dealer_type != 'PROSPECTIVE' OR dealer_type IS NULL)";
+    }
+    const sfaMatches = await dbAll(sfaQuery, [sfaCode]);
     if (sfaMatches.length === 1) {
       matchedDealer = sfaMatches[0];
       matchMethod = 'SFA_CODE';
@@ -87,7 +93,13 @@ export async function matchAndUpsertCanonicalDealer({
 
   // 3. Try Linked Dealer Code Match (When SAP is unavailable)
   if (!matchedDealer && matchStatus !== 'AMBIGUOUS' && !sapCode && linkedDealerCode) {
-    const linkMatches = await dbAll('SELECT * FROM master_dealers WHERE linked_dealer_code = ?', [linkedDealerCode]);
+    let linkQuery = 'SELECT * FROM master_dealers WHERE linked_dealer_code = ?';
+    if (sourceType === 'PROSPECT_DEALERS' || dType === 'PROSPECTIVE') {
+      linkQuery += " AND (dealer_type = 'PROSPECTIVE' OR prospect_status = 'PROSPECT_MATCHED')";
+    } else {
+      linkQuery += " AND (dealer_type != 'PROSPECTIVE' OR dealer_type IS NULL)";
+    }
+    const linkMatches = await dbAll(linkQuery, [linkedDealerCode]);
     if (linkMatches.length === 1) {
       matchedDealer = linkMatches[0];
       matchMethod = 'LINKED_DEALER_CODE';
@@ -107,6 +119,12 @@ export async function matchAndUpsertCanonicalDealer({
     if (block) {
       query += ' AND normalized_block = ?';
       params.push(block);
+    }
+
+    if (sourceType === 'PROSPECT_DEALERS' || dType === 'PROSPECTIVE') {
+      query += " AND (dealer_type = 'PROSPECTIVE' OR prospect_status = 'PROSPECT_MATCHED')";
+    } else {
+      query += " AND (dealer_type != 'PROSPECTIVE' OR dealer_type IS NULL)";
     }
     
     const compositeMatches = await dbAll(query, params);
@@ -150,25 +168,26 @@ export async function matchAndUpsertCanonicalDealer({
     
     const dealerId = crypto.randomUUID();
     const counterStrategy = dType === 'PROSPECTIVE' ? 'PROSPECT' : null;
-    const finalAsmName = dType === 'PROSPECTIVE' ? null : (asmName || null);
-    const finalAsmCode = dType === 'PROSPECTIVE' ? null : (cleanAsmCode || null);
+    const finalAsmName = asmName || null;
+    const finalAsmCode = cleanAsmCode || null;
+    const prospectStatus = dType === 'PROSPECTIVE' ? 'PROSPECT_MATCHED' : 'PROSPECT_NOT_FOUND';
     const res = await dbRun(
       `INSERT INTO master_dealers 
       (dealer_id, dealer_type, sap_code, sfa_code, linked_dealer_code, dealer_name, normalized_dealer_name, 
-       area, branch, normalized_area, block, normalized_block, zone, region,
+       area, dm_area, branch, normalized_area, block, normalized_block, zone, region,
        so_name, so_emp_code, asm_name, asm_code, counter_strategy,
-       batch_code, match_status, match_method, match_confidence) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       batch_code, match_status, match_method, match_confidence, status, prospect_status) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         dealerId, dType, sapCode || null, sfaCode || null, linkedDealerCode || null,
         rawDealerName, dealerName,
-        effectiveArea || null, rawBranch || effectiveArea || null, area,
+        effectiveArea || null, effectiveArea || null, rawBranch || effectiveArea || null, area,
         rawBlock || null, block || null,
         effectiveZone || null, cleanRegion || null,
         soName || null, cleanEmpCode || null,
         finalAsmName, finalAsmCode,
         counterStrategy,
-        batchCode, 'NEW', 'NONE', 100
+        batchCode, 'NEW', 'NONE', 100, 'ACTIVE', prospectStatus
       ]
     );
     return {
@@ -207,7 +226,9 @@ export async function matchAndUpsertCanonicalDealer({
         match_status = ?,
         match_method = ?,
         match_confidence = ?,
-        batch_code = ?
+        batch_code = ?,
+        dm_area = COALESCE(dm_area, ?),
+        status = COALESCE(status, 'ACTIVE')
         WHERE id = ?`,
         [
           sapCode || null, sfaCode || null, linkedDealerCode || null,
@@ -218,7 +239,9 @@ export async function matchAndUpsertCanonicalDealer({
           soName || null, cleanEmpCode || null,
           asmName || (matchedDealer.asm_name && matchedDealer.asm_name !== '-' ? matchedDealer.asm_name : null),
           cleanAsmCode || (matchedDealer.asm_code && matchedDealer.asm_code !== '-' ? matchedDealer.asm_code : null),
-          matchStatus, matchMethod, matchConfidence, batchCode, matchedDealer.id
+          matchStatus, matchMethod, matchConfidence, batchCode,
+          effectiveArea || null,
+          matchedDealer.id
         ]
       );
     }

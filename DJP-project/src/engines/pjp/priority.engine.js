@@ -59,8 +59,8 @@ export function calculateSOPriorityScores(dealers, scoreBConfig = {}) {
     // Formula: COUNTIFS(same SO, potential < d.potential) + 1
     for (const d of group) {
       // Use sbg_potential (d.potential alias) — authoritative SBG DLR counter potential
-      const dPotential = parseFloat(d.potential ?? d.sbg_potential) || 0;
-      const smallerPotentialCount = group.filter(x => (parseFloat(x.potential ?? x.sbg_potential) || 0) < dPotential).length;
+      const dPotential = parseFloat(d.potential ?? d.sbg_potential ?? d.counter_potential) || 0;
+      const smallerPotentialCount = group.filter(x => (parseFloat(x.potential ?? x.sbg_potential ?? x.counter_potential) || 0) < dPotential).length;
       d._potentialRank = smallerPotentialCount + 1;
     }
 

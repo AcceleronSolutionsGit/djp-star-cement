@@ -278,7 +278,7 @@ export const rowToArray = (row) => COLUMNS.map(c => {
 export function dedupeTargets(targets) {
   const seen = new Map();
   for (const t of targets) {
-    const code = t.sap_code || t.sfa_code;
+    const code = t.sap_code || t.sfa_code || (t.dealer_id ? `DLR_${t.dealer_id}` : (t.id ? `ID_${t.id}` : `${t.dealer_name}_${t.area || ''}`));
     if (code && !seen.has(code)) seen.set(code, t);
   }
   return [...seen.values()];

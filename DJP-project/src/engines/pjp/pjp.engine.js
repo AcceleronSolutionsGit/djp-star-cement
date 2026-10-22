@@ -274,7 +274,7 @@ export async function calculatePJP(reportMonth, cycleCode, options = {}) {
     dealer.finalVolume = calculateFinalVolume(
       dealer.finalCategory,
       dealer.currentSales,
-      dealer.sbg_potential,       // SBG potential — may be NULL (→ 0 in calculateFinalVolume)
+      dealer.potential ?? dealer.sbg_potential ?? dealer.counter_potential,
       dealer.dpSixMonthAverage    // S — Dealer Performance
     );
   }

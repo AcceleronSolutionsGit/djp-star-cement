@@ -160,7 +160,9 @@ export async function reconcileUniverse(options = {}) {
 
   for (const d of rawDealers) {
     // Use SAP code first, then SFA code, then dealer ID as canonical code
-    const code = normalizeCode(d.sap_code || d.sfa_code || String(d.id));
+    const isProspect = d.dealer_type === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED';
+    const fallbackCode = isProspect ? `PROSPECT_${d.id}` : `DLR_${d.id}`;
+    const code = normalizeCode(d.sap_code || d.sfa_code || fallbackCode);
     if (!code) {
       rejectedCount++;
       issues.push({

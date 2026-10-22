@@ -203,14 +203,17 @@ export async function importProspectDealers(filePath, batchCode = null) {
           prospect_status = "PROSPECT_MATCHED",
           territory_code = COALESCE(?, territory_code),
           territory_name = COALESCE(?, territory_name),
+          dm_area = COALESCE(dm_area, ?),
+          area = COALESCE(area, ?),
           rsm_name = COALESCE(?, rsm_name),
           rsm_code = COALESCE(?, rsm_code),
           zh_name = COALESCE(?, zh_name),
           zh_code = COALESCE(?, zh_code),
-          asm_name = NULL,
-          asm_code = NULL
-         WHERE id = ?`,
-        [potential, expectedSale, territoryCode, area, rsmName, rsmCode, zhName, zhCode, matchResult.internalId]
+          asm_name = COALESCE(?, asm_name),
+          asm_code = COALESCE(?, asm_code),
+          status = 'ACTIVE'
+         WHERE id = ? AND (dealer_type = 'PROSPECTIVE' OR prospect_status = 'PROSPECT_MATCHED')`,
+        [potential, expectedSale, territoryCode, area, area, area, rsmName, rsmCode, zhName, zhCode, asmName, asmCode, matchResult.internalId]
       );
     }
 
