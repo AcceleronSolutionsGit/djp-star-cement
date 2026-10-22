@@ -134,7 +134,7 @@ export default function ArchiveView({ onShowToast, selectedPeriod }) {
               <button
                 className="btn btn-outline"
                 onClick={() => handleDeleteArchives(false)}
-                disabled={deleting || loading || totalCount === 0}
+                disabled={deleting || loading}
                 style={{
                   color: 'var(--star-red)',
                   borderColor: 'var(--star-red)',

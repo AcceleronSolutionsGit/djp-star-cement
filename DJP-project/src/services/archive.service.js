@@ -16,25 +16,57 @@ export const ARCHIVABLE_TABLES = [
 ];
 
 /**
+ * Check if a table exists in MySQL or SQLite
+ */
+async function tableExists(tableName) {
+  try {
+    const res = await dbAll(`SHOW TABLES LIKE '${tableName}'`).catch(async () => {
+      return await dbAll(`SELECT name FROM sqlite_master WHERE type='table' AND name = ?`, [tableName]).catch(() => []);
+    });
+    return Boolean(res && res.length > 0);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get existing column names for a table
+ */
+async function getTableColumns(tableName) {
+  try {
+    const rawCols = await dbAll(`SHOW COLUMNS FROM \`${tableName}\``).catch(async () => {
+      const pragmaCols = await dbAll(`PRAGMA table_info(\`${tableName}\`)`).catch(() => []);
+      return pragmaCols.map(c => ({ Field: c.name }));
+    });
+    return (rawCols || []).map(c => (c.Field || c.field || c.COLUMN_NAME || c.column_name || '').toLowerCase());
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Ensure an archive table exists and has archive_id primary key, archived_at timestamp,
  * and archive_month mapped column.
  */
 export async function ensureArchiveTable(table) {
   const archTable = `${table}_archive`;
-  await dbRun(`CREATE TABLE IF NOT EXISTS \`${archTable}\` LIKE \`${table}\``);
-  const cols = await dbAll(`SHOW COLUMNS FROM \`${archTable}\` LIKE 'archive_id'`);
-  if (!cols || cols.length === 0) {
-    try { await dbRun(`ALTER TABLE \`${archTable}\` MODIFY id INT NOT NULL`); } catch (_) {}
-    try { await dbRun(`ALTER TABLE \`${archTable}\` DROP PRIMARY KEY`); } catch (_) {}
-    try { await dbRun(`ALTER TABLE \`${archTable}\` ADD COLUMN archive_id INT AUTO_INCREMENT PRIMARY KEY FIRST`); } catch (_) {}
-    try { await dbRun(`ALTER TABLE \`${archTable}\` ADD COLUMN archived_at DATETIME DEFAULT CURRENT_TIMESTAMP`); } catch (_) {}
-  }
-  const monthCols = await dbAll(`SHOW COLUMNS FROM \`${archTable}\` LIKE 'archive_month'`);
-  if (!monthCols || monthCols.length === 0) {
-    try {
-      await dbRun(`ALTER TABLE \`${archTable}\` ADD COLUMN archive_month VARCHAR(20) NULL, ADD INDEX idx_${archTable}_month (archive_month)`);
-    } catch (_) {}
-  }
+  try {
+    await dbRun(`CREATE TABLE IF NOT EXISTS \`${archTable}\` LIKE \`${table}\``).catch(() => {});
+  } catch (_) {}
+
+  try {
+    const cols = await getTableColumns(archTable);
+    if (!cols.includes('archive_id')) {
+      try { await dbRun(`ALTER TABLE \`${archTable}\` MODIFY id INT NOT NULL`); } catch (_) {}
+      try { await dbRun(`ALTER TABLE \`${archTable}\` DROP PRIMARY KEY`); } catch (_) {}
+      try { await dbRun(`ALTER TABLE \`${archTable}\` ADD COLUMN archive_id INT AUTO_INCREMENT PRIMARY KEY FIRST`); } catch (_) {}
+      try { await dbRun(`ALTER TABLE \`${archTable}\` ADD COLUMN archived_at DATETIME DEFAULT CURRENT_TIMESTAMP`); } catch (_) {}
+    }
+    if (!cols.includes('archive_month')) {
+      try { await dbRun(`ALTER TABLE \`${archTable}\` ADD COLUMN archive_month VARCHAR(20) NULL`); } catch (_) {}
+      try { await dbRun(`ALTER TABLE \`${archTable}\` ADD INDEX idx_${archTable}_month (archive_month)`); } catch (_) {}
+    }
+  } catch (_) {}
 }
 
 /**
@@ -68,6 +100,12 @@ export async function archiveAllActiveData(targetMonth = null) {
   const stats = {};
   for (const table of ARCHIVABLE_TABLES) {
     try {
+      const exists = await tableExists(table);
+      if (!exists) {
+        stats[table] = 0;
+        continue;
+      }
+
       const countRes = await dbGet(`SELECT COUNT(*) as cnt FROM \`${table}\``);
       const rowCount = countRes?.cnt || 0;
       if (rowCount === 0) {
@@ -78,14 +116,28 @@ export async function archiveAllActiveData(targetMonth = null) {
       await ensureArchiveTable(table);
       const archTable = `${table}_archive`;
 
-      const srcCols = await dbAll(`SHOW COLUMNS FROM \`${table}\``);
+      const srcCols = await dbAll(`SHOW COLUMNS FROM \`${table}\``).catch(async () => {
+        const pragma = await dbAll(`PRAGMA table_info(\`${table}\`)`).catch(() => []);
+        return pragma.map(p => ({ Field: p.name }));
+      });
       const colNames = srcCols.map(c => `\`${c.Field}\``).join(', ');
 
-      const insertRes = await dbRun(
-        `INSERT INTO \`${archTable}\` (${colNames}, archive_month) SELECT ${colNames}, ? AS archive_month FROM \`${table}\``,
-        [month]
-      );
-      stats[table] = insertRes.affectedRows || rowCount;
+      const archCols = await getTableColumns(archTable);
+      const hasMonth = archCols.includes('archive_month');
+
+      let insertRes;
+      if (hasMonth) {
+        insertRes = await dbRun(
+          `INSERT INTO \`${archTable}\` (${colNames}, archive_month) SELECT ${colNames}, ? AS archive_month FROM \`${table}\``,
+          [month]
+        );
+      } else {
+        insertRes = await dbRun(
+          `INSERT INTO \`${archTable}\` (${colNames}) SELECT ${colNames} FROM \`${table}\``
+        );
+      }
+
+      stats[table] = insertRes?.affectedRows || insertRes?.changes || rowCount;
       console.log(`[Archive] Preserved ${stats[table]} rows from ${table} into ${archTable} for month ${month}`);
     } catch (err) {
       console.warn(`[Archive] Could not archive table ${table}:`, err.message);
@@ -100,31 +152,43 @@ export async function archiveAllActiveData(targetMonth = null) {
  * Get archive statistics and counts across preserved categories for a specific month or all time.
  */
 export async function getArchiveStats(periodMonth = null) {
-  // Ensure tables exist before querying
-  for (const table of ARCHIVABLE_TABLES) {
+  const getCount = async (table) => {
     try {
-      await ensureArchiveTable(table);
-    } catch (_) {}
-  }
+      const exists = await tableExists(table);
+      if (!exists) return 0;
 
-  const getCount = async (table, dateCol = null) => {
-    try {
+      const cols = await getTableColumns(table);
+
       if (periodMonth && periodMonth !== 'ALL') {
-        const isDatePattern = dateCol === 'visit_date';
-        let sql;
-        let params;
-        if (dateCol) {
-          sql = isDatePattern
-            ? `SELECT COUNT(*) as cnt FROM \`${table}\` WHERE archive_month = ? OR (archive_month IS NULL AND \`${dateCol}\` LIKE ?)`
-            : `SELECT COUNT(*) as cnt FROM \`${table}\` WHERE archive_month = ? OR (archive_month IS NULL AND \`${dateCol}\` = ?)`;
-          params = isDatePattern ? [periodMonth, `${periodMonth}%`] : [periodMonth, periodMonth];
-        } else {
-          sql = `SELECT COUNT(*) as cnt FROM \`${table}\` WHERE archive_month = ?`;
-          params = [periodMonth];
+        const conditions = [];
+        const params = [];
+
+        if (cols.includes('archive_month')) {
+          conditions.push('`archive_month` = ?');
+          params.push(periodMonth);
         }
+        if (cols.includes('period_month')) {
+          conditions.push('`period_month` = ?');
+          params.push(periodMonth);
+        }
+        if (cols.includes('period_year_month')) {
+          conditions.push('`period_year_month` = ?');
+          params.push(periodMonth);
+        }
+        if (cols.includes('visit_date')) {
+          conditions.push('`visit_date` LIKE ?');
+          params.push(`${periodMonth}%`);
+        }
+
+        if (conditions.length === 0) {
+          return 0;
+        }
+
+        const sql = `SELECT COUNT(*) as cnt FROM \`${table}\` WHERE ${conditions.join(' OR ')}`;
         const res = await dbGet(sql, params);
         return res?.cnt || 0;
       }
+
       const res = await dbGet(`SELECT COUNT(*) as cnt FROM \`${table}\``);
       return res?.cnt || 0;
     } catch (_) {
@@ -146,18 +210,18 @@ export async function getArchiveStats(periodMonth = null) {
     dealerPerformanceHistory,
     uploadBatches
   ] = await Promise.all([
-    getCount('sales_plans_archive', 'period_month'),
-    getCount('sales_plan_details_archive', null),
-    getCount('plan_approvals_archive', null),
-    getCount('master_dealers_archive', null),
-    getCount('master_employees_archive', null),
-    getCount('master_dealer_so_mapping_archive', null),
-    getCount('visit_execution_logs_archive', 'visit_date'),
-    getCount('dealer_visit_targets_archive', 'period_month'),
-    getCount('djp_recommendations_archive', null),
-    getCount('sales_history_archive', 'period_year_month'),
-    getCount('dealer_performance_history_archive', null),
-    getCount('upload_batches_archive', null)
+    getCount('sales_plans_archive'),
+    getCount('sales_plan_details_archive'),
+    getCount('plan_approvals_archive'),
+    getCount('master_dealers_archive'),
+    getCount('master_employees_archive'),
+    getCount('master_dealer_so_mapping_archive'),
+    getCount('visit_execution_logs_archive'),
+    getCount('dealer_visit_targets_archive'),
+    getCount('djp_recommendations_archive'),
+    getCount('sales_history_archive'),
+    getCount('dealer_performance_history_archive'),
+    getCount('upload_batches_archive')
   ]);
 
   const masterRecords = masterDealers + masterEmployees + masterDealerSoMapping;
@@ -194,40 +258,58 @@ export async function getArchiveStats(periodMonth = null) {
  */
 export async function clearAllArchives(periodMonth = null) {
   let totalDeleted = 0;
-  await dbRun('SET FOREIGN_KEY_CHECKS = 0');
+  try { await dbRun('SET FOREIGN_KEY_CHECKS = 0'); } catch (_) {}
+  try { await dbRun('PRAGMA foreign_keys = OFF'); } catch (_) {}
 
   try {
     for (const table of ARCHIVABLE_TABLES) {
       const archTable = `${table}_archive`;
       try {
-        await ensureArchiveTable(table);
+        const exists = await tableExists(archTable);
+        if (!exists) {
+          continue;
+        }
+
+        const cols = await getTableColumns(archTable);
+
         if (periodMonth && periodMonth !== 'ALL') {
-          let dateCol = null;
-          if (['sales_plans_archive', 'dealer_visit_targets_archive'].includes(archTable)) {
-            dateCol = 'period_month';
-          } else if (archTable === 'visit_execution_logs_archive') {
-            dateCol = 'visit_date';
-          } else if (archTable === 'sales_history_archive') {
-            dateCol = 'period_year_month';
+          const conditions = [];
+          const params = [];
+
+          if (cols.includes('archive_month')) {
+            conditions.push('`archive_month` = ?');
+            params.push(periodMonth);
+          }
+          if (cols.includes('period_month')) {
+            conditions.push('`period_month` = ?');
+            params.push(periodMonth);
+          }
+          if (cols.includes('period_year_month')) {
+            conditions.push('`period_year_month` = ?');
+            params.push(periodMonth);
+          }
+          if (cols.includes('visit_date')) {
+            conditions.push('`visit_date` LIKE ?');
+            params.push(`${periodMonth}%`);
           }
 
-          let sql;
-          let params;
-          if (dateCol) {
-            const isDatePattern = dateCol === 'visit_date';
-            sql = isDatePattern
-              ? `DELETE FROM \`${archTable}\` WHERE archive_month = ? OR (archive_month IS NULL AND \`${dateCol}\` LIKE ?)`
-              : `DELETE FROM \`${archTable}\` WHERE archive_month = ? OR (archive_month IS NULL AND \`${dateCol}\` = ?)`;
-            params = isDatePattern ? [periodMonth, `${periodMonth}%`] : [periodMonth, periodMonth];
-          } else {
-            sql = `DELETE FROM \`${archTable}\` WHERE archive_month = ? OR archive_month IS NULL`;
-            params = [periodMonth];
+          if (conditions.length > 0) {
+            const sql = `DELETE FROM \`${archTable}\` WHERE ${conditions.join(' OR ')}`;
+            const r = await dbRun(sql, params);
+            const count = r?.affectedRows || r?.changes || 0;
+            totalDeleted += count;
+            console.log(`[clearAllArchives] Deleted ${count} rows from ${archTable} for period ${periodMonth}`);
           }
-          const r = await dbRun(sql, params);
-          totalDeleted += r.affectedRows || 0;
         } else {
-          const r = await dbRun(`DELETE FROM \`${archTable}\``);
-          totalDeleted += r.affectedRows || 0;
+          let r;
+          try {
+            r = await dbRun(`TRUNCATE TABLE \`${archTable}\``);
+          } catch (_) {
+            r = await dbRun(`DELETE FROM \`${archTable}\``);
+          }
+          const count = r?.affectedRows || r?.changes || 0;
+          totalDeleted += count;
+          console.log(`[clearAllArchives] Cleared all rows from ${archTable}`);
         }
       } catch (err) {
         console.warn(`[clearAllArchives] Error clearing ${archTable}:`, err.message);
@@ -235,6 +317,7 @@ export async function clearAllArchives(periodMonth = null) {
     }
   } finally {
     try { await dbRun('SET FOREIGN_KEY_CHECKS = 1'); } catch (_) {}
+    try { await dbRun('PRAGMA foreign_keys = ON'); } catch (_) {}
   }
 
   return { success: true, deleted: totalDeleted };
