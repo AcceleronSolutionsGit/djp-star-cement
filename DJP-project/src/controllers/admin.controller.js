@@ -6,8 +6,16 @@ import { archiveAllActiveData } from '../services/archive.service.js';
  */
 export async function getDashboardStats(req, res) {
   try {
-    const totalDealersObj = await dbGet('SELECT COUNT(*) as count FROM master_dealers WHERE status = "ACTIVE" OR status IS NULL');
+    const totalDealersObj = await dbGet(`
+      SELECT COUNT(*) as count 
+      FROM master_dealers 
+      WHERE (status IS NULL OR UPPER(TRIM(status)) IN ('ACTIVE', 'ACTIVE IN SAP', 'ACTIVE IN SFA', 'VALIDATED') OR UPPER(TRIM(status)) LIKE 'ACT%') 
+        AND UPPER(TRIM(status)) NOT LIKE 'INACT%'
+    `);
     const totalAreasObj = await dbGet('SELECT COUNT(DISTINCT area) as count FROM master_dealer_so_mapping WHERE area IS NOT NULL AND area != ""');
+
+    const latestPeriodObj = await dbGet('SELECT period_month FROM dealer_visit_targets ORDER BY period_month DESC LIMIT 1');
+    const latestPeriod = latestPeriodObj ? latestPeriodObj.period_month : new Date().toISOString().slice(0, 7);
 
     const visitsObj = await dbGet(`
       SELECT 
@@ -17,15 +25,18 @@ export async function getDashboardStats(req, res) {
         SUM(zh_visits) as total_zh,
         COUNT(DISTINCT dealer_name) as target_dealers
       FROM dealer_visit_targets
-    `);
+      WHERE period_month = ?
+    `, [latestPeriod]);
 
-    const latestPeriodObj = await dbGet('SELECT period_month FROM dealer_visit_targets ORDER BY period_month DESC LIMIT 1');
-    const latestPeriod = latestPeriodObj ? latestPeriodObj.period_month : new Date().toISOString().slice(0, 7);
+    // Use master_dealers count as baseline, falling back to targets if master count is empty
+    const totalDealers = (totalDealersObj?.count && totalDealersObj.count > 0)
+      ? Math.max(totalDealersObj.count, visitsObj?.target_dealers || 0)
+      : (visitsObj?.target_dealers || 0);
 
     res.json({
       latestPeriod,
       stats: {
-        totalDealers: visitsObj?.target_dealers || totalDealersObj?.count || 0,
+        totalDealers,
         totalAreas: totalAreasObj?.count || 0,
         soVisits: Math.round((visitsObj?.total_so || 0) * 10) / 10,
         asmVisits: Math.round((visitsObj?.total_asm || 0) * 10) / 10,
@@ -136,8 +147,17 @@ export async function updateRulesBatch(req, res) {
 export async function getMasterSummary(req, res) {
   try {
     const [dealers, prospects, employees, sales, logs, mappings, targets, batches, perf] = await Promise.all([
-      dbGet('SELECT COUNT(*) as cnt FROM master_dealers WHERE dealer_type != "PROSPECTIVE"'),
-      dbGet('SELECT COUNT(*) as cnt FROM master_dealers WHERE dealer_type = "PROSPECTIVE" OR counter_strategy = "PROSPECT"'),
+      dbGet(`
+        SELECT COUNT(*) as cnt 
+        FROM master_dealers 
+        WHERE (dealer_type != "PROSPECTIVE" OR dealer_type IS NULL)
+          AND (counter_strategy != "PROSPECT" OR counter_strategy IS NULL)
+      `),
+      dbGet(`
+        SELECT COUNT(*) as cnt 
+        FROM master_dealers 
+        WHERE dealer_type = "PROSPECTIVE" OR counter_strategy = "PROSPECT"
+      `),
       dbGet('SELECT COUNT(*) as cnt FROM master_employees'),
       dbGet('SELECT COUNT(*) as cnt FROM sales_history'),
       dbGet('SELECT COUNT(*) as cnt FROM visit_execution_logs'),
@@ -353,8 +373,13 @@ export async function getMasterDealers(req, res) {
       countParams.push(dealerType);
     }
     if (status && status !== 'ALL') {
-      sql += ' AND status = ?';
-      countSql += ' AND status = ?';
+      if (status.toUpperCase() === 'ACTIVE') {
+        sql += ' AND (status = ? OR status = "Active in SAP" OR status = "ACTIVE IN SAP" OR status IS NULL)';
+        countSql += ' AND (status = ? OR status = "Active in SAP" OR status = "ACTIVE IN SAP" OR status IS NULL)';
+      } else {
+        sql += ' AND status = ?';
+        countSql += ' AND status = ?';
+      }
       params.push(status);
       countParams.push(status);
     }

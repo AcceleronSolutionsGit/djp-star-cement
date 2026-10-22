@@ -450,10 +450,15 @@ export async function deleteUploadBatch(req, res) {
       await dbRun("DELETE FROM master_dealers WHERE batch_code = ? AND (dealer_type = 'PROSPECTIVE' OR counter_strategy = 'PROSPECT')", [batchCode]);
     } else if (fileType === 'PJP_TRADE') {
       await dbRun('DELETE FROM dealer_visit_targets WHERE batch_code = ?', [batchCode]);
-    } else if (fileType === 'SALES_HISTORY') {
+    } else if (fileType === 'SALES_HISTORY' || fileType === 'RSAR_SALES') {
       await dbRun('DELETE FROM sales_history WHERE batch_code = ?', [batchCode]);
     } else if (fileType === 'SFA_REPORT') {
       await dbRun('DELETE FROM visit_execution_logs WHERE batch_code = ?', [batchCode]);
+    } else if (fileType === 'SBG') {
+      await dbRun("UPDATE master_dealers SET sbg_potential = NULL, sbg_block = NULL, sbg_status = 'SBG_NOT_FOUND' WHERE batch_code = ?", [batchCode]);
+      await dbRun("DELETE FROM master_dealers WHERE batch_code = ? AND (sap_code IS NULL OR sap_code = '') AND (sfa_code IS NULL OR sfa_code = '')", [batchCode]);
+    } else if (fileType === 'DEALER_PERFORMANCE') {
+      await dbRun('DELETE FROM dealer_performance_history WHERE batch_code = ?', [batchCode]);
     }
 
     await dbRun('DELETE FROM upload_batches WHERE batch_code = ?', [batchCode]);

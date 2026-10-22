@@ -69,7 +69,7 @@ export async function reconcileUniverse(options = {}) {
       d.zh_name,
       d.zh_code
     FROM master_dealers d
-    WHERE (d.status = 'ACTIVE' OR d.status = 'Active in SAP' OR d.status IS NULL)
+    WHERE (d.status IS NULL OR UPPER(TRIM(d.status)) IN ('ACTIVE', 'ACTIVE IN SAP', 'ACTIVE IN SFA', 'VALIDATED') OR UPPER(TRIM(d.status)) LIKE 'ACT%') AND UPPER(TRIM(d.status)) NOT LIKE 'INACT%'
     ORDER BY 
       (CASE WHEN d.dm_area IS NOT NULL AND TRIM(d.dm_area) != '' THEN 0 ELSE 1 END),
       (CASE WHEN d.so_emp_code IS NOT NULL AND TRIM(d.so_emp_code) != '' AND d.so_emp_code != '-' THEN 0 ELSE 1 END),

@@ -1085,8 +1085,16 @@ export async function exportVisitsExcel(req, res) {
  */
 export async function getReconciliationDiagnostics(req, res) {
   try {
-    const reportMonth = req.query.periodMonth || '2026-06';
+    let reportMonth = req.query.periodMonth;
     const cycleCode = req.query.cycleCode || 'C1';
+
+    if (!reportMonth || reportMonth === 'undefined') {
+      const latestPeriod = await dbGet(
+        'SELECT period_month FROM upload_batches WHERE period_month IS NOT NULL ORDER BY period_month DESC LIMIT 1'
+      );
+      reportMonth = latestPeriod?.period_month || '2026-10';
+    }
+
     const result = await reconcileUniverse({ reportMonth, cycleCode });
     res.json(result);
   } catch (err) {

@@ -188,10 +188,10 @@ export const api = {
     return readJson(res, 'File upload failed');
   },
 
-  getReconciliation: async (periodMonth = '2026-06', cycleCode = 'C1') => {
-    const res = await fetchWithAuth(`${API_BASE}/djp/reconciliation?periodMonth=${periodMonth}&cycleCode=${cycleCode}`);
-    if (!res.ok) throw new Error('Failed to fetch reconciliation report');
-    return res.json();
+  getReconciliation: async (periodMonth, cycleCode = 'C1') => {
+    const qPeriod = periodMonth ? `&periodMonth=${periodMonth}` : '';
+    const res = await fetchWithAuth(`${API_BASE}/djp/reconciliation?cycleCode=${cycleCode}${qPeriod}`);
+    return readJson(res, 'Failed to fetch reconciliation report');
   },
 
   calculatePjp: async (periodMonth = '2026-06', cycleCode = 'C1') => {

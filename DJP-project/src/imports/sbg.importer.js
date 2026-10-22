@@ -298,24 +298,12 @@ export async function importSBG(filePath, batchCode = null) {
     }
 
     if (internalId) {
-      // ─── EXISTING DEALER: Update SBG-authoritative fields ───
+      // ─── EXISTING DEALER: Update SBG-authoritative fields only (Rule 5: DM is hierarchy authority) ───
       updatesById.set(internalId, {
         id: internalId,
         sbgPotential: sbgPotential ?? null,
         sbgBlock: sbgBlock || null,
-        status: status || null,
-        doa: doa || null,
-        zone: zone || null,
-        territoryCode: territoryCode || null,
-        territoryName: territoryName || null,
-        soEmpCode: soEmpCode || null,
-        soName: soName || null,
-        asmCode: asmCode || null,
-        asmName: asmName || null,
-        rsmCode: rsmCode || null,
-        rsmName: rsmName || null,
-        zhCode: zhCode || null,
-        zhName: zhName || null
+        doa: doa || null
       });
 
       matchedRows++;
@@ -370,6 +358,10 @@ export async function importSBG(filePath, batchCode = null) {
         // ─── NEW DEALER: Register for insertion into master_dealers ───
         const dealerId = crypto.randomUUID();
         const effectiveName = rawDealerName || `SBG-${rawSapCode || rawSfaCode || 'UNKNOWN'}`;
+        const rawStatus = (status || '').toUpperCase().trim();
+        const normStatus = (rawStatus.includes('INACT') || rawStatus === 'DELETED') ? 'INACTIVE' : 'ACTIVE';
+        const effectiveArea = territoryName || sbgBlock || zone || 'UNASSIGNED';
+
         const newDealer = {
           dealer_id: dealerId,
           sap_code: rawSapCode || null,
@@ -377,11 +369,13 @@ export async function importSBG(filePath, batchCode = null) {
           dealer_name: effectiveName,
           normalized_dealer_name: normalizeString(effectiveName),
           dealer_type: 'STAR',
-          status: status || 'ACTIVE',
+          status: normStatus,
           sbg_potential: sbgPotential ?? null,
           sbg_block: sbgBlock || null,
           block: sbgBlock || null,
           normalized_block: sbgBlock ? normalizeString(sbgBlock) : null,
+          area: effectiveArea,
+          dm_area: effectiveArea,
           sbg_status: 'SBG_MATCHED',
           zone: zone || null,
           territory_code: territoryCode || null,
@@ -427,6 +421,7 @@ export async function importSBG(filePath, batchCode = null) {
   }
 
   // ─── 1. BATCH EXECUTE UPDATES TO EXISTING DEALERS (HIGH PERFORMANCE) ───
+  // Rule 5: Dealer Mapping is hierarchy authority — update ONLY sbg_potential, sbg_block, sbg_status
   const updateEntries = Array.from(updatesById.values());
   console.log(`[SBG] Applying updates for ${updateEntries.length} matched existing dealers...`);
 
@@ -440,36 +435,12 @@ export async function importSBG(filePath, batchCode = null) {
             sbg_potential = ?,
             sbg_block = ?,
             sbg_status = 'SBG_MATCHED',
-            status = COALESCE(?, status),
-            doa = COALESCE(?, doa),
-            zone = COALESCE(?, zone),
-            territory_code = COALESCE(?, territory_code),
-            territory_name = COALESCE(?, territory_name),
-            so_emp_code = COALESCE(?, so_emp_code),
-            so_name = COALESCE(?, so_name),
-            asm_code = COALESCE(?, asm_code),
-            asm_name = COALESCE(?, asm_name),
-            rsm_code = COALESCE(?, rsm_code),
-            rsm_name = COALESCE(?, rsm_name),
-            zh_code = COALESCE(?, zh_code),
-            zh_name = COALESCE(?, zh_name)
+            doa = COALESCE(doa, ?)
            WHERE id = ?`,
           [
             u.sbgPotential,
             u.sbgBlock,
-            u.status,
             u.doa,
-            u.zone,
-            u.territoryCode,
-            u.territoryName,
-            u.soEmpCode,
-            u.soName,
-            u.asmCode,
-            u.asmName,
-            u.rsmCode,
-            u.rsmName,
-            u.zhCode,
-            u.zhName,
             u.id
           ]
         )
@@ -484,7 +455,7 @@ export async function importSBG(filePath, batchCode = null) {
   for (let c = 0; c < allNewDealers.length; c += INSERT_BATCH_SIZE) {
     const chunk = allNewDealers.slice(c, c + INSERT_BATCH_SIZE);
     const placeholders = chunk.map(() =>
-      '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).join(', ');
     const params = chunk.map(d => [
       d.dealer_id,
@@ -498,6 +469,8 @@ export async function importSBG(filePath, batchCode = null) {
       d.sbg_block,
       d.block,
       d.normalized_block,
+      d.area,
+      d.dm_area,
       d.sbg_status,
       d.zone,
       d.territory_code,
@@ -518,7 +491,7 @@ export async function importSBG(filePath, batchCode = null) {
       await dbRun(
         `INSERT INTO master_dealers
           (dealer_id, sap_code, sfa_code, dealer_name, normalized_dealer_name, dealer_type, status,
-           sbg_potential, sbg_block, block, normalized_block, sbg_status,
+           sbg_potential, sbg_block, block, normalized_block, area, dm_area, sbg_status,
            zone, territory_code, territory_name,
            so_emp_code, so_name, asm_code, asm_name, rsm_code, rsm_name, zh_code, zh_name,
            doa, batch_code)
@@ -532,15 +505,15 @@ export async function importSBG(filePath, batchCode = null) {
           await dbRun(
             `INSERT INTO master_dealers
               (dealer_id, sap_code, sfa_code, dealer_name, normalized_dealer_name, dealer_type, status,
-               sbg_potential, sbg_block, block, normalized_block, sbg_status,
+               sbg_potential, sbg_block, block, normalized_block, area, dm_area, sbg_status,
                zone, territory_code, territory_name,
                so_emp_code, so_name, asm_code, asm_name, rsm_code, rsm_name, zh_code, zh_name,
                doa, batch_code)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               d.dealer_id, d.sap_code, d.sfa_code, d.dealer_name, d.normalized_dealer_name,
               d.dealer_type, d.status, d.sbg_potential, d.sbg_block, d.block, d.normalized_block,
-              d.sbg_status, d.zone, d.territory_code, d.territory_name,
+              d.area, d.dm_area, d.sbg_status, d.zone, d.territory_code, d.territory_name,
               d.so_emp_code, d.so_name, d.asm_code, d.asm_name, d.rsm_code, d.rsm_name,
               d.zh_code, d.zh_name, d.doa, d.batch_code
             ]

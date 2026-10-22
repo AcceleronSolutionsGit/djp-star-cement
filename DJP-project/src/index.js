@@ -84,6 +84,24 @@ async function runStartupMigrations() {
   } catch (err) {
     console.warn('[Migration] Warning during startup hierarchy healing:', err.message);
   }
+
+  try {
+    // Migration 4: Normalize any 'Active in SAP' or mixed-case status values to canonical 'ACTIVE'
+    await dbRun(`
+      UPDATE master_dealers
+      SET status = 'ACTIVE'
+      WHERE UPPER(TRIM(status)) IN ('ACTIVE IN SAP', 'ACTIVE IN SFA', 'ACTIVE', 'VALIDATED')
+         OR (status IS NULL AND (dealer_type != 'PROSPECTIVE' OR dealer_type IS NULL))
+    `);
+    await dbRun(`
+      UPDATE master_dealers
+      SET status = 'INACTIVE'
+      WHERE UPPER(TRIM(status)) IN ('INACTIVE', 'INACTIVE IN SAP', 'IN-ACTIVE')
+    `);
+    console.log('[Migration] ✓ Normalized dealer status values to canonical ACTIVE/INACTIVE');
+  } catch (err) {
+    console.warn('[Migration] Warning during status normalization:', err.message);
+  }
 }
 
 const __filename = fileURLToPath(import.meta.url);
