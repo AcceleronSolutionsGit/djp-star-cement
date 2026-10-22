@@ -1,5 +1,5 @@
 import { dbAll, dbGet } from '../../config/database.js';
-import { normalizeCode } from '../normalization.engine.js';
+import { normalizeCode, normalizeString } from '../normalization.engine.js';
 import { resolveProspectHierarchy } from '../../services/hierarchyResolution.service.js';
 
 /**
