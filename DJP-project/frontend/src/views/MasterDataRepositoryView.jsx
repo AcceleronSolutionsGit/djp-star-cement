@@ -1074,6 +1074,7 @@ export default function MasterDataRepositoryView({ onShowToast }) {
                   <th>Customer Code</th>
                   <th>Customer Name</th>
                   <th>Name of SO</th>
+                  <th>Name of ASM</th>
                   <th>Potential</th>
                   <th>Expected Sale</th>
                   <th>Month</th>
@@ -1081,9 +1082,9 @@ export default function MasterDataRepositoryView({ onShowToast }) {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan="9" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading Prospect Dealer List...</td></tr>
+                  <tr><td colSpan="10" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading Prospect Dealer List...</td></tr>
                 ) : currentDataset.items.length === 0 ? (
-                  <tr><td colSpan="9" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No records found matching filters.</td></tr>
+                  <tr><td colSpan="10" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No records found matching filters.</td></tr>
                 ) : (
                   currentDataset.items.map((d, idx) => (
                     <tr key={d.id || idx}>
@@ -1093,6 +1094,7 @@ export default function MasterDataRepositoryView({ onShowToast }) {
                       <td><code>{d.sfa_code || '-'}</code></td>
                       <td><strong>{d.dealer_name}</strong></td>
                       <td>{d.so_name || 'N/A'}</td>
+                      <td><b>{d.asm_name || '-'}</b></td>
                       <td>{d.counter_potential || 0}</td>
                       <td>{d.expected_sale || 0}</td>
                       <td>-</td>

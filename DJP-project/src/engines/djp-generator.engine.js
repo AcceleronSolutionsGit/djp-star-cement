@@ -71,23 +71,27 @@ export async function generateFullPjpDjpSolution(periodMonth, cycleCode, options
     const existing = await dbAll(`SELECT * FROM dealer_visit_targets ${whereClause}`, whereParams);
 
     pjpResults = existing.map(t => ({
-      dealerCode: t.sap_code,
+      dealerCode: t.sap_code || t.sfa_code || (t.dealer_id ? `DLR_${t.dealer_id}` : `TGT_${t.id}`),
+      dealerId: t.dealer_id,
       dealerName: t.dealer_name,
-      area: t.area,
+      area: t.area || t.dm_area,
       zone: t.zone,
       soName: t.so_name,
       soEmpCode: t.so_emp_code,
       asmName: t.asm_name,
+      asmCode: t.asm_code,
       rsmName: t.rsm_name,
+      rsmCode: t.rsm_code,
       zhName: t.zh_name,
+      zhCode: t.zh_code,
       finalCategory: t.dealer_status,    // dealer_status stores finalCategory (corrected)
       grade: t.category,                 // category stores grade (corrected)
       soVisits: parseFloat(t.so_visits) || 0,
       asmVisits: parseFloat(t.asm_visits) || 0,
       rsmVisits: parseFloat(t.rsm_visits) || 0,
       zhVisits: parseFloat(t.zh_visits) || 0,
-      priorityRank: 0,
-      totalScore: 0
+      priorityRank: t.priority || 0,
+      totalScore: t.total_score || 0
     }));
   }
 
@@ -153,27 +157,38 @@ export async function generateFullPjpDjpSolution(periodMonth, cycleCode, options
   const rsmGroups = new Map();
   const zhGroups = new Map();
 
+  const cleanKey = (code, name) => {
+    const c = code ? String(code).trim() : '';
+    const n = name ? String(name).trim() : '';
+    if (c && !['-', 'NA', 'N/A', 'NONE', 'NULL'].includes(c.toUpperCase())) return c;
+    if (n && !['-', 'NA', 'N/A', 'NONE', 'NULL'].includes(n.toUpperCase())) return n;
+    return null;
+  };
+
   for (const r of pjpResults) {
-    const soKey = r.soEmpCode || r.soName || null;
-    if (soKey) {
+    const dealerCode = r.dealerCode || r.sap_code || r.sfa_code || (r.dealerId ? `DLR_${r.dealerId}` : `TGT_${r.id}`);
+    r.dealerCode = dealerCode;
+
+    const soKey = cleanKey(r.soEmpCode, r.soName) || (r.area ? `UNASSIGNED_SO_${r.area}` : 'UNASSIGNED_SO');
+    if ((r.soVisits || 0) > 0 && soKey) {
       if (!soGroups.has(soKey)) soGroups.set(soKey, []);
       soGroups.get(soKey).push(r);
     }
 
-    const asmKey = r.asmCode || r.asmName || null;
-    if (r.asmVisits > 0 && asmKey) {
+    const asmKey = cleanKey(r.asmCode, r.asmName) || (r.area ? `UNASSIGNED_ASM_${r.area}` : null);
+    if ((r.asmVisits || 0) > 0 && asmKey) {
       if (!asmGroups.has(asmKey)) asmGroups.set(asmKey, []);
       asmGroups.get(asmKey).push(r);
     }
 
-    const rsmKey = r.rsmCode || r.rsmName || null;
-    if (r.rsmVisits > 0 && rsmKey) {
+    const rsmKey = cleanKey(r.rsmCode, r.rsmName) || (r.zone ? `UNASSIGNED_RSM_${r.zone}` : null);
+    if ((r.rsmVisits || 0) > 0 && rsmKey) {
       if (!rsmGroups.has(rsmKey)) rsmGroups.set(rsmKey, []);
       rsmGroups.get(rsmKey).push(r);
     }
 
-    const zhKey = r.zhCode || r.zhName || null;
-    if (r.zhVisits > 0 && zhKey) {
+    const zhKey = cleanKey(r.zhCode, r.zhName) || (r.zone ? `UNASSIGNED_ZH_${r.zone}` : null);
+    if ((r.zhVisits || 0) > 0 && zhKey) {
       if (!zhGroups.has(zhKey)) zhGroups.set(zhKey, []);
       zhGroups.get(zhKey).push(r);
     }
@@ -348,15 +363,16 @@ function allocateToWorkingDays(recs, workingDays, dailyCapacity) {
   for (const item of sorted) {
     let assigned = false;
     let attempts = 0;
+    const itemKey = item.dealerCode || (item.dealerId ? `DLR_${item.dealerId}` : null) || item.dealerName || `ITEM_${Math.random()}`;
 
     while (!assigned && attempts < workingDays.length) {
       const targetDate = workingDays[dateIndex];
       const currentCount = daySlots.get(targetDate);
-      const alreadyScheduled = dayDealers.get(targetDate).has(item.dealerCode);
+      const alreadyScheduled = dayDealers.get(targetDate).has(itemKey);
       
       if (currentCount < dailyCapacity && !alreadyScheduled) {
         daySlots.set(targetDate, currentCount + 1);
-        dayDealers.get(targetDate).add(item.dealerCode);
+        dayDealers.get(targetDate).add(itemKey);
         item.visitDate = targetDate;
         item.visitSequence = currentCount + 1;
         allocated.push(item);
@@ -378,6 +394,9 @@ function allocateToWorkingDays(recs, workingDays, dailyCapacity) {
 }
 
 async function saveDjpRecommendation(roleType, periodMonth, cycleCode, item, generationRunCode = null) {
+  const sapCode = item.sap_code || (item.dealerCode && !String(item.dealerCode).startsWith('DLR_') && !String(item.dealerCode).startsWith('PROSPECT_') && !String(item.dealerCode).startsWith('TGT_') ? item.dealerCode : null);
+  const sfaCode = item.sfa_code || item.dealerCode || null;
+
   await dbRun(
     `INSERT INTO djp_recommendations 
     (generation_run_code, role_type, cycle_code, period_month, emp_code, emp_name, visit_date, visit_sequence, 
@@ -389,7 +408,7 @@ async function saveDjpRecommendation(roleType, periodMonth, cycleCode, item, gen
       roleType, cycleCode, periodMonth,
       item.empCode, item.empName,
       item.visitDate, item.visitSequence,
-      item.dealerCode, item.dealerCode,
+      sapCode, sfaCode,
       item.dealerName, 'DEALER',
       item.grade || 'C',
       item.finalCategory || 'Growing',

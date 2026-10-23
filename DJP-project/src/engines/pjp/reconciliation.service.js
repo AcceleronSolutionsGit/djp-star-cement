@@ -216,8 +216,8 @@ export async function reconcileUniverse(options = {}) {
 
     const territoryCode = cleanHierarchyVal(m.territory_code) || cleanHierarchyVal(d.territory_code) || null;
     const territoryName = cleanHierarchyVal(m.territory_name) || cleanHierarchyVal(d.territory_name) || null;
-    const soCode = cleanHierarchyVal(m.so_emp_code) || cleanHierarchyVal(d.so_emp_code) || null;
-    const soName = cleanHierarchyVal(m.so_name) || cleanHierarchyVal(d.so_name) || null;
+    let soCode = cleanHierarchyVal(m.so_emp_code) || cleanHierarchyVal(d.so_emp_code) || null;
+    let soName = cleanHierarchyVal(m.so_name) || cleanHierarchyVal(d.so_name) || null;
     let asmCode = cleanHierarchyVal(m.asm_code) || cleanHierarchyVal(d.asm_code) || null;
     let asmName = cleanHierarchyVal(m.asm_name) || cleanHierarchyVal(d.asm_name) || null;
     let rsmCode = cleanHierarchyVal(m.rsm_code) || cleanHierarchyVal(d.rsm_code) || null;
@@ -225,26 +225,31 @@ export async function reconcileUniverse(options = {}) {
     let zhCode = cleanHierarchyVal(m.zh_code) || cleanHierarchyVal(d.zh_code) || null;
     let zhName = cleanHierarchyVal(m.zh_name) || cleanHierarchyVal(d.zh_name) || null;
 
-    if (isProspect && (!zhName || !rsmName || !asmName)) {
+    if (isProspect && (!soCode || !soName || !zhName || !rsmName || !asmName)) {
       const h = await resolveProspectHierarchy({
         soEmpCode: soCode,
         soName,
-        area: m.area || d.area,
+        area: m.area || d.area || d.dm_area,
         zone: d.zone,
         region: d.region
       });
+      if (!soName && h.so_name) soName = h.so_name;
+      if (!soCode && h.so_emp_code) soCode = h.so_emp_code;
       if (!zhName) { zhName = h.zh_name; zhCode = h.zh_code; }
       if (!rsmName) { rsmName = h.rsm_name; rsmCode = h.rsm_code; }
       if (!asmName) { asmName = h.asm_name; asmCode = h.asm_code; }
     }
 
-    // Check hierarchy completeness
-    const isHierarchyComplete = Boolean(soCode && soName && rsmCode && rsmName && zhCode && zhName);
+    // Check hierarchy completeness (including ASM for prospects)
+    const isHierarchyComplete = Boolean((soCode || soName) && (asmCode || asmName) && (rsmCode || rsmName) && (zhCode || zhName));
     if (!isHierarchyComplete) {
       missingHierarchyCount++;
-      const missingRoles = isProspect
-        ? [!soCode && 'SO Code', !rsmCode && 'RSM Code', !zhCode && 'ZH Code'].filter(Boolean)
-        : [!soCode && 'SO Code', !asmCode && 'ASM Code', !rsmCode && 'RSM Code', !zhCode && 'ZH Code'].filter(Boolean);
+      const missingRoles = [
+        (!soCode && !soName) && 'SO',
+        (!asmCode && !asmName) && 'ASM',
+        (!rsmCode && !rsmName) && 'RSM',
+        (!zhCode && !zhName) && 'ZH'
+      ].filter(Boolean);
       issues.push({
         code,
         dealerName: d.dealer_name,

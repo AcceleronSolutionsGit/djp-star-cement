@@ -455,8 +455,8 @@ export async function exportPjpTradeExcel(req, res) {
         custType = 'Non-Star';
       }
 
-      // Customer CODE: SAP if available, else SFA, else '-'.
-      let custCode = t.sap_code || t.sfa_code || '-';
+      // Customer CODE: SAP if available, else SFA, else dealer ID.
+      let custCode = t.sap_code || t.sfa_code || (t.dealer_id ? `DLR_${t.dealer_id}` : '-');
 
       // Block: MUST come from sbg_block (SBG authoritative) or prospect block, fallback '-'
       const block = t.sbg_block || t.block || '-';
@@ -992,7 +992,7 @@ export async function exportVisitsExcel(req, res) {
 
     const uniqueTargetsMap = new Map();
     for (const t of targets) {
-      const code = t.sfa_code || t.sap_code;
+      const code = t.sap_code || t.sfa_code || (t.dealer_id ? `DLR_${t.dealer_id}` : `TGT_${t.id}`);
       if (code) uniqueTargetsMap.set(code, t);
     }
     const uniqueTargets = [...uniqueTargetsMap.values()];
@@ -1035,7 +1035,7 @@ export async function exportVisitsExcel(req, res) {
 
       if (soVisits === 0 && asmVisits === 0 && rsmVisits === 0 && zhVisits === 0) continue;
 
-      const customerCode = t.sfa_code || t.sap_code || '';
+      const customerCode = t.sap_code || t.sfa_code || (t.dealer_id ? `DLR_${t.dealer_id}` : '-');
 
       const custType = custTypeLabel(t.cust_type);
 

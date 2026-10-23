@@ -82,10 +82,8 @@ const GRADE_INDEX = { A: 0, B: 1, C: 2, D: 3 };
  */
 export function getVisitFrequencies(finalCategory, grade = 'A', matrix = null) {
   const m = matrix || DEFAULT_VISIT_MATRIX;
-  const gIdx = GRADE_INDEX[grade];
-  if (gIdx === undefined) {
-    throw new Error(`[VisitFrequency] Invalid grade: "${grade}". Must be one of: A, B, C, D`);
-  }
+  const upperGrade = String(grade || 'D').toUpperCase().trim();
+  const gIdx = GRADE_INDEX[upperGrade] !== undefined ? GRADE_INDEX[upperGrade] : GRADE_INDEX['D'];
 
   const normalized = normalizeCategory(finalCategory) || finalCategory;
 

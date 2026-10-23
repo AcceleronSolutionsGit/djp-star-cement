@@ -123,12 +123,12 @@ export class AutoPlanGenerator {
       LEFT JOIN master_dealers md ON dvt.dealer_id = md.id
       WHERE (dvt.${codeField} = ? OR dvt.${roleField} = ? OR dvt.${roleField} LIKE ?)
         AND dvt.period_month = ?
+        AND (dvt.cycle_code = ? OR dvt.cycle_code IS NULL OR dvt.cycle_code = '')
         AND dvt.${visitCol} > 0
-        ${role === 'ASM' ? "AND (md.dealer_type IS NULL OR md.dealer_type != 'PROSPECTIVE') AND (dvt.dealer_status IS NULL OR dvt.dealer_status != 'Prospective')" : ''}
       ORDER BY md.block ASC, dvt.category ASC, dvt.dealer_name ASC
     `;
 
-    const rawRows = await dbAll(sql, [empCode, empCode, `%${empCode}%`, targetPeriod]);
+    const rawRows = await dbAll(sql, [empCode, empCode, `%${empCode}%`, targetPeriod, cycleCode]);
 
     // 3. Strict Deduplication by canonical dealer identity
     const uniqueDealers = new Map();
@@ -255,7 +255,7 @@ export class AutoPlanGenerator {
           ...d,
           visit_instance: v + 1,
           total_instances: count,
-          dealer_code: d.sap_code || d.sfa_code || `DLR_${d.dealer_id}`
+          dealer_code: d.sap_code || d.sfa_code || (d.dealer_id ? `DLR_${d.dealer_id}` : `TGT_${d.target_id}`)
         });
       }
     }

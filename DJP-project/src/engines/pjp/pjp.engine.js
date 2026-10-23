@@ -386,16 +386,15 @@ export async function calculatePJP(reportMonth, cycleCode, options = {}) {
     zone: d.zone || d.region || null,
     region: d.region || d.zone || null,
 
-    // Hierarchy (from Dealer Mapping)
-    // ASM is deliberately NOT mapped for prospects
+    // Hierarchy (from Dealer Mapping or resolved prospect hierarchy)
     soName: d.so_name,
     soEmpCode: d.so_emp_code,
     soCode: d.so_emp_code || d.soCode || null,
-    asmName: (d.dealer_type === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED' || d.finalCategory === 'Prospective' || d.cust_type === 'NON STAR' || d.counter_strategy === 'PROSPECT') ? null : d.asm_name,
-    asmCode: (d.dealer_type === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED' || d.finalCategory === 'Prospective' || d.cust_type === 'NON STAR' || d.counter_strategy === 'PROSPECT') ? null : d.asm_code,
-    rsmName: d.rsm_name,
+    asmName: d.asm_name || null,
+    asmCode: d.asm_code || null,
+    rsmName: d.rsm_name || null,
     rsmCode: d.rsm_code || null,
-    zhName: d.zh_name,
+    zhName: d.zh_name || null,
     zhCode: d.zh_code || null,
 
     // Calculation context
@@ -459,7 +458,7 @@ export async function calculatePJP(reportMonth, cycleCode, options = {}) {
     priorityLabel: d.priorityLabel,
 
     soVisits: d.soVisits,    // fractional preserved (e.g. 0.5)
-    asmVisits: (d.dealer_type === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED' || d.finalCategory === 'Prospective') ? 0 : d.asmVisits,
+    asmVisits: d.asmVisits,
     rsmVisits: d.rsmVisits,
     zhVisits: d.zhVisits
   }));

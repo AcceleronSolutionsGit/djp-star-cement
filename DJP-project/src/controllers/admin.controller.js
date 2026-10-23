@@ -342,10 +342,22 @@ export async function getMasterDealers(req, res) {
   try {
     const { search, dealerType, status, area, region, zone, counterStrategy, limit = 50, offset = 0 } = req.query;
     let sql = `
-      SELECT m.*, sm.so_name 
+      SELECT 
+        m.*, 
+        COALESCE(NULLIF(m.so_name, ''), sm.so_name) as so_name,
+        COALESCE(NULLIF(m.asm_name, ''), sm.asm_name) as asm_name,
+        COALESCE(NULLIF(m.asm_code, ''), sm.asm_code) as asm_code,
+        COALESCE(NULLIF(m.rsm_name, ''), sm.rsm_name) as rsm_name,
+        COALESCE(NULLIF(m.zh_name, ''), sm.zh_name) as zh_name
       FROM master_dealers m 
       LEFT JOIN (
-        SELECT dealer_id, MAX(so_name) as so_name 
+        SELECT 
+          dealer_id, 
+          MAX(so_name) as so_name,
+          MAX(asm_name) as asm_name,
+          MAX(asm_code) as asm_code,
+          MAX(rsm_name) as rsm_name,
+          MAX(zh_name) as zh_name 
         FROM master_dealer_so_mapping 
         GROUP BY dealer_id
       ) sm ON m.id = sm.dealer_id 

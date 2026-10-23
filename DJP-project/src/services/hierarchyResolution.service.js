@@ -17,185 +17,231 @@ export async function resolveProspectHierarchy({ soEmpCode, soName, area, zone, 
   const cleanArea = (area || '').trim();
   const cleanZone = (zone || region || '').trim();
 
-  // 1. Match by SO employee code in master_dealer_so_mapping
-  if (cleanEmpCode) {
+  let zh_name = null;
+  let zh_code = null;
+  let rsm_name = null;
+  let rsm_code = null;
+  let asm_name = null;
+  let asm_code = null;
+  let res_so_name = cleanSo || null;
+  let res_so_emp_code = cleanEmpCode || null;
+  let method = 'NONE';
+
+  const cleanVal = (v) => {
+    if (!v) return null;
+    const s = String(v).trim();
+    return (s === '' || s === '-' || s.toUpperCase() === 'NA' || s.toUpperCase() === 'N/A' || s.toUpperCase() === 'NULL') ? null : s;
+  };
+
+  const applyMapping = (m, mthd) => {
+    if (!m) return;
+    if (!zh_name && cleanVal(m.zh_name)) { zh_name = cleanVal(m.zh_name); zh_code = cleanVal(m.zh_code); }
+    if (!rsm_name && cleanVal(m.rsm_name)) { rsm_name = cleanVal(m.rsm_name); rsm_code = cleanVal(m.rsm_code); }
+    if (!asm_name && cleanVal(m.asm_name)) { asm_name = cleanVal(m.asm_name); asm_code = cleanVal(m.asm_code); }
+    if (!res_so_name && cleanVal(m.so_name)) res_so_name = cleanVal(m.so_name);
+    if (!res_so_emp_code && cleanVal(m.so_emp_code)) res_so_emp_code = cleanVal(m.so_emp_code);
+    if (method === 'NONE') method = mthd;
+  };
+
+  const isComplete = () => Boolean(zh_name && rsm_name && asm_name && res_so_name);
+
+  // 1. By SO employee code in master_dealer_so_mapping
+  if (cleanEmpCode && !isComplete()) {
     const m = await dbGet(
       `SELECT zh_name, zh_code, rsm_name, rsm_code, asm_name, asm_code, so_name, so_emp_code 
        FROM master_dealer_so_mapping 
-       WHERE so_emp_code = ? AND zh_name IS NOT NULL AND rsm_name IS NOT NULL 
+       WHERE so_emp_code = ? 
+       ORDER BY 
+         (CASE WHEN asm_name IS NOT NULL AND asm_name != '' AND asm_name != '-' THEN 0 ELSE 1 END),
+         (CASE WHEN rsm_name IS NOT NULL AND rsm_name != '' AND rsm_name != '-' THEN 0 ELSE 1 END),
+         (CASE WHEN zh_name IS NOT NULL AND zh_name != '' AND zh_name != '-' THEN 0 ELSE 1 END)
        LIMIT 1`,
       [cleanEmpCode]
     );
-    if (m) {
-      return {
-        zh_name: m.zh_name || null,
-        zh_code: m.zh_code || null,
-        rsm_name: m.rsm_name || null,
-        rsm_code: m.rsm_code || null,
-        asm_name: m.asm_name || null,
-        asm_code: m.asm_code || null,
-        so_name: m.so_name || cleanSo || null,
-        so_emp_code: m.so_emp_code || cleanEmpCode || null,
-        method: 'SO_CODE'
-      };
-    }
+    applyMapping(m, 'SO_CODE');
   }
 
-  // 2. Exact SO name match
-  if (cleanSo) {
-    const m = await dbGet(
-      `SELECT zh_name, zh_code, rsm_name, rsm_code, asm_name, asm_code, so_name, so_emp_code 
-       FROM master_dealer_so_mapping 
-       WHERE LOWER(TRIM(so_name)) = LOWER(?) AND zh_name IS NOT NULL AND rsm_name IS NOT NULL 
-       LIMIT 1`,
-      [cleanSo]
-    );
-    if (m) {
-      return {
-        zh_name: m.zh_name || null,
-        zh_code: m.zh_code || null,
-        rsm_name: m.rsm_name || null,
-        rsm_code: m.rsm_code || null,
-        asm_name: m.asm_name || null,
-        asm_code: m.asm_code || null,
-        so_name: m.so_name || cleanSo || null,
-        so_emp_code: m.so_emp_code || cleanEmpCode || null,
-        method: 'EXACT_SO'
-      };
-    }
-
-    // 3. Prefix / like SO match (e.g. "SANDIP DEY-AGA" matches "SANDIP DEY-AGARTALA")
+  // 2. Exact or prefix SO name match in master_dealer_so_mapping
+  if (cleanSo && !isComplete()) {
     const soPrefix = cleanSo.split('-')[0].trim();
-    const mPrefix = await dbGet(
-      `SELECT zh_name, zh_code, rsm_name, rsm_code, asm_name, asm_code, so_name, so_emp_code 
-       FROM master_dealer_so_mapping 
-       WHERE (so_name LIKE ? OR LOWER(SUBSTRING_INDEX(so_name, '-', 1)) = LOWER(?)) 
-         AND zh_name IS NOT NULL AND rsm_name IS NOT NULL 
-       LIMIT 1`,
-      [`${soPrefix}%`, soPrefix]
-    );
-    if (mPrefix) {
-      return {
-        zh_name: mPrefix.zh_name || null,
-        zh_code: mPrefix.zh_code || null,
-        rsm_name: mPrefix.rsm_name || null,
-        rsm_code: mPrefix.rsm_code || null,
-        asm_name: mPrefix.asm_name || null,
-        asm_code: mPrefix.asm_code || null,
-        so_name: mPrefix.so_name || cleanSo || null,
-        so_emp_code: mPrefix.so_emp_code || cleanEmpCode || null,
-        method: 'PREFIX_SO'
-      };
-    }
-  }
-
-  // 4. Area match
-  if (cleanArea) {
     const m = await dbGet(
       `SELECT zh_name, zh_code, rsm_name, rsm_code, asm_name, asm_code, so_name, so_emp_code 
        FROM master_dealer_so_mapping 
-       WHERE (LOWER(TRIM(area)) = LOWER(?) OR LOWER(TRIM(territory_name)) = LOWER(?)) 
-         AND zh_name IS NOT NULL AND rsm_name IS NOT NULL 
+       WHERE LOWER(TRIM(so_name)) = LOWER(?) 
+          OR so_name LIKE ? 
+          OR LOWER(SUBSTRING_INDEX(so_name, '-', 1)) = LOWER(?)
+       ORDER BY 
+         (CASE WHEN asm_name IS NOT NULL AND asm_name != '' AND asm_name != '-' THEN 0 ELSE 1 END),
+         (CASE WHEN rsm_name IS NOT NULL AND rsm_name != '' AND rsm_name != '-' THEN 0 ELSE 1 END),
+         (CASE WHEN zh_name IS NOT NULL AND zh_name != '' AND zh_name != '-' THEN 0 ELSE 1 END)
        LIMIT 1`,
-      [cleanArea, cleanArea]
+      [cleanSo, `${soPrefix}%`, soPrefix]
     );
-    if (m) {
-      return {
-        zh_name: m.zh_name || null,
-        zh_code: m.zh_code || null,
-        rsm_name: m.rsm_name || null,
-        rsm_code: m.rsm_code || null,
-        asm_name: m.asm_name || null,
-        asm_code: m.asm_code || null,
-        so_name: cleanSo || m.so_name || null,
-        so_emp_code: cleanEmpCode || m.so_emp_code || null,
-        method: 'AREA'
-      };
-    }
+    applyMapping(m, 'SO_NAME');
   }
 
-  // 5. Region / Zone match from master_dealer_so_mapping
-  if (cleanZone) {
+  // 3. Search in master_dealers by SO (in case mapping table has partial data)
+  if (!isComplete() && (cleanEmpCode || cleanSo)) {
+    const soPrefix = cleanSo.split('-')[0].trim();
+    const m = await dbGet(
+      `SELECT zh_name, zh_code, rsm_name, rsm_code, asm_name, asm_code, so_name, so_emp_code 
+       FROM master_dealers 
+       WHERE (so_emp_code = ? OR LOWER(TRIM(so_name)) = LOWER(?) OR so_name LIKE ?)
+       ORDER BY 
+         (CASE WHEN asm_name IS NOT NULL AND asm_name != '' AND asm_name != '-' THEN 0 ELSE 1 END),
+         (CASE WHEN rsm_name IS NOT NULL AND rsm_name != '' AND rsm_name != '-' THEN 0 ELSE 1 END),
+         (CASE WHEN zh_name IS NOT NULL AND zh_name != '' AND zh_name != '-' THEN 0 ELSE 1 END)
+       LIMIT 1`,
+      [cleanEmpCode || '', cleanSo || '', `${soPrefix}%`]
+    );
+    applyMapping(m, 'MASTER_DEALERS_SO');
+  }
+
+  // 4. Area match in master_dealer_so_mapping
+  if (cleanArea && !isComplete()) {
     const m = await dbGet(
       `SELECT zh_name, zh_code, rsm_name, rsm_code, asm_name, asm_code, so_name, so_emp_code 
        FROM master_dealer_so_mapping 
-       WHERE LOWER(TRIM(region)) = LOWER(?) 
-         AND zh_name IS NOT NULL AND rsm_name IS NOT NULL 
+       WHERE LOWER(TRIM(area)) = LOWER(?) OR LOWER(TRIM(branch)) = LOWER(?) OR LOWER(TRIM(territory_name)) = LOWER(?)
+       ORDER BY 
+         (CASE WHEN asm_name IS NOT NULL AND asm_name != '' AND asm_name != '-' THEN 0 ELSE 1 END),
+         (CASE WHEN rsm_name IS NOT NULL AND rsm_name != '' AND rsm_name != '-' THEN 0 ELSE 1 END),
+         (CASE WHEN zh_name IS NOT NULL AND zh_name != '' AND zh_name != '-' THEN 0 ELSE 1 END)
        LIMIT 1`,
-      [cleanZone]
+      [cleanArea, cleanArea, cleanArea]
     );
-    if (m) {
-      return {
-        zh_name: m.zh_name || null,
-        zh_code: m.zh_code || null,
-        rsm_name: m.rsm_name || null,
-        rsm_code: m.rsm_code || null,
-        asm_name: m.asm_name || null,
-        asm_code: m.asm_code || null,
-        so_name: cleanSo || m.so_name || null,
-        so_emp_code: cleanEmpCode || m.so_emp_code || null,
-        method: 'REGION_MAPPING'
-      };
-    }
+    applyMapping(m, 'AREA');
   }
 
-  // 6. Fallback from master_employees by zone / region
-  let zh = null;
-  let rsm = null;
-  let asm = null;
-  if (cleanZone) {
-    zh = await dbGet(
-      `SELECT emp_name as zh_name, emp_code as zh_code FROM master_employees 
-       WHERE designation IN ('ZH', 'ZONAL HEAD', 'ZONAL_HEAD') AND (LOWER(TRIM(zone)) = LOWER(?) OR LOWER(TRIM(region)) = LOWER(?)) 
+  // 5. Area match in master_dealers
+  if (cleanArea && !isComplete()) {
+    const m = await dbGet(
+      `SELECT zh_name, zh_code, rsm_name, rsm_code, asm_name, asm_code, so_name, so_emp_code 
+       FROM master_dealers 
+       WHERE (LOWER(TRIM(area)) = LOWER(?) OR LOWER(TRIM(dm_area)) = LOWER(?) OR LOWER(TRIM(branch)) = LOWER(?))
+       ORDER BY 
+         (CASE WHEN asm_name IS NOT NULL AND asm_name != '' AND asm_name != '-' THEN 0 ELSE 1 END),
+         (CASE WHEN rsm_name IS NOT NULL AND rsm_name != '' AND rsm_name != '-' THEN 0 ELSE 1 END),
+         (CASE WHEN zh_name IS NOT NULL AND zh_name != '' AND zh_name != '-' THEN 0 ELSE 1 END)
+       LIMIT 1`,
+      [cleanArea, cleanArea, cleanArea]
+    );
+    applyMapping(m, 'MASTER_DEALERS_AREA');
+  }
+
+  // 6. Region / Zone match in master_dealer_so_mapping
+  if (cleanZone && !isComplete()) {
+    const m = await dbGet(
+      `SELECT zh_name, zh_code, rsm_name, rsm_code, asm_name, asm_code, so_name, so_emp_code 
+       FROM master_dealer_so_mapping 
+       WHERE LOWER(TRIM(region)) = LOWER(?) OR LOWER(TRIM(zone)) = LOWER(?)
+       ORDER BY 
+         (CASE WHEN asm_name IS NOT NULL AND asm_name != '' AND asm_name != '-' THEN 0 ELSE 1 END),
+         (CASE WHEN rsm_name IS NOT NULL AND rsm_name != '' AND rsm_name != '-' THEN 0 ELSE 1 END),
+         (CASE WHEN zh_name IS NOT NULL AND zh_name != '' AND zh_name != '-' THEN 0 ELSE 1 END)
        LIMIT 1`,
       [cleanZone, cleanZone]
     );
-    rsm = await dbGet(
+    applyMapping(m, 'REGION_MAPPING');
+  }
+
+  // 7. Fallback from master_employees
+  if (!asm_name) {
+    let asmEmp = null;
+    if (cleanArea) {
+      asmEmp = await dbGet(
+        `SELECT emp_name as asm_name, emp_code as asm_code FROM master_employees 
+         WHERE designation IN ('ASM', 'AREA SALES MANAGER', 'AREA_SALES_MANAGER') AND (LOWER(TRIM(area)) = LOWER(?) OR LOWER(TRIM(branch)) = LOWER(?)) 
+         LIMIT 1`,
+        [cleanArea, cleanArea]
+      );
+    }
+    if (!asmEmp && cleanZone) {
+      asmEmp = await dbGet(
+        `SELECT emp_name as asm_name, emp_code as asm_code FROM master_employees 
+         WHERE designation IN ('ASM', 'AREA SALES MANAGER', 'AREA_SALES_MANAGER') AND (LOWER(TRIM(zone)) = LOWER(?) OR LOWER(TRIM(region)) = LOWER(?)) 
+         LIMIT 1`,
+        [cleanZone, cleanZone]
+      );
+    }
+    if (!asmEmp) {
+      asmEmp = await dbGet(
+        `SELECT emp_name as asm_name, emp_code as asm_code FROM master_employees 
+         WHERE designation IN ('ASM', 'AREA SALES MANAGER', 'AREA_SALES_MANAGER') 
+         LIMIT 1`
+      );
+    }
+    if (asmEmp) {
+      asm_name = asmEmp.asm_name || null;
+      asm_code = asmEmp.asm_code || null;
+    }
+  }
+
+  // RSM / ZH fallback from master_employees if still missing
+  if (!rsm_name && cleanZone) {
+    const rsm = await dbGet(
       `SELECT emp_name as rsm_name, emp_code as rsm_code FROM master_employees 
        WHERE designation IN ('RSM', 'REGIONAL SALES MANAGER', 'REGIONAL_SALES_MANAGER') AND (LOWER(TRIM(zone)) = LOWER(?) OR LOWER(TRIM(region)) = LOWER(?)) 
        LIMIT 1`,
       [cleanZone, cleanZone]
     );
-    asm = await dbGet(
-      `SELECT emp_name as asm_name, emp_code as asm_code FROM master_employees 
-       WHERE designation IN ('ASM', 'AREA SALES MANAGER', 'AREA_SALES_MANAGER') AND (LOWER(TRIM(zone)) = LOWER(?) OR LOWER(TRIM(region)) = LOWER(?)) 
+    if (rsm) { rsm_name = rsm.rsm_name; rsm_code = rsm.rsm_code; }
+  }
+  if (!zh_name && cleanZone) {
+    const zh = await dbGet(
+      `SELECT emp_name as zh_name, emp_code as zh_code FROM master_employees 
+       WHERE designation IN ('ZH', 'ZONAL HEAD', 'ZONAL_HEAD') AND (LOWER(TRIM(zone)) = LOWER(?) OR LOWER(TRIM(region)) = LOWER(?)) 
        LIMIT 1`,
       [cleanZone, cleanZone]
     );
+    if (zh) { zh_name = zh.zh_name; zh_code = zh.zh_code; }
   }
 
-  // 7. Global default ZH, RSM, ASM if only one exists in system
-  if (!zh) {
-    zh = await dbGet(
-      `SELECT emp_name as zh_name, emp_code as zh_code FROM master_employees 
-       WHERE designation IN ('ZH', 'ZONAL HEAD', 'ZONAL_HEAD') 
-       LIMIT 1`
+  // Resolve missing asm_code if asm_name is known
+  if (asm_name && !asm_code) {
+    const emp = await dbGet(
+      `SELECT emp_code FROM master_employees WHERE LOWER(TRIM(emp_name)) = LOWER(TRIM(?)) AND emp_code IS NOT NULL LIMIT 1`,
+      [asm_name]
     );
+    if (emp?.emp_code) {
+      asm_code = emp.emp_code;
+    } else {
+      const mapEmp = await dbGet(
+        `SELECT asm_code FROM master_dealer_so_mapping WHERE LOWER(TRIM(asm_name)) = LOWER(TRIM(?)) AND asm_code IS NOT NULL AND asm_code != '' AND asm_code != '-' LIMIT 1`,
+        [asm_name]
+      );
+      if (mapEmp?.asm_code) asm_code = mapEmp.asm_code;
+    }
   }
-  if (!rsm) {
-    rsm = await dbGet(
-      `SELECT emp_name as rsm_name, emp_code as rsm_code FROM master_employees 
-       WHERE designation IN ('RSM', 'REGIONAL SALES MANAGER', 'REGIONAL_SALES_MANAGER') 
-       LIMIT 1`
+
+  // Resolve missing so_emp_code if so_name is known
+  const finalSoName = res_so_name || cleanSo;
+  let finalSoCode = res_so_emp_code || cleanEmpCode;
+  if (finalSoName && !finalSoCode) {
+    const emp = await dbGet(
+      `SELECT emp_code FROM master_employees WHERE LOWER(TRIM(emp_name)) = LOWER(TRIM(?)) AND emp_code IS NOT NULL LIMIT 1`,
+      [finalSoName]
     );
-  }
-  if (!asm) {
-    asm = await dbGet(
-      `SELECT emp_name as asm_name, emp_code as asm_code FROM master_employees 
-       WHERE designation IN ('ASM', 'AREA SALES MANAGER', 'AREA_SALES_MANAGER') 
-       LIMIT 1`
-    );
+    if (emp?.emp_code) {
+      finalSoCode = emp.emp_code;
+    } else {
+      const mapEmp = await dbGet(
+        `SELECT so_emp_code FROM master_dealer_so_mapping WHERE LOWER(TRIM(so_name)) = LOWER(TRIM(?)) AND so_emp_code IS NOT NULL AND so_emp_code != '' AND so_emp_code != '-' LIMIT 1`,
+        [finalSoName]
+      );
+      if (mapEmp?.so_emp_code) finalSoCode = mapEmp.so_emp_code;
+    }
   }
 
   return {
-    zh_name: zh?.zh_name || null,
-    zh_code: zh?.zh_code || null,
-    rsm_name: rsm?.rsm_name || null,
-    rsm_code: rsm?.rsm_code || null,
-    asm_name: asm?.asm_name || null,
-    asm_code: asm?.asm_code || null,
-    so_name: cleanSo || null,
-    so_emp_code: cleanEmpCode || null,
-    method: 'EMPLOYEE_FALLBACK'
+    zh_name: zh_name || null,
+    zh_code: zh_code || null,
+    rsm_name: rsm_name || null,
+    rsm_code: rsm_code || null,
+    asm_name: asm_name || null,
+    asm_code: asm_code || null,
+    so_name: finalSoName || null,
+    so_emp_code: finalSoCode || null,
+    method: method || 'FALLBACK'
   };
 }
