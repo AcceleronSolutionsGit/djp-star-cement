@@ -191,6 +191,15 @@ export async function getMasterSummary(req, res) {
  */
 export async function getMasterFilterOptions(req, res) {
   try {
+    const safeDbAll = async (sql) => {
+      try {
+        return await dbAll(sql);
+      } catch (e) {
+        console.warn('[getMasterFilterOptions] Subquery warning:', e.message);
+        return [];
+      }
+    };
+
     const [
       dealerZones,
       dealerRegions,
@@ -215,28 +224,28 @@ export async function getMasterFilterOptions(req, res) {
       pjpStatuses,
       dpPeriods
     ] = await Promise.all([
-      dbAll('SELECT DISTINCT zone FROM master_dealers WHERE zone IS NOT NULL AND zone != "" ORDER BY zone ASC'),
-      dbAll('SELECT DISTINCT region FROM master_dealers WHERE region IS NOT NULL AND region != "" ORDER BY region ASC'),
-      dbAll('SELECT DISTINCT area FROM master_dealers WHERE area IS NOT NULL AND area != "" ORDER BY area ASC'),
-      dbAll('SELECT DISTINCT dealer_type FROM master_dealers WHERE dealer_type IS NOT NULL AND dealer_type != "" ORDER BY dealer_type ASC'),
-      dbAll('SELECT DISTINCT status FROM master_dealers WHERE status IS NOT NULL AND status != "" ORDER BY status ASC'),
-      dbAll('SELECT DISTINCT period_year_month FROM sales_history WHERE period_year_month IS NOT NULL ORDER BY period_year_month DESC'),
-      dbAll('SELECT DISTINCT zone FROM sales_history WHERE zone IS NOT NULL AND zone != "" ORDER BY zone ASC'),
-      dbAll('SELECT DISTINCT branch FROM visit_execution_logs WHERE branch IS NOT NULL AND branch != "" ORDER BY branch ASC'),
-      dbAll('SELECT DISTINCT route FROM visit_execution_logs WHERE route IS NOT NULL AND route != "" ORDER BY route ASC'),
-      dbAll('SELECT DISTINCT employee_name FROM visit_execution_logs WHERE employee_name IS NOT NULL AND employee_name != "" ORDER BY employee_name ASC'),
-      dbAll('SELECT DISTINCT visit_status FROM visit_execution_logs WHERE visit_status IS NOT NULL AND visit_status != "" ORDER BY visit_status ASC'),
-      dbAll('SELECT DISTINCT visit_date FROM visit_execution_logs WHERE visit_date IS NOT NULL AND visit_date != "0000-00-00" ORDER BY visit_date DESC'),
-      dbAll('SELECT DISTINCT customer_type FROM visit_execution_logs WHERE customer_type IS NOT NULL AND customer_type != "" ORDER BY customer_type ASC'),
-      dbAll('SELECT DISTINCT area FROM master_dealer_so_mapping WHERE area IS NOT NULL AND area != "" ORDER BY area ASC'),
-      dbAll('SELECT DISTINCT region FROM master_dealer_so_mapping WHERE region IS NOT NULL AND region != "" ORDER BY region ASC'),
-      dbAll('SELECT DISTINCT so_name FROM master_dealer_so_mapping WHERE so_name IS NOT NULL AND so_name != "" ORDER BY so_name ASC'),
-      dbAll('SELECT DISTINCT zone FROM dealer_visit_targets WHERE zone IS NOT NULL AND zone != "" ORDER BY zone ASC'),
-      dbAll('SELECT DISTINCT area FROM dealer_visit_targets WHERE area IS NOT NULL AND area != "" ORDER BY area ASC'),
-      dbAll('SELECT DISTINCT so_name FROM dealer_visit_targets WHERE so_name IS NOT NULL AND so_name != "" ORDER BY so_name ASC'),
-      dbAll('SELECT DISTINCT category FROM dealer_visit_targets WHERE category IS NOT NULL AND category != "" ORDER BY category ASC'),
-      dbAll('SELECT DISTINCT dealer_status FROM dealer_visit_targets WHERE dealer_status IS NOT NULL AND dealer_status != "" ORDER BY dealer_status ASC'),
-      dbAll('SELECT DISTINCT period_year_month FROM dealer_performance_history WHERE period_year_month IS NOT NULL AND period_year_month != "6M_AVG" ORDER BY period_year_month DESC')
+      safeDbAll('SELECT DISTINCT zone FROM master_dealers WHERE zone IS NOT NULL AND zone != "" ORDER BY zone ASC'),
+      safeDbAll('SELECT DISTINCT region FROM master_dealers WHERE region IS NOT NULL AND region != "" ORDER BY region ASC'),
+      safeDbAll('SELECT DISTINCT area FROM master_dealers WHERE area IS NOT NULL AND area != "" ORDER BY area ASC'),
+      safeDbAll('SELECT DISTINCT dealer_type FROM master_dealers WHERE dealer_type IS NOT NULL AND dealer_type != "" ORDER BY dealer_type ASC'),
+      safeDbAll('SELECT DISTINCT status FROM master_dealers WHERE status IS NOT NULL AND status != "" ORDER BY status ASC'),
+      safeDbAll('SELECT DISTINCT period_year_month FROM sales_history WHERE period_year_month IS NOT NULL ORDER BY period_year_month DESC'),
+      safeDbAll('SELECT DISTINCT zone FROM sales_history WHERE zone IS NOT NULL AND zone != "" ORDER BY zone ASC'),
+      safeDbAll('SELECT DISTINCT branch FROM visit_execution_logs WHERE branch IS NOT NULL AND branch != "" ORDER BY branch ASC'),
+      safeDbAll('SELECT DISTINCT route FROM visit_execution_logs WHERE route IS NOT NULL AND route != "" ORDER BY route ASC'),
+      safeDbAll('SELECT DISTINCT employee_name FROM visit_execution_logs WHERE employee_name IS NOT NULL AND employee_name != "" ORDER BY employee_name ASC'),
+      safeDbAll('SELECT DISTINCT visit_status FROM visit_execution_logs WHERE visit_status IS NOT NULL AND visit_status != "" ORDER BY visit_status ASC'),
+      safeDbAll('SELECT DISTINCT visit_date FROM visit_execution_logs WHERE visit_date IS NOT NULL AND visit_date > "1970-01-01" ORDER BY visit_date DESC'),
+      safeDbAll('SELECT DISTINCT customer_type FROM visit_execution_logs WHERE customer_type IS NOT NULL AND customer_type != "" ORDER BY customer_type ASC'),
+      safeDbAll('SELECT DISTINCT area FROM master_dealer_so_mapping WHERE area IS NOT NULL AND area != "" ORDER BY area ASC'),
+      safeDbAll('SELECT DISTINCT region FROM master_dealer_so_mapping WHERE region IS NOT NULL AND region != "" ORDER BY region ASC'),
+      safeDbAll('SELECT DISTINCT so_name FROM master_dealer_so_mapping WHERE so_name IS NOT NULL AND so_name != "" ORDER BY so_name ASC'),
+      safeDbAll('SELECT DISTINCT zone FROM dealer_visit_targets WHERE zone IS NOT NULL AND zone != "" ORDER BY zone ASC'),
+      safeDbAll('SELECT DISTINCT area FROM dealer_visit_targets WHERE area IS NOT NULL AND area != "" ORDER BY area ASC'),
+      safeDbAll('SELECT DISTINCT so_name FROM dealer_visit_targets WHERE so_name IS NOT NULL AND so_name != "" ORDER BY so_name ASC'),
+      safeDbAll('SELECT DISTINCT category FROM dealer_visit_targets WHERE category IS NOT NULL AND category != "" ORDER BY category ASC'),
+      safeDbAll('SELECT DISTINCT dealer_status FROM dealer_visit_targets WHERE dealer_status IS NOT NULL AND dealer_status != "" ORDER BY dealer_status ASC'),
+      safeDbAll('SELECT DISTINCT period_year_month FROM dealer_performance_history WHERE period_year_month IS NOT NULL AND period_year_month != "6M_AVG" ORDER BY period_year_month DESC')
     ]);
 
     res.json({
