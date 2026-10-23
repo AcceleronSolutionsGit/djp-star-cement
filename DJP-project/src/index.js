@@ -251,6 +251,27 @@ async function runStartupMigrations() {
   } catch (err) {
     console.warn('[Migration] Warning during visit target healing:', err.message);
   }
+
+  try {
+    // Migration 7: Ensure zone column exists in master_dealer_so_mapping and master_employees
+    const mappingCols = await dbAll("SHOW COLUMNS FROM master_dealer_so_mapping");
+    const hasZoneMapping = mappingCols.some(c => c.Field === 'zone');
+    if (!hasZoneMapping) {
+      await dbRun("ALTER TABLE master_dealer_so_mapping ADD COLUMN zone VARCHAR(100) NULL AFTER region");
+      await dbRun("UPDATE master_dealer_so_mapping SET zone = region WHERE zone IS NULL");
+      console.log('[Migration] ✓ Added zone column to master_dealer_so_mapping and synced from region');
+    }
+
+    const empCols = await dbAll("SHOW COLUMNS FROM master_employees");
+    const hasZoneEmp = empCols.some(c => c.Field === 'zone');
+    if (!hasZoneEmp) {
+      await dbRun("ALTER TABLE master_employees ADD COLUMN zone VARCHAR(100) NULL AFTER region");
+      await dbRun("UPDATE master_employees SET zone = region WHERE zone IS NULL");
+      console.log('[Migration] ✓ Added zone column to master_employees and synced from region');
+    }
+  } catch (err) {
+    console.warn('[Migration] Warning during startup column check (zone):', err.message);
+  }
 }
 
 const __filename = fileURLToPath(import.meta.url);
