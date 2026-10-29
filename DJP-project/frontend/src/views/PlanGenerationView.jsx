@@ -144,8 +144,10 @@ export default function PlanGenerationView({ onShowToast, onPlanSubmitted }) {
         cycleCode: planHeader.cycle_code || cycleCode
       });
       loadDealersForEmp(planHeader.emp_code || empCode);
+      return map;
     } catch (err) {
       onShowToast('Failed to load plan details', 'error');
+      return {};
     } finally {
       setLoading(false);
     }
@@ -220,20 +222,21 @@ export default function PlanGenerationView({ onShowToast, onPlanSubmitted }) {
 
     setAddingVisit(true);
     try {
+      const dType = matchedDealer.dealer_type || (matchedDealer.linked_dealer_code ? 'RSAR' : 'DEALER');
       await api.addPlanVisit({
         planId: currentPlan.id,
         visitDate: selectedDay.isoDate,
         dealerId: matchedDealer.dealer_id,
         dealerSapCode: matchedDealer.sap_code,
         dealerName: matchedDealer.dealer_name,
-        dealerType: 'STAR',
+        dealerType: dType,
         purposeOfVisit: 'Ad-hoc PJP Visit'
       });
 
       onShowToast('Visit added to day schedule!', 'success');
-      await loadPlanDetails(currentPlan.id);
+      const freshMap = await loadPlanDetails(currentPlan.id);
       
-      const updatedVisits = (daysMap[selectedDay.isoDate] || []);
+      const updatedVisits = (freshMap && freshMap[selectedDay.isoDate]) || [];
       setSelectedDay(prev => ({
         ...prev,
         visits: updatedVisits
@@ -251,11 +254,12 @@ export default function PlanGenerationView({ onShowToast, onPlanSubmitted }) {
     try {
       await api.removePlanVisit(detailId);
       onShowToast('Visit removed successfully', 'success');
-      await loadPlanDetails(currentPlan.id);
+      const freshMap = await loadPlanDetails(currentPlan.id);
 
+      const updatedVisits = (freshMap && freshMap[selectedDay.isoDate]) || [];
       setSelectedDay(prev => ({
         ...prev,
-        visits: prev.visits.filter(v => v.id !== detailId)
+        visits: updatedVisits
       }));
     } catch (err) {
       onShowToast(err.message || 'Failed to remove visit', 'error');
@@ -300,12 +304,7 @@ export default function PlanGenerationView({ onShowToast, onPlanSubmitted }) {
       let isSunday = dayOfWeek === 0;
       let isHoliday = isSunday;
       let holidayReason = isSunday ? 'Sunday' : null;
-
-      if (dayOfWeek === 6) {
-        const nth = Math.ceil(d / 7);
-        if (nth === 2) { isHoliday = true; holidayReason = '2nd Sat'; }
-        if (nth === 4) { isHoliday = true; holidayReason = '4th Sat'; }
-      }
+      // All Saturdays are working days per business rules
 
       // Check Cycle bounds (C1 = 1-15, C2 = 16-End)
       const inCycle = cycleCode === 'C1' ? (d <= 15) : (d >= 16);
@@ -354,7 +353,7 @@ export default function PlanGenerationView({ onShowToast, onPlanSubmitted }) {
             {dayVisits.slice(0, 3).map((v, idx) => (
               <div key={v.id || idx} className="dealer-calendar-chip" title={`${v.dealer_name} (${v.dealer_sap_code || 'N/A'})`}>
                 <span className="dealer-chip-name">{v.dealer_name}</span>
-                <span className="dealer-chip-badge">{v.dealer_type || 'STAR'}</span>
+                <span className={`dealer-chip-badge ${(v.dealer_type || '').toLowerCase()}`}>{v.dealer_type || 'DEALER'}</span>
               </div>
             ))}
 
@@ -712,7 +711,7 @@ export default function PlanGenerationView({ onShowToast, onPlanSubmitted }) {
                             {visit.dealer_name}
                           </div>
                           <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '1px' }}>
-                            Code: <b>{visit.dealer_sap_code || 'N/A'}</b> | Type: <b>{visit.dealer_type || 'STAR'}</b> | {visit.purpose_of_visit}
+                            Code: <b>{visit.dealer_sap_code || 'N/A'}</b> | Type: <b style={{ color: visit.dealer_type === 'RSAR' ? '#7C3AED' : '#2563EB' }}>{visit.dealer_type || 'DEALER'}</b> | {visit.purpose_of_visit}
                           </div>
                         </div>
                       </div>
@@ -752,7 +751,7 @@ export default function PlanGenerationView({ onShowToast, onPlanSubmitted }) {
                               .map(d => ({
                                 value: d.sap_code || d.dealer_id,
                                 label: d.dealer_name,
-                                subtext: `SAP: ${d.sap_code || 'N/A'} | Area: ${d.area || d.branch || '—'}`
+                                subtext: `Type: ${d.dealer_type || 'DEALER'} | Code: ${d.sap_code || 'N/A'} | Area: ${d.area || d.branch || '—'}`
                               }))
                             }
                             value={addDealerInput}

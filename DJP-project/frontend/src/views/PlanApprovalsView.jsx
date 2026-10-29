@@ -34,6 +34,7 @@ export default function PlanApprovalsView({ onShowToast }) {
   const [reviewDayModal, setReviewDayModal] = useState(null);
   const [reviewAudit, setReviewAudit] = useState([]);
   const [approvalRemarks, setApprovalRemarks] = useState('');
+  const [reviewBackdatedAlert, setReviewBackdatedAlert] = useState(null);
 
   const loadPlans = async () => {
     setLoading(true);
@@ -122,8 +123,10 @@ export default function PlanApprovalsView({ onShowToast }) {
     setReviewPlan(plan);
     setReviewLoading(true);
     setApprovalRemarks('');
+    setReviewBackdatedAlert(null);
     try {
       const data = await api.getPlanDetails(plan.id);
+      setReviewBackdatedAlert(data.backdatedAlert || null);
       const details = data.details || [];
       const map = {};
       const dealerVisitsCount = new Map();
@@ -189,12 +192,7 @@ export default function PlanApprovalsView({ onShowToast }) {
       let isSunday = dayOfWeek === 0;
       let isHoliday = isSunday;
       let holidayReason = isSunday ? 'Sunday' : null;
-
-      if (dayOfWeek === 6) {
-        const nth = Math.ceil(d / 7);
-        if (nth === 2) { isHoliday = true; holidayReason = '2nd Sat'; }
-        if (nth === 4) { isHoliday = true; holidayReason = '4th Sat'; }
-      }
+      // All Saturdays are working days per business rules
 
       const dayVisits = reviewDaysMap[isoDate] || [];
       const hasVisits = dayVisits.length > 0;
@@ -234,9 +232,9 @@ export default function PlanApprovalsView({ onShowToast }) {
           {/* Chips */}
           <div className="calendar-chips-container">
             {dayVisits.slice(0, 3).map((v, idx) => (
-              <div key={v.id || idx} className="dealer-calendar-chip" title={`${v.dealer_name} (${v.dealer_sap_code || 'N/A'})`}>
-                <span className="dealer-chip-name">{v.dealer_name}</span>
-                <span className="dealer-chip-badge">{v.dealer_type || 'STAR'}</span>
+              <div key={v.id || idx} className={`dealer-calendar-chip ${v.is_backdated ? 'backdated' : ''}`} title={`${v.dealer_name} (${v.dealer_sap_code || 'N/A'})${v.is_backdated ? ' - [BACKDATED VISIT]' : ''}`}>
+                <span className="dealer-chip-name">{v.is_backdated ? '⚠️ ' : ''}{v.dealer_name}</span>
+                <span className={`dealer-chip-badge ${(v.dealer_type || '').toLowerCase()}`}>{v.dealer_type || 'DEALER'}</span>
               </div>
             ))}
 
@@ -506,7 +504,26 @@ export default function PlanApprovalsView({ onShowToast }) {
                         onChange={() => handleSelectOne(plan.id)}
                       />
                     </td>
-                    <td style={{ fontWeight: 800 }}>#{plan.id}</td>
+                    <td style={{ fontWeight: 800 }}>
+                      #{plan.id}
+                      {plan.backdated_visits_count > 0 && (
+                        <span 
+                          title={`${plan.backdated_visits_count} backdated visit(s) modified after date passed`}
+                          style={{ 
+                            display: 'inline-block', 
+                            marginLeft: '6px', 
+                            backgroundColor: '#FEF3C7', 
+                            color: '#B45309', 
+                            padding: '2px 6px', 
+                            borderRadius: '4px', 
+                            fontSize: '0.68rem', 
+                            fontWeight: 800 
+                          }}
+                        >
+                          ⚠️ {plan.backdated_visits_count} Backdated
+                        </span>
+                      )}
+                    </td>
                     <td><code>{plan.emp_code}</code></td>
                     <td style={{ fontWeight: 700 }}>{plan.emp_name}</td>
                     <td>
@@ -644,6 +661,30 @@ export default function PlanApprovalsView({ onShowToast }) {
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {/* Approver Alert for Backdated Edited Data */}
+                  {reviewBackdatedAlert?.hasBackdatedVisits && (
+                    <div style={{
+                      display: 'flex',
+                      gap: '12px',
+                      alignItems: 'center',
+                      padding: '12px 16px',
+                      backgroundColor: '#FEF2F2',
+                      border: '1.5px solid #F87171',
+                      borderRadius: '8px',
+                      boxShadow: '0 1px 3px rgba(220, 38, 38, 0.1)'
+                    }}>
+                      <AlertTriangle size={24} color="#DC2626" style={{ flexShrink: 0 }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 800, color: '#991B1B', fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          ⚠️ APPROVER ALERT: Edited Backdated Visits Detected ({reviewBackdatedAlert.count})
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: '#7F1D1D', marginTop: '3px', lineHeight: 1.4 }}>
+                          {reviewBackdatedAlert.count} visit(s) in this plan were scheduled or edited for dates that have already passed (Backdated). Please review these visits carefully before approving.
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Calendar Grid */}
                   {renderReviewCalendar()}
 
@@ -751,7 +792,12 @@ export default function PlanApprovalsView({ onShowToast }) {
                         {v.dealer_name}
                       </div>
                       <div style={{ fontSize: '0.75rem', color: '#64748B' }}>
-                        Code: <b>{v.dealer_sap_code || 'N/A'}</b> | {v.purpose_of_visit}
+                        Code: <b>{v.dealer_sap_code || 'N/A'}</b> | Type: <b style={{ color: v.dealer_type === 'RSAR' ? '#7C3AED' : '#2563EB' }}>{v.dealer_type || 'DEALER'}</b> | {v.purpose_of_visit}
+                        {v.is_backdated === 1 && (
+                          <span style={{ marginLeft: '8px', color: '#DC2626', fontWeight: 800 }}>
+                            ⚠️ [EDITED BACKDATED VISIT]
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>

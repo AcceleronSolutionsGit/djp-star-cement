@@ -6,6 +6,13 @@ import { fileURLToPath } from 'url';
 import apiRoutes from './routes/api.routes.js';
 import { dbAll, dbRun } from './config/database.js';
 import { startSfaSyncCron } from './services/sfaSync.service.js';
+import { runCoordinateMigrations } from './scripts/migrate-customer-coordinates.js';
+import { syncCustomerCoordinatesFromApi } from './services/customerCoordinates.service.js';
+import { runEmployeeMasterMigration } from './scripts/migrate-employee-master.js';
+import { syncEmployeeMasterFromApi } from './services/employeeMaster.service.js';
+import { runZonalHeadMigration } from './scripts/migrate-zonal-heads.js';
+import { healAllMissingZonalHeads } from './services/zonalHead.service.js';
+import { runPlanEnhancementsMigration } from './scripts/migrate-plan-enhancements.js';
 
 dotenv.config();
 
@@ -271,6 +278,37 @@ async function runStartupMigrations() {
     }
   } catch (err) {
     console.warn('[Migration] Warning during startup column check (zone):', err.message);
+  }
+
+  try {
+    // Migration 8: Ensure customer coordinates table & columns exist and sync cache
+    await runCoordinateMigrations();
+    syncCustomerCoordinatesFromApi({ force: false }).catch(e => console.warn('[CustomerCoords] Startup sync warning:', e.message));
+  } catch (err) {
+    console.warn('[Migration] Warning during coordinate initialization:', err.message);
+  }
+
+  try {
+    // Migration 9: Ensure employee_master table exists and sync cache
+    await runEmployeeMasterMigration();
+    syncEmployeeMasterFromApi({ force: false }).catch(e => console.warn('[EmployeeMaster] Startup sync warning:', e.message));
+  } catch (err) {
+    console.warn('[Migration] Warning during employee master initialization:', err.message);
+  }
+
+  try {
+    // Migration 10: Ensure master_zone_zh_mapping exists and heal missing Zonal Heads
+    await runZonalHeadMigration();
+    healAllMissingZonalHeads().catch(e => console.warn("[ZonalHeadService] Startup healing warning:", e.message));
+  } catch (err) {
+    console.warn("[Migration] Warning during zonal head initialization:", err.message);
+  }
+
+  try {
+    // Migration 11: Ensure backdated tracking columns and edit window rules exist
+    await runPlanEnhancementsMigration();
+  } catch (err) {
+    console.warn("[Migration] Warning during plan enhancements initialization:", err.message);
   }
 }
 

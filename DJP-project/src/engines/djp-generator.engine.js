@@ -16,6 +16,8 @@
 import { calculatePJP } from './pjp/pjp.engine.js';
 import { getWorkingDays } from './pjp/calendar.engine.js';
 import { dbRun, dbAll, dbGet } from '../config/database.js';
+import { getCoordinatesForDealers } from '../services/customerCoordinates.service.js';
+import { clusterAndScheduleHeuristicRoutes } from './heuristicRouting.engine.js';
 
 export async function generateFullPjpDjpSolution(periodMonth, cycleCode, options = {}) {
   if (!periodMonth || typeof periodMonth !== 'string') {
@@ -136,8 +138,8 @@ export async function generateFullPjpDjpSolution(periodMonth, cycleCode, options
 
   const calendarOptions = {
     excludeSundays: true,
-    exclude2ndSaturday: rules.hol_2nd_sat !== 'false',
-    exclude4thSaturday: rules.hol_4th_sat !== 'false'
+    exclude2ndSaturday: rules.all_saturdays_working === '0' || rules.hol_2nd_sat === 'true',
+    exclude4thSaturday: rules.all_saturdays_working === '0' || rules.hol_4th_sat === 'true'
   };
 
   const workingDays = getWorkingDays(periodMonth, cycleCode, cycleConfig, calendarOptions);
@@ -205,6 +207,15 @@ export async function generateFullPjpDjpSolution(periodMonth, cycleCode, options
                            (r.rsmVisits || 0) + (r.zhVisits || 0);
   }
 
+  // Load customer coordinates for all targets to enable heuristic routing
+  const targetCodes = pjpResults.map(r => r.dealerCode || r.sap_code || r.sfa_code).filter(Boolean);
+  let coordsMap = new Map();
+  try {
+    coordsMap = await getCoordinatesForDealers(targetCodes);
+  } catch (err) {
+    console.warn('[DJP Generator] Warning loading coordinates:', err.message);
+  }
+
   // ──── SO Allocation ────
   for (const [soKey, targets] of soGroups.entries()) {
     const soRecs = [];
@@ -220,7 +231,7 @@ export async function generateFullPjpDjpSolution(periodMonth, cycleCode, options
         });
       }
     }
-    const { allocated, unallocated } = allocateToWorkingDays(soRecs, workingDays, soCapacity);
+    const { allocated, unallocated } = allocateToWorkingDays(soRecs, workingDays, soCapacity, coordsMap);
     for (const item of allocated) {
       await saveDjpRecommendation('SO', periodMonth, cycleCode, item, generationRunCode);
       totalDjpSlots++;
@@ -248,7 +259,7 @@ export async function generateFullPjpDjpSolution(periodMonth, cycleCode, options
         });
       }
     }
-    const { allocated, unallocated } = allocateToWorkingDays(asmRecs, workingDays, asmCapacity);
+    const { allocated, unallocated } = allocateToWorkingDays(asmRecs, workingDays, asmCapacity, coordsMap);
     for (const item of allocated) {
       await saveDjpRecommendation('ASM', periodMonth, cycleCode, item, generationRunCode);
       totalDjpSlots++;
@@ -274,7 +285,7 @@ export async function generateFullPjpDjpSolution(periodMonth, cycleCode, options
         });
       }
     }
-    const { allocated, unallocated } = allocateToWorkingDays(rsmRecs, workingDays, rsmCapacity);
+    const { allocated, unallocated } = allocateToWorkingDays(rsmRecs, workingDays, rsmCapacity, coordsMap);
     for (const item of allocated) {
       await saveDjpRecommendation('RSM', periodMonth, cycleCode, item, generationRunCode);
       totalDjpSlots++;
@@ -302,7 +313,7 @@ export async function generateFullPjpDjpSolution(periodMonth, cycleCode, options
     }
     const zhDailyLimit = Math.max(1, Math.ceil(zhMonthlyCapacity / workingDays.length));
     const cappedRecs = zhRecs.slice(0, zhMonthlyCapacity);
-    const { allocated, unallocated } = allocateToWorkingDays(cappedRecs, workingDays, zhDailyLimit);
+    const { allocated, unallocated } = allocateToWorkingDays(cappedRecs, workingDays, zhDailyLimit, coordsMap);
     for (const item of allocated) {
       await saveDjpRecommendation('ZH', periodMonth, cycleCode, item, generationRunCode);
       totalDjpSlots++;
@@ -334,59 +345,21 @@ export async function generateFullPjpDjpSolution(periodMonth, cycleCode, options
 }
 
 /**
- * Allocate visit records to working days with capacity constraints.
+ * Allocate visit records to working days with heuristic spatial clustering & capacity constraints.
  * 
- * Sort order: priority descending, then dealerCode ascending (deterministic tie-breaking).
  * Returns { allocated, unallocated }.
  */
-function allocateToWorkingDays(recs, workingDays, dailyCapacity) {
+function allocateToWorkingDays(recs, workingDays, dailyCapacity, coordinatesMap = new Map()) {
   if (recs.length === 0 || workingDays.length === 0) return { allocated: [], unallocated: recs };
 
-  // Deterministic sort: higher totalScore first, then lower dealerCode (alphabetical) for ties
-  const sorted = [...recs].sort((a, b) => {
-    const scoreDiff = (b.totalScore || 0) - (a.totalScore || 0);
-    if (scoreDiff !== 0) return scoreDiff;
-    return String(a.dealerCode || '').localeCompare(String(b.dealerCode || ''));
-  });
-
-  const daySlots = new Map();
-  const dayDealers = new Map();
-  for (const d of workingDays) {
-    daySlots.set(d, 0);
-    dayDealers.set(d, new Set());
-  }
-
+  const { dayAllocations, unallocated } = clusterAndScheduleHeuristicRoutes(recs, workingDays, dailyCapacity, coordinatesMap);
   const allocated = [];
-  const unallocated = [];
-  let dateIndex = 0;
 
-  for (const item of sorted) {
-    let assigned = false;
-    let attempts = 0;
-    const itemKey = item.dealerCode || (item.dealerId ? `DLR_${item.dealerId}` : null) || item.dealerName || `ITEM_${Math.random()}`;
-
-    while (!assigned && attempts < workingDays.length) {
-      const targetDate = workingDays[dateIndex];
-      const currentCount = daySlots.get(targetDate);
-      const alreadyScheduled = dayDealers.get(targetDate).has(itemKey);
-      
-      if (currentCount < dailyCapacity && !alreadyScheduled) {
-        daySlots.set(targetDate, currentCount + 1);
-        dayDealers.get(targetDate).add(itemKey);
-        item.visitDate = targetDate;
-        item.visitSequence = currentCount + 1;
-        allocated.push(item);
-        assigned = true;
-        // Advance to next day (round-robin)
-        dateIndex = (dateIndex + 1) % workingDays.length;
-      } else {
-        dateIndex = (dateIndex + 1) % workingDays.length;
-        attempts++;
-      }
-    }
-
-    if (!assigned) {
-      unallocated.push(item);
+  for (const [vDate, visits] of dayAllocations.entries()) {
+    for (const item of visits) {
+      item.visitDate = vDate;
+      item.visitSequence = item.sequence || 1;
+      allocated.push(item);
     }
   }
 
@@ -401,13 +374,14 @@ async function saveDjpRecommendation(roleType, periodMonth, cycleCode, item, gen
     `INSERT INTO djp_recommendations 
     (generation_run_code, role_type, cycle_code, period_month, emp_code, emp_name, visit_date, visit_sequence, 
      dealer_sap_code, dealer_sfa_code, dealer_name, dealer_type, category, dealer_status, 
-     market_strategy, priority_score, required_visits, recommendation_reason, plan_status) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     market_strategy, priority_score, required_visits, recommendation_reason, plan_status,
+     latitude, longitude, distance_from_prev_km, route_name) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       generationRunCode,
       roleType, cycleCode, periodMonth,
       item.empCode, item.empName,
-      item.visitDate, item.visitSequence,
+      item.visitDate, item.visitSequence || item.sequence || 1,
       sapCode, sfaCode,
       item.dealerName, 'DEALER',
       item.grade || 'C',
@@ -415,7 +389,11 @@ async function saveDjpRecommendation(roleType, periodMonth, cycleCode, item, gen
       'GA',
       item.totalScore || 0, 1,
       `${roleType} allocated (${item.finalCategory || 'N/A'}, Grade ${item.grade || 'N/A'})`,
-      'DRAFT'
+      'DRAFT',
+      item.latitude || null,
+      item.longitude || null,
+      item.distance_from_prev_km || 0,
+      item.route_name || null
     ]
   );
 }

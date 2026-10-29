@@ -376,6 +376,31 @@ export const api = {
     return data;
   },
 
+  getPlanRouteMap: async (planId) => {
+    const res = await fetchWithAuth(`${API_BASE}/app/admin/plans/${planId}/route-map`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to fetch plan route map');
+    return data;
+  },
+
+  syncCustomerCoordinates: async (options = {}) => {
+    const res = await fetchWithAuth(`${API_BASE}/sync/customer-coordinates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to sync customer coordinates');
+    return data;
+  },
+
+  getCustomerCoordinatesStatus: async () => {
+    const res = await fetchWithAuth(`${API_BASE}/sync/customer-coordinates/status`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to fetch coordinates status');
+    return data;
+  },
+
   getOfficerPlanDetail: async (planId) => {
     const res = await fetchWithAuth(`${API_BASE}/app/admin/plans/${planId}`);
     const data = await res.json();

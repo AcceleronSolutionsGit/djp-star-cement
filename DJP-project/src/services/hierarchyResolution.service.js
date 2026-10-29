@@ -1,4 +1,5 @@
 import { dbGet } from '../config/database.js';
+import { resolveZonalHead } from './zonalHead.service.js';
 
 /**
  * Resolve Upper Hierarchy (ZH, RSM, and ASM) for a Prospective Dealer.
@@ -195,14 +196,13 @@ export async function resolveProspectHierarchy({ soEmpCode, soName, area, zone, 
       if (rsm) { rsm_name = rsm.rsm_name; rsm_code = rsm.rsm_code; }
     } catch (e) {}
   }
-  if (!zh_name) {
+  if (!zh_name || !zh_code) {
     try {
-      const zh = await dbGet(
-        `SELECT emp_name as zh_name, emp_code as zh_code FROM master_employees 
-         WHERE designation IN ('ZH', 'ZONAL HEAD', 'ZONAL_HEAD') 
-         LIMIT 1`
-      );
-      if (zh) { zh_name = zh.zh_name; zh_code = zh.zh_code; }
+      const zhRes = await resolveZonalHead({ zone: cleanZone, region, area: cleanArea });
+      if (zhRes?.zh_name) {
+        if (!zh_name) zh_name = zhRes.zh_name;
+        if (!zh_code) zh_code = zhRes.zh_code;
+      }
     } catch (e) {}
   }
 

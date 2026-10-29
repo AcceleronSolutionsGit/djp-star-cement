@@ -20,6 +20,8 @@ import { dbAll, dbRun, dbGet } from '../config/database.js';
 import { getWorkingDays } from './pjp/calendar.engine.js';
 import { getAdherenceForEmployee } from './sfa-adherence.engine.js';
 import { resolveEmployeeName } from '../services/planRouting.service.js';
+import { getCoordinatesForDealers } from '../services/customerCoordinates.service.js';
+import { clusterAndScheduleHeuristicRoutes } from './heuristicRouting.engine.js';
 
 export class AutoPlanGenerator {
   /**
@@ -49,8 +51,8 @@ export class AutoPlanGenerator {
       },
       calendarOptions: {
         excludeSundays: true,
-        exclude2ndSaturday: rules.hol_2nd_sat !== 'false',
-        exclude4thSaturday: rules.hol_4th_sat !== 'false'
+        exclude2ndSaturday: rules.all_saturdays_working === '0' || rules.hol_2nd_sat === 'true',
+        exclude4thSaturday: rules.all_saturdays_working === '0' || rules.hol_4th_sat === 'true'
       }
     };
   }
@@ -99,14 +101,25 @@ export class AutoPlanGenerator {
     }
 
     // 2. Fetch targets strictly for targetPeriod and cycleCode (or latest run)
+    // Enriches dealer_name and dealer_type (DEALER vs RSAR vs PROSPECTIVE) matching SFA coordinates master
     const sql = `
       SELECT 
         dvt.id as target_id,
         dvt.dealer_id,
-        dvt.dealer_name,
-        COALESCE(dvt.sap_code, md.sap_code) as sap_code,
-        COALESCE(dvt.sfa_code, md.sfa_code) as sfa_code,
-        md.dealer_type,
+        COALESCE(NULLIF(mcc.customer_name, ''), NULLIF(md.dealer_name, ''), dvt.dealer_name) as dealer_name,
+        COALESCE(dvt.sap_code, md.sap_code, mcc.customer_code) as sap_code,
+        COALESCE(dvt.sfa_code, md.sfa_code, mcc.dns_customer_code) as sfa_code,
+        CASE 
+          WHEN mcc.customer_type = 'Sub Dealer' OR mcc.customer_type LIKE '%Sub%' 
+               OR md.dealer_type = 'RSAR' 
+               OR (md.linked_dealer_code IS NOT NULL AND md.linked_dealer_code != '' AND md.linked_dealer_code != '-')
+               OR (md.rssd_code IS NOT NULL AND md.rssd_code != '' AND md.rssd_code != '-')
+               OR dvt.dealer_status LIKE '%Sub%' THEN 'RSAR'
+          WHEN mcc.customer_type IN ('Dealer', 'Exclusive Dealer') 
+               OR md.dealer_type IN ('DEALER', 'STAR') THEN 'DEALER'
+          WHEN mcc.customer_type = 'Non Star' OR md.dealer_type = 'PROSPECTIVE' THEN 'PROSPECTIVE'
+          ELSE COALESCE(NULLIF(md.dealer_type, ''), 'DEALER')
+        END as dealer_type,
         dvt.area,
         md.block,
         dvt.zone,
@@ -121,6 +134,12 @@ export class AutoPlanGenerator {
         dvt.${visitCol} as required_visits
       FROM dealer_visit_targets dvt
       LEFT JOIN master_dealers md ON dvt.dealer_id = md.id
+      LEFT JOIN master_customer_coordinates mcc ON (
+        (md.sfa_code IS NOT NULL AND mcc.dns_customer_code = md.sfa_code) OR
+        (md.sap_code IS NOT NULL AND (mcc.dns_customer_code = md.sap_code OR mcc.customer_code = md.sap_code)) OR
+        (dvt.sap_code IS NOT NULL AND (mcc.dns_customer_code = dvt.sap_code OR mcc.customer_code = dvt.sap_code)) OR
+        (dvt.sfa_code IS NOT NULL AND mcc.dns_customer_code = dvt.sfa_code)
+      )
       WHERE (dvt.${codeField} = ? OR dvt.${roleField} = ? OR dvt.${roleField} LIKE ?)
         AND dvt.period_month = ?
         AND (dvt.cycle_code = ? OR dvt.cycle_code IS NULL OR dvt.cycle_code = '')
@@ -309,58 +328,41 @@ export class AutoPlanGenerator {
     );
     const planId = planRes.insertId || planRes.lastID;
 
-    // Distribute visits across working days with daily capacity & same-dealer-same-day rule
-    const dayAllocations = new Map();
-    for (const dStr of workingDays) {
-      dayAllocations.set(dStr, []);
+    // Load customer coordinates for all target dealers (include both SAP code and SFA code)
+    const dealerCodes = [];
+    for (const d of visitItems) {
+      if (d.sap_code) dealerCodes.push(d.sap_code);
+      if (d.sfa_code) dealerCodes.push(d.sfa_code);
+      if (d.dealer_code) dealerCodes.push(d.dealer_code);
+    }
+    let coordsMap = new Map();
+    try {
+      coordsMap = await getCoordinatesForDealers(dealerCodes);
+    } catch (coordErr) {
+      console.warn(`[AutoPlanGen] Warning loading coordinates for ${empCode}:`, coordErr.message);
     }
 
-    let dayIndex = 0;
-    const workingDateList = workingDays;
+    // Heuristic Route Map Clustering and Daily Scheduling
+    const { dayAllocations, dayRouteMaps, unallocated } = clusterAndScheduleHeuristicRoutes(
+      visitItems,
+      workingDays,
+      effectiveDailyCapacity,
+      coordsMap
+    );
 
-    for (const item of visitItems) {
-      let placed = false;
-      let attempts = 0;
-
-      // Pass 1: find working day with capacity < effectiveDailyCapacity AND no same dealer
-      while (!placed && attempts < workingDateList.length) {
-        const currentDate = workingDateList[dayIndex];
-        const dayVisits = dayAllocations.get(currentDate);
-
-        const hasSameDealer = dayVisits.some(v => v.dealer_code === item.dealer_code || (item.dealer_id && v.dealer_id === item.dealer_id));
-
-        if (dayVisits.length < effectiveDailyCapacity && !hasSameDealer) {
-          dayVisits.push(item);
-          placed = true;
-        }
-
-        dayIndex = (dayIndex + 1) % workingDateList.length;
-        attempts++;
-      }
-
-      // Pass 2: if not placed due to cycle rotation, search all days strictly respecting no-same-dealer and hard cap of 8
-      if (!placed) {
-        for (const dDate of workingDateList) {
-          const dayVisits = dayAllocations.get(dDate);
-          const hasSameDealer = dayVisits.some(v => v.dealer_code === item.dealer_code || (item.dealer_id && v.dealer_id === item.dealer_id));
-          if (dayVisits.length < 8 && !hasSameDealer) {
-            dayVisits.push(item);
-            placed = true;
-            break;
-          }
-        }
-      }
-    }
-
-    // Insert scheduled details into sales_plan_details and djp_recommendations
+    // Insert scheduled details into sales_plan_details with route sequences and coordinates
     let totalScheduled = 0;
+    let totalDistanceKm = 0;
+
     for (const [vDate, visits] of dayAllocations.entries()) {
-      let seq = 1;
+      const dayRoute = dayRouteMaps.get(vDate);
+      if (dayRoute) totalDistanceKm += (dayRoute.totalDistanceKm || 0);
+
       for (const item of visits) {
         await dbRun(
           `INSERT INTO sales_plan_details 
-           (plan_id, visit_date, dealer_id, dealer_sap_code, dealer_name, dealer_type, purpose_of_visit, sequence) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (plan_id, visit_date, dealer_id, dealer_sap_code, dealer_name, dealer_type, purpose_of_visit, sequence, latitude, longitude, distance_from_prev_km, route_name) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             planId,
             vDate,
@@ -369,7 +371,11 @@ export class AutoPlanGenerator {
             item.dealer_name,
             item.dealer_type || 'DEALER',
             `PJP Scheduled Visit (${item.grade || 'A'} - ${item.final_category || 'Routine'})`,
-            seq++
+            item.sequence || 1,
+            item.latitude || null,
+            item.longitude || null,
+            item.distance_from_prev_km || 0,
+            item.route_name || null
           ]
         );
         totalScheduled++;
@@ -387,9 +393,11 @@ export class AutoPlanGenerator {
       cycleCode,
       totalDealers: targetDealers.length,
       totalVisitsScheduled: totalScheduled,
+      totalDistanceKm: Math.round(totalDistanceKm * 100) / 100,
+      unallocatedCount: unallocated.length,
       workingDaysCount: workingDays.length,
       missedFromC1: missedDealerCodes.size,
-      message: `Plan generated for ${empName} (${resolvedRole}) [${cycleCode}] — ${totalScheduled} visits scheduled across ${workingDays.length} working days in ${periodMonth}${
+      message: `Plan generated for ${empName} (${resolvedRole}) [${cycleCode}] — ${totalScheduled} visits scheduled across ${workingDays.length} working days in ${periodMonth} (~${Math.round(totalDistanceKm)} km heuristic route)${
         missedDealerCodes.size > 0 ? ` (${missedDealerCodes.size} missed C1 dealers prioritised)` : ''
       }.`
     };

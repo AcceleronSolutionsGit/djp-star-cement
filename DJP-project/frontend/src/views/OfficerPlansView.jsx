@@ -2,10 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   ClipboardList, Search, RefreshCw, X, CalendarDays, AlertTriangle,
   CheckCircle2, Activity, Users, Download, GitCompare,
-  History, ChevronLeft, ChevronRight, HelpCircle, FileSpreadsheet, Clock
+  History, ChevronLeft, ChevronRight, HelpCircle, FileSpreadsheet, Clock,
+  Compass, MapPin
 } from 'lucide-react';
 import { api } from '../services/api';
 import AdherenceReportView from './AdherenceReportView';
+import RouteMapModal from '../components/RouteMapModal';
 
 /**
  * Officer Plans & Adherence
@@ -176,6 +178,7 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
 
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [routeModalPlan, setRouteModalPlan] = useState(null);
 
   // ── adherence tab & pagination ──────────────────────────────────────────────
   const [adherenceMode, setAdherenceMode] = useState('excel'); // 'excel' | 'diagnostics'
@@ -2893,6 +2896,18 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                     {Object.entries(detail.category_mix || {}).map(([k, v]) => (
                       <span key={k} className="badge" style={{ fontSize: '.72rem' }}>{k}: {v}</span>
                     ))}
+                    {detail.total_distance_km > 0 && (
+                      <span className="badge" style={{ fontSize: '.72rem', background: '#E0F2FE', color: '#0369A1', fontWeight: 600 }}>
+                        🚗 Est. Route: {detail.total_distance_km} km
+                      </span>
+                    )}
+                    <button
+                      className="btn btn-secondary"
+                      style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: '.76rem', padding: '5px 12px' }}
+                      onClick={() => setRouteModalPlan({ planId: detail.id, summary: detail })}
+                    >
+                      <Compass size={14} /> Heuristic Route Map
+                    </button>
                   </div>
 
                   {detail.rectification?.count > 0 && (
@@ -2908,9 +2923,29 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
 
                   {detail.days.map(d => (
                     <div className="op-day" key={d.visit_date}>
-                      <div className="op-day-head">
-                        <span><CalendarDays size={14} style={{ verticalAlign: -2, marginRight: 7 }} />{d.visit_date}</span>
-                        <span style={{ color: 'var(--text-tertiary)', fontWeight: 500 }}>{d.visit_count} visits</span>
+                      <div className="op-day-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <span><CalendarDays size={14} style={{ verticalAlign: -2, marginRight: 7 }} />{d.visit_date}</span>
+                          <span style={{ color: 'var(--text-tertiary)', fontWeight: 500, marginLeft: 8 }}>{d.visit_count} visits</span>
+                          {d.total_distance_km > 0 && (
+                            <span style={{ fontSize: '.72rem', color: '#059669', fontWeight: 600, marginLeft: 8 }}>
+                              · ~{d.total_distance_km} km
+                            </span>
+                          )}
+                        </div>
+                        {d.has_coordinates_count > 0 && (
+                          <button
+                            className="btn-icon"
+                            title="View Day Route on Map"
+                            style={{ padding: '3px 8px', fontSize: '.72rem', display: 'flex', alignItems: 'center', gap: 4 }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRouteModalPlan({ planId: detail.id, summary: detail });
+                            }}
+                          >
+                            <Compass size={13} /> View Map
+                          </button>
+                        )}
                       </div>
                       {d.visits.map(v => (
                         <div className="op-visit" key={v.detail_id}>
@@ -2920,13 +2955,28 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--text-tertiary)', marginLeft: 9 }}>
                               {v.dealer.sap_code}
                             </span>
-                            {v.dealer.block && (
+                            {v.distance_from_prev_km > 0 && (
+                              <span style={{ fontSize: '.72rem', color: '#059669', fontWeight: 600, marginLeft: 9 }}>
+                                +{v.distance_from_prev_km} km
+                              </span>
+                            )}
+                            {v.dealer.route_name && (
+                              <span style={{ fontSize: '.74rem', color: 'var(--text-tertiary)', marginLeft: 9 }}>
+                                · 📍 {v.dealer.route_name}
+                              </span>
+                            )}
+                            {v.dealer.block && !v.dealer.route_name && (
                               <span style={{ fontSize: '.74rem', color: 'var(--text-tertiary)', marginLeft: 9 }}>· {v.dealer.block}</span>
                             )}
                           </div>
                           <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
                             {v.final_category && <span className="badge">{v.final_category}</span>}
                             {v.grade && <span className="badge">{v.grade}</span>}
+                            {v.dealer.has_coordinates && (
+                              <span className="badge" style={{ background: '#DCFCE7', color: '#15803D', fontSize: '.68rem' }}>
+                                GPS
+                              </span>
+                            )}
                             {v.source === 'AGENT' && (
                               <span style={{ fontSize: '.7rem', color: 'var(--color-info)' }}>added by officer</span>
                             )}
@@ -2963,6 +3013,15 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
             </div>
           </div>
         </div>
+      )}
+
+      {/* Heuristic Route Map Modal */}
+      {routeModalPlan && (
+        <RouteMapModal
+          planId={routeModalPlan.planId}
+          planSummary={routeModalPlan.summary}
+          onClose={() => setRouteModalPlan(null)}
+        />
       )}
       {/* Floating SFA Background Sync Progress Widget */}
       {syncStatus?.isRunning && (

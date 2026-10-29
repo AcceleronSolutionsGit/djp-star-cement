@@ -3,6 +3,7 @@ import { dbRun, dbGet, dbAll } from '../config/database.js';
 import { matchAndUpsertCanonicalDealer, logMatchingAudit } from '../engines/canonical-matching.engine.js';
 import { normalizeString, normalizeCode, normalizeBranch, normalizeRegion, parseDOA } from '../engines/normalization.engine.js';
 import path from 'path';
+import { resolveZonalHead } from '../services/zonalHead.service.js';
 
 function normalizeHeader(h) {
   return String(h || '')
@@ -236,6 +237,21 @@ export async function importDealerMapping(filePath, batchCode = null) {
     let rsmCode = normalizeCode(getCell(row, 'rsm_code'));
     const zhName = getCell(row, 'zh_name');
     let zhCode = normalizeCode(getCell(row, 'zh_code'));
+
+    let effectiveZhName = zhName;
+    let effectiveZhCode = zhCode;
+    let effectiveZone = zone;
+
+    if (!effectiveZhName || !effectiveZhCode) {
+      const resolvedZh = await resolveZonalHead({ zone, region, area: dmArea, branch });
+      if (resolvedZh?.zh_name) {
+        if (!effectiveZhName) effectiveZhName = resolvedZh.zh_name;
+        if (!effectiveZhCode) effectiveZhCode = resolvedZh.zh_code;
+      }
+      if (!effectiveZone && resolvedZh?.zone) {
+        effectiveZone = resolvedZh.zone;
+      }
+    }
     // Block from Dealer Mapping — stored in master_dealers.block (NOT sbg_block)
     // sbg_block is only written by the SBG importer
     const block = getCell(row, 'block');
@@ -276,7 +292,15 @@ export async function importDealerMapping(filePath, batchCode = null) {
       asmCode = empMapByName.get(asmName.trim().toUpperCase()) || null;
     }
 
-    const dType = (custType.toUpperCase() === 'NON_STAR' || custType.toUpperCase() === 'NON-STAR') ? 'NON_STAR' : 'STAR';
+    const upperCust = custType.toUpperCase();
+    let dType = 'DEALER';
+    if (upperCust.includes('RSAR') || upperCust.includes('SUB') || (rawLinkedCode && rawLinkedCode !== '-')) {
+      dType = 'RSAR';
+    } else if (upperCust.includes('NON_STAR') || upperCust.includes('NON-STAR') || upperCust.includes('PROSPECT')) {
+      dType = 'NON_STAR';
+    } else {
+      dType = 'DEALER';
+    }
 
     // Canonical Matching & Upsert
     const matchResult = await matchAndUpsertCanonicalDealer({
@@ -372,8 +396,8 @@ export async function importDealerMapping(filePath, batchCode = null) {
           asmCode || null,
           rsmCode || null,
           rsmName || null,
-          zhCode || null,
-          zhName || null,
+          effectiveZhCode || null,
+          effectiveZhName || null,
           internalId
         ]
       );
@@ -408,7 +432,7 @@ export async function importDealerMapping(filePath, batchCode = null) {
             branch || null, region || null,
             block || null,     // DM block (not sbg_block)
             effectiveSoName, soEmpCode || null, asmName || null, asmCode || null,
-            rsmName || null, rsmCode || null, zhName || null, zhCode || null,
+            rsmName || null, rsmCode || null, effectiveZhName || null, effectiveZhCode || null,
             territoryCode || null, territoryName || null,
             rawLinkedCode || null, batchCode, existingMapping.id
           ]
@@ -425,7 +449,7 @@ export async function importDealerMapping(filePath, batchCode = null) {
             branch || null, region || null,
             block || null,     // DM block (not sbg_block)
             effectiveSoName, soEmpCode || null, asmName || null, asmCode || null,
-            rsmName || null, rsmCode || null, zhName || null, zhCode || null,
+            rsmName || null, rsmCode || null, effectiveZhName || null, effectiveZhCode || null,
             territoryCode || null, territoryName || null,
             rawLinkedCode || null, batchCode
           ]
@@ -442,7 +466,7 @@ export async function importDealerMapping(filePath, batchCode = null) {
       await upsertEmployee(soEmpCode,  soName,  'SO/SE', region);
       await upsertEmployee(asmCode,    asmName, 'ASM',   region);
       await upsertEmployee(rsmCode,    rsmName, 'RSM',   region);
-      await upsertEmployee(zhCode,     zhName,  'ZH',    region);
+      await upsertEmployee(effectiveZhCode, effectiveZhName, 'ZH', effectiveZone || region);
     }
   }
 

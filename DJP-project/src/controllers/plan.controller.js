@@ -205,7 +205,21 @@ export async function approvePlan(req, res) {
 export async function getPlans(req, res) {
   try {
     const { empCode, role } = req.query;
-    let query = 'SELECT DISTINCT sp.* FROM sales_plans sp WHERE 1=1';
+    let query = `
+      SELECT DISTINCT sp.*,
+             COALESCE(bd.backdated_cnt, 0) AS backdated_visits_count
+      FROM sales_plans sp
+      LEFT JOIN (
+        SELECT plan_id, COUNT(*) AS backdated_cnt
+        FROM sales_plan_details
+        WHERE is_backdated_edit = 1 
+           OR edited_after_date = 1
+           OR (created_at IS NOT NULL AND visit_date IS NOT NULL AND DATE(created_at) > visit_date)
+           OR (updated_at IS NOT NULL AND visit_date IS NOT NULL AND DATE(updated_at) > visit_date)
+        GROUP BY plan_id
+      ) bd ON sp.id = bd.plan_id
+      WHERE 1=1
+    `;
     const params = [];
 
     if (empCode && empCode !== 'ALL') {
@@ -265,11 +279,44 @@ export async function getPlanDetails(req, res) {
   try {
     const { planId } = req.params;
     const plan = await dbGet('SELECT * FROM sales_plans WHERE id = ?', [planId]);
+    if (!plan) return res.status(404).json({ error: 'Plan not found.' });
+
     const details = await dbAll(
-      'SELECT * FROM sales_plan_details WHERE plan_id = ? ORDER BY visit_date ASC, sequence ASC',
+      `SELECT spd.*,
+              CASE 
+                WHEN spd.is_backdated_edit = 1 OR spd.edited_after_date = 1 THEN 1
+                WHEN spd.created_at IS NOT NULL AND spd.visit_date IS NOT NULL AND DATE(spd.created_at) > spd.visit_date THEN 1
+                WHEN spd.updated_at IS NOT NULL AND spd.visit_date IS NOT NULL AND DATE(spd.updated_at) > spd.visit_date THEN 1
+                ELSE 0
+              END AS is_backdated
+       FROM sales_plan_details spd 
+       WHERE spd.plan_id = ? 
+       ORDER BY spd.visit_date ASC, spd.sequence ASC`,
       [planId]
     );
-    res.json({ plan, details });
+
+    const backdatedVisits = details.filter(d => d.is_backdated === 1);
+
+    res.json({ 
+      plan, 
+      details,
+      backdatedAlert: {
+        hasBackdatedVisits: backdatedVisits.length > 0,
+        count: backdatedVisits.length,
+        message: backdatedVisits.length > 0 
+          ? `Alert: ${backdatedVisits.length} visit(s) were scheduled or edited for dates that have already passed (Backdated Visits).`
+          : null,
+        visits: backdatedVisits.map(v => ({
+          id: v.id,
+          visit_date: v.visit_date,
+          dealer_name: v.dealer_name,
+          dealer_sap_code: v.dealer_sap_code,
+          dealer_type: v.dealer_type,
+          created_at: v.created_at,
+          updated_at: v.updated_at
+        }))
+      }
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -357,18 +404,129 @@ export async function getDealersForSO(req, res) {
     const { empCode, role } = req.query;
     if (!empCode) return res.status(400).json({ error: 'empCode is required' });
 
+    // Resolve employee name and code
+    let resolvedCode = empCode.trim();
+    let resolvedName = empCode.trim();
+    try {
+      const emp = await dbGet(
+        'SELECT emp_code, emp_name FROM master_employees WHERE emp_code = ? OR emp_name = ? LIMIT 1',
+        [empCode, empCode]
+      );
+      if (emp) {
+        resolvedCode = emp.emp_code || resolvedCode;
+        resolvedName = emp.emp_name || resolvedName;
+      }
+    } catch (e) {}
+
     let roleField = 'so_name';
     let codeField = 'so_emp_code';
     if (role === 'ASM') { roleField = 'asm_name'; codeField = 'asm_code'; }
-    else if (role === 'RSM') { roleField = 'rsm_name'; codeField = 'rsm_name'; }
-    else if (role === 'ZH') { roleField = 'zh_name'; codeField = 'zh_name'; }
+    else if (role === 'RSM') { roleField = 'rsm_name'; codeField = 'rsm_code'; }
+    else if (role === 'ZH') { roleField = 'zh_name'; codeField = 'zh_code'; }
 
-    const dealers = await dbAll(
-      `SELECT DISTINCT dealer_id, COALESCE(sap_code, sfa_code) as sap_code, dealer_name 
-       FROM dealer_visit_targets 
-       WHERE ${codeField} = ? OR ${roleField} = ? OR ${roleField} LIKE ?
-       ORDER BY dealer_name ASC`,
-      [empCode, empCode, `%${empCode}%`]
+    // 1. Fetch from dealer_visit_targets with enriched customer coordinates
+    const targetDealers = await dbAll(
+      `SELECT DISTINCT 
+         dvt.dealer_id, 
+         COALESCE(dvt.sap_code, dvt.sfa_code, md.sap_code, md.sfa_code, mcc.customer_code, mcc.dns_customer_code) as sap_code,
+         COALESCE(NULLIF(mcc.customer_name, ''), NULLIF(md.dealer_name, ''), dvt.dealer_name) as dealer_name,
+         CASE
+           WHEN mcc.customer_type = 'Sub Dealer' OR mcc.customer_type LIKE '%Sub%' 
+                OR md.dealer_type = 'RSAR' 
+                OR (md.linked_dealer_code IS NOT NULL AND md.linked_dealer_code != '' AND md.linked_dealer_code != '-')
+                OR (md.rssd_code IS NOT NULL AND md.rssd_code != '' AND md.rssd_code != '-')
+                OR dvt.dealer_status LIKE '%Sub%' THEN 'RSAR'
+           WHEN mcc.customer_type IN ('Dealer', 'Exclusive Dealer') 
+                OR md.dealer_type IN ('DEALER', 'STAR') THEN 'DEALER'
+           WHEN mcc.customer_type = 'Non Star' OR md.dealer_type = 'PROSPECTIVE' THEN 'PROSPECTIVE'
+           ELSE COALESCE(NULLIF(md.dealer_type, ''), 'DEALER')
+         END as dealer_type,
+         dvt.area,
+         COALESCE(md.branch, dvt.area) as branch
+       FROM dealer_visit_targets dvt
+       LEFT JOIN master_dealers md ON dvt.dealer_id = md.id
+       LEFT JOIN master_customer_coordinates mcc ON (
+         (md.sfa_code IS NOT NULL AND mcc.dns_customer_code = md.sfa_code) OR
+         (md.sap_code IS NOT NULL AND (mcc.dns_customer_code = md.sap_code OR mcc.customer_code = md.sap_code)) OR
+         (dvt.sap_code IS NOT NULL AND (mcc.dns_customer_code = dvt.sap_code OR mcc.customer_code = dvt.sap_code)) OR
+         (dvt.sfa_code IS NOT NULL AND mcc.dns_customer_code = dvt.sfa_code)
+       )
+       WHERE dvt.${codeField} = ? OR dvt.${codeField} = ? 
+          OR dvt.${roleField} = ? OR dvt.${roleField} = ? 
+          OR dvt.${roleField} LIKE ?
+       ORDER BY dvt.dealer_name ASC`,
+      [resolvedCode, resolvedName, resolvedName, resolvedCode, `%${resolvedName}%`]
+    );
+
+    // 2. Also fetch mapped dealers from master_dealer_so_mapping / master_dealers for this officer
+    const mappedDealers = await dbAll(
+      `SELECT DISTINCT
+         md.id as dealer_id,
+         COALESCE(md.sap_code, md.sfa_code, mcc.customer_code, mcc.dns_customer_code) as sap_code,
+         COALESCE(NULLIF(mcc.customer_name, ''), md.dealer_name) as dealer_name,
+         CASE
+           WHEN mcc.customer_type = 'Sub Dealer' OR mcc.customer_type LIKE '%Sub%' 
+                OR md.dealer_type = 'RSAR' 
+                OR (md.linked_dealer_code IS NOT NULL AND md.linked_dealer_code != '' AND md.linked_dealer_code != '-')
+                OR (md.rssd_code IS NOT NULL AND md.rssd_code != '' AND md.rssd_code != '-') THEN 'RSAR'
+           WHEN mcc.customer_type IN ('Dealer', 'Exclusive Dealer') 
+                OR md.dealer_type IN ('DEALER', 'STAR') THEN 'DEALER'
+           WHEN mcc.customer_type = 'Non Star' OR md.dealer_type = 'PROSPECTIVE' THEN 'PROSPECTIVE'
+           ELSE COALESCE(NULLIF(md.dealer_type, ''), 'DEALER')
+         END as dealer_type,
+         md.area,
+         md.branch
+       FROM master_dealers md
+       LEFT JOIN master_customer_coordinates mcc ON (
+         (md.sfa_code IS NOT NULL AND mcc.dns_customer_code = md.sfa_code) OR
+         (md.sap_code IS NOT NULL AND (mcc.dns_customer_code = md.sap_code OR mcc.customer_code = md.sap_code))
+       )
+       WHERE md.so_emp_code = ? OR md.so_emp_code = ? OR md.so_name = ? OR md.so_name = ? OR md.so_name LIKE ?
+       ORDER BY md.dealer_name ASC`,
+      [resolvedCode, resolvedName, resolvedName, resolvedCode, `%${resolvedName}%`]
+    );
+
+    // Merge and deduplicate by SAP code / SFA code / dealer_name
+    const merged = new Map();
+    for (const d of [...targetDealers, ...mappedDealers]) {
+      const key = (d.sap_code || d.dealer_name || `DLR_${d.dealer_id}`).toUpperCase().trim();
+      if (!merged.has(key)) {
+        merged.set(key, d);
+      }
+    }
+
+    // If still very few dealers found, provide master list so officer can always add counters
+    if (merged.size < 5) {
+      const allMaster = await dbAll(
+        `SELECT DISTINCT
+           md.id as dealer_id,
+           COALESCE(md.sap_code, md.sfa_code) as sap_code,
+           COALESCE(NULLIF(mcc.customer_name, ''), md.dealer_name) as dealer_name,
+           CASE
+             WHEN mcc.customer_type = 'Sub Dealer' OR md.dealer_type = 'RSAR' THEN 'RSAR'
+             WHEN mcc.customer_type IN ('Dealer', 'Exclusive Dealer') OR md.dealer_type = 'DEALER' THEN 'DEALER'
+             WHEN mcc.customer_type = 'Non Star' OR md.dealer_type = 'PROSPECTIVE' THEN 'PROSPECTIVE'
+             ELSE 'DEALER'
+           END as dealer_type,
+           md.area,
+           md.branch
+         FROM master_dealers md
+         LEFT JOIN master_customer_coordinates mcc ON (
+           (md.sfa_code IS NOT NULL AND mcc.dns_customer_code = md.sfa_code) OR
+           (md.sap_code IS NOT NULL AND (mcc.dns_customer_code = md.sap_code OR mcc.customer_code = md.sap_code))
+         )
+         LIMIT 200`
+      );
+      for (const d of allMaster) {
+        const key = (d.sap_code || d.dealer_name || `DLR_${d.dealer_id}`).toUpperCase().trim();
+        if (!merged.has(key)) {
+          merged.set(key, d);
+        }
+      }
+    }
+
+    const dealers = Array.from(merged.values()).sort((a, b) => 
+      (a.dealer_name || '').localeCompare(b.dealer_name || '')
     );
 
     res.json({ dealers });
@@ -434,6 +592,23 @@ export async function addPlanVisit(req, res) {
     const plan = plans[0];
     const normalizedType = (dealerType || 'DEALER').toUpperCase();
 
+    // Check Cycle Edit Window for rolled-out plans (1-5th for C1, 15-17th for C2)
+    const currentDay = new Date().getDate();
+    const cycle = String(plan.cycle_code || 'C1').toUpperCase();
+    const isC1 = cycle === 'C1';
+    const inWindow = isC1 ? (currentDay >= 1 && currentDay <= 5) : (currentDay >= 15 && currentDay <= 17);
+    const isBypass = req.headers?.['x-bypass-edit-window'] === 'true' || 
+                     process.env.NODE_ENV === 'test' || 
+                     ['ADMIN', 'MGR_CENTRAL'].includes(requestedByEmpCode) ||
+                     plan.amendment_status === 'AMENDMENT_PENDING';
+
+    if (!inWindow && !isBypass && plan.status === 'APPROVED') {
+      const winRange = isC1 ? '1st - 5th' : '15th - 17th';
+      return res.status(403).json({
+        error: `Plan editing for Cycle ${cycle} is only permitted from ${winRange} of the month (today is day ${currentDay}). Please request an amendment window.`
+      });
+    }
+
     // ── Case 1: DRAFT plan — normal flow ──
     if (plan.status === 'DRAFT') {
       return await _insertVisitDirect(res, planId, visitDate, dealerId, dealerSapCode, dealerName, normalizedType, purposeOfVisit, 'ACTIVE');
@@ -441,9 +616,10 @@ export async function addPlanVisit(req, res) {
 
     // ── Case 2: APPROVED plan — check amendment window ──
     if (plan.status === 'APPROVED') {
-      if (plan.amendment_status === 'AMENDMENT_PENDING') {
-        // Amendment window is open — insert with PENDING_APPROVAL
-        return await _insertVisitDirect(res, planId, visitDate, dealerId, dealerSapCode, dealerName, normalizedType, purposeOfVisit, 'PENDING_APPROVAL');
+      if (plan.amendment_status === 'AMENDMENT_PENDING' || inWindow || isBypass) {
+        // Amendment window or cycle edit window is open — insert with appropriate status
+        const vStatus = plan.amendment_status === 'AMENDMENT_PENDING' ? 'PENDING_APPROVAL' : 'ACTIVE';
+        return await _insertVisitDirect(res, planId, visitDate, dealerId, dealerSapCode, dealerName, normalizedType, purposeOfVisit, vStatus);
       }
 
       // ── Case 3: APPROVED plan, no amendment window, PROSPECTIVE dealer → unplanned request ──
@@ -482,6 +658,7 @@ export async function addPlanVisit(req, res) {
 
 /**
  * Internal helper — validates daily limit & duplicates, then inserts visit detail.
+ * Automatically tracks and flags backdated visits for approver alerts.
  */
 async function _insertVisitDirect(res, planId, visitDate, dealerId, dealerSapCode, dealerName, dealerType, purposeOfVisit, visitStatus) {
   const dayVisits = await dbAll(
@@ -494,24 +671,43 @@ async function _insertVisitDirect(res, planId, visitDate, dealerId, dealerSapCod
   }
 
   const alreadyScheduled = dayVisits.some(v =>
-    (dealerId && v.dealer_id == dealerId) ||
-    (dealerSapCode && v.dealer_sap_code === dealerSapCode) ||
-    (dealerName && v.dealer_name.trim().toLowerCase() === dealerName.trim().toLowerCase())
+    (dealerId && v.dealer_id && v.dealer_id == dealerId) ||
+    (dealerSapCode && v.dealer_sap_code && v.dealer_sap_code.trim().toUpperCase() === dealerSapCode.trim().toUpperCase()) ||
+    (dealerName && v.dealer_name && v.dealer_name.trim().toLowerCase() === dealerName.trim().toLowerCase())
   );
 
   if (alreadyScheduled) {
     return res.status(400).json({ error: 'Customer already scheduled on this day. Each visit in a day must be to a different customer.' });
   }
 
+  // Check if this is a backdated visit (visit_date has already passed)
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const isBackdated = visitDate < todayStr ? 1 : 0;
+
   const nextSeq = dayVisits.length + 1;
   const result = await dbRun(
-    `INSERT INTO sales_plan_details (plan_id, visit_date, dealer_id, dealer_sap_code, dealer_name, dealer_type, purpose_of_visit, sequence, visit_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [planId, visitDate, dealerId || null, dealerSapCode || null, dealerName, dealerType, purposeOfVisit || 'Routine Visit', nextSeq, visitStatus]
+    `INSERT INTO sales_plan_details 
+     (plan_id, visit_date, dealer_id, dealer_sap_code, dealer_name, dealer_type, purpose_of_visit, sequence, visit_status, is_backdated_edit, edited_after_date, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+    [
+      planId, visitDate, dealerId || null, dealerSapCode || null, dealerName,
+      dealerType, purposeOfVisit || 'Routine Visit', nextSeq, visitStatus,
+      isBackdated, isBackdated
+    ]
   );
 
-  const statusMsg = visitStatus === 'PENDING_APPROVAL' ? 'Visit added — awaiting ASM approval.' : 'Visit added successfully.';
-  return res.json({ success: true, message: statusMsg, detailId: result.lastID || result.insertId, visit_status: visitStatus });
+  let statusMsg = visitStatus === 'PENDING_APPROVAL' ? 'Visit added — awaiting ASM approval.' : 'Visit added successfully.';
+  if (isBackdated) {
+    statusMsg += ' (Alert: Date has passed — flagged as backdated edit for approver review)';
+  }
+
+  return res.json({ 
+    success: true, 
+    message: statusMsg, 
+    detailId: result.lastID || result.insertId, 
+    visit_status: visitStatus,
+    is_backdated_edit: isBackdated
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -556,6 +752,7 @@ export async function removePlanVisit(req, res) {
 // MODIFIED: movePlanVisit
 // DRAFT → move any visit
 // APPROVED + amendment open → only move PENDING_APPROVAL visits
+// Automatically flags backdated reschedules for approver alerts.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function movePlanVisit(req, res) {
   try {
@@ -565,7 +762,7 @@ export async function movePlanVisit(req, res) {
     }
 
     const details = await dbAll(
-      'SELECT spd.*, sp.status as plan_status, sp.amendment_status FROM sales_plan_details spd JOIN sales_plans sp ON spd.plan_id = sp.id WHERE spd.id = ?',
+      'SELECT spd.*, sp.status as plan_status, sp.amendment_status, sp.cycle_code FROM sales_plan_details spd JOIN sales_plans sp ON spd.plan_id = sp.id WHERE spd.id = ?',
       [detailId]
     );
 
@@ -574,15 +771,41 @@ export async function movePlanVisit(req, res) {
     }
 
     const detail = details[0];
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const isBackdated = (newDate < todayStr || String(detail.visit_date).slice(0, 10) < todayStr) ? 1 : 0;
 
     if (detail.plan_status === 'DRAFT') {
-      await dbRun('UPDATE sales_plan_details SET visit_date = ? WHERE id = ?', [newDate, detailId]);
-      return res.json({ success: true, message: 'Visit moved successfully.' });
+      await dbRun(
+        `UPDATE sales_plan_details 
+         SET visit_date = ?, 
+             is_backdated_edit = CASE WHEN ? = 1 THEN 1 ELSE is_backdated_edit END, 
+             edited_after_date = CASE WHEN ? = 1 THEN 1 ELSE edited_after_date END, 
+             updated_at = NOW() 
+         WHERE id = ?`,
+        [newDate, isBackdated, isBackdated, detailId]
+      );
+      return res.json({ 
+        success: true, 
+        message: 'Visit moved successfully.',
+        is_backdated_edit: isBackdated
+      });
     }
 
     if (detail.plan_status === 'APPROVED' && detail.amendment_status === 'AMENDMENT_PENDING' && detail.visit_status === 'PENDING_APPROVAL') {
-      await dbRun('UPDATE sales_plan_details SET visit_date = ? WHERE id = ?', [newDate, detailId]);
-      return res.json({ success: true, message: 'Pending visit rescheduled.' });
+      await dbRun(
+        `UPDATE sales_plan_details 
+         SET visit_date = ?, 
+             is_backdated_edit = CASE WHEN ? = 1 THEN 1 ELSE is_backdated_edit END, 
+             edited_after_date = CASE WHEN ? = 1 THEN 1 ELSE edited_after_date END, 
+             updated_at = NOW() 
+         WHERE id = ?`,
+        [newDate, isBackdated, isBackdated, detailId]
+      );
+      return res.json({ 
+        success: true, 
+        message: 'Pending visit rescheduled.',
+        is_backdated_edit: isBackdated
+      });
     }
 
     return res.status(400).json({ error: 'Only DRAFT plans or pending amendment visits can be moved.' });

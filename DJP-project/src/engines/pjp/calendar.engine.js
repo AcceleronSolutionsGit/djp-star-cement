@@ -16,21 +16,22 @@ function getNthSaturday(date) {
 
 /**
  * Check if a date is a working day.
- * Excludes: Sundays, 2nd Saturday, 4th Saturday, configured holidays.
+ * Sundays and configured holidays are excluded.
+ * All Saturdays are working days.
  * 
  * @param {Date} date 
  * @param {Object} options
  * @param {boolean} options.excludeSundays - default true
- * @param {boolean} options.exclude2ndSaturday - default true
- * @param {boolean} options.exclude4thSaturday - default true
+ * @param {boolean} options.exclude2ndSaturday - default false (All Saturdays are working)
+ * @param {boolean} options.exclude4thSaturday - default false (All Saturdays are working)
  * @param {Set<string>} options.holidays - set of YYYY-MM-DD strings
  * @returns {boolean}
  */
 export function isWorkingDay(date, options = {}) {
   const {
     excludeSundays = true,
-    exclude2ndSaturday = true,
-    exclude4thSaturday = true,
+    exclude2ndSaturday = false,
+    exclude4thSaturday = false,
     holidays = new Set()
   } = options;
 
@@ -39,7 +40,7 @@ export function isWorkingDay(date, options = {}) {
   // Sunday
   if (excludeSundays && day === 0) return false;
 
-  // 2nd and 4th Saturday
+  // 2nd and 4th Saturday (default false: All Saturdays are working)
   if (day === 6) {
     const nth = getNthSaturday(date);
     if (exclude2ndSaturday && nth === 2) return false;

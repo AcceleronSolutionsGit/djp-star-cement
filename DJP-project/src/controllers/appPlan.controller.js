@@ -28,6 +28,8 @@ import {
   MAX_RECTIFICATIONS
 } from '../services/planRouting.service.js';
 import { getUnplannedVisits } from '../services/unplannedVisits.service.js';
+import { haversineDistanceKm, optimizeDayRoute } from '../engines/heuristicRouting.engine.js';
+import { getCoordinatesForDealers, syncCustomerCoordinatesFromApi, getCustomerCoordinateStatus } from '../services/customerCoordinates.service.js';
 
 const HARD_DAILY_CAP = 8;
 
@@ -335,7 +337,11 @@ async function buildDetail(plan, viewerIsOwner) {
        COALESCE(dvt.area, md.area, m.area) AS area,
        COALESCE(dvt.zone, md.zone, m.region) AS zone,
        COALESCE(md.block, dvt.block, dvt.sbg_block, m.block) AS block,
-       COALESCE(md.sfa_code, dvt.sfa_code) AS sfa_code
+       COALESCE(md.sfa_code, dvt.sfa_code) AS sfa_code,
+       COALESCE(d.latitude, md.latitude, mcc.latitude) AS latitude,
+       COALESCE(d.longitude, md.longitude, mcc.longitude) AS longitude,
+       COALESCE(d.distance_from_prev_km, 0) AS distance_from_prev_km,
+       COALESCE(d.route_name, md.route_name, mcc.route_name) AS route_name
      FROM sales_plan_details d
      LEFT JOIN master_dealers md 
             ON (d.dealer_id IS NOT NULL AND md.id = d.dealer_id)
@@ -358,6 +364,12 @@ async function buildDetail(plan, viewerIsOwner) {
      LEFT JOIN master_dealer_so_mapping m
             ON (d.dealer_sap_code IS NOT NULL AND UPPER(TRIM(m.sap_code)) = UPPER(TRIM(d.dealer_sap_code)))
             OR (md.sap_code IS NOT NULL AND UPPER(TRIM(m.sap_code)) = UPPER(TRIM(md.sap_code)))
+     LEFT JOIN master_customer_coordinates mcc
+            ON (d.dealer_sap_code IS NOT NULL AND (
+                 UPPER(TRIM(mcc.dns_customer_code)) = UPPER(TRIM(d.dealer_sap_code))
+              OR UPPER(TRIM(mcc.customer_code)) = UPPER(TRIM(d.dealer_sap_code))
+            ))
+            OR (md.sfa_code IS NOT NULL AND UPPER(TRIM(mcc.dns_customer_code)) = UPPER(TRIM(md.sfa_code)))
      WHERE d.plan_id = ?
      ORDER BY d.visit_date ASC, d.sequence ASC`,
     [targetPeriod, targetCycle, plan.id]
@@ -442,31 +454,37 @@ async function buildDetail(plan, viewerIsOwner) {
   const dailyCap = Math.min(
     cycles.capacity[plan.emp_role || 'SO'] ?? HARD_DAILY_CAP, HARD_DAILY_CAP);
 
-  return {
-    ...shapeSummary({ ...plan,
-      total_visits: visits.length,
-      total_dealers: new Set(visits.map(v => v.dealer_sap_code)).size,
-      total_days: byDay.size,
-      first_visit_date: visits[0]?.visit_date || null,
-      last_visit_date: visits[visits.length - 1]?.visit_date || null
-    }, viewerIsOwner),
-    category_mix: categoryMix,
-    cycle_window: {
-      from: allowedDays[0] || null,
-      to: allowedDays[allowedDays.length - 1] || null,
-      daily_cap: dailyCap,
-      days: allowedDays.map(date => ({
-        visit_date: date,
-        visit_count: (byDay.get(date) || []).length,
-        full: (byDay.get(date) || []).length >= dailyCap
-      }))
-    },
-    days: [...byDay.entries()].map(([date, list]) => ({
+  let overallDistanceKm = 0;
+  const shapedDays = [...byDay.entries()].map(([date, list]) => {
+    let dayDistKm = 0;
+    let cumDist = 0;
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i];
+      if (i > 0 && !item.distance_from_prev_km && item.latitude && item.longitude && list[i-1].latitude && list[i-1].longitude) {
+        item.distance_from_prev_km = haversineDistanceKm(list[i-1].latitude, list[i-1].longitude, item.latitude, item.longitude);
+      }
+      cumDist += (item.distance_from_prev_km || 0);
+      item.cumulative_distance_km = Math.round(cumDist * 100) / 100;
+      dayDistKm += (item.distance_from_prev_km || 0);
+    }
+    dayDistKm = Math.round(dayDistKm * 100) / 100;
+    overallDistanceKm += dayDistKm;
+
+    const polyline = list
+      .filter(v => v.latitude && v.longitude && (v.latitude !== 0 || v.longitude !== 0))
+      .map(v => [v.latitude, v.longitude]);
+
+    return {
       visit_date: date,
       visit_count: list.length,
+      total_distance_km: dayDistKm,
+      has_coordinates_count: polyline.length,
+      polyline,
       visits: list.map(v => ({
         detail_id: v.detail_id,
         sequence: v.sequence,
+        distance_from_prev_km: v.distance_from_prev_km || 0,
+        cumulative_distance_km: v.cumulative_distance_km || 0,
         dealer: {
           dealer_id: v.dealer_id,
           sap_code: v.dealer_sap_code,
@@ -476,6 +494,11 @@ async function buildDetail(plan, viewerIsOwner) {
           area: v.area,
           zone: v.zone,
           block: v.block,
+          latitude: v.latitude || null,
+          longitude: v.longitude || null,
+          has_coordinates: !!(v.latitude && v.longitude && (v.latitude !== 0 || v.longitude !== 0)),
+          route_name: v.route_name || null,
+          distance_from_prev_km: v.distance_from_prev_km || 0,
           is_unmapped: v.source === 'UNMAPPED'
         },
         final_category: v.final_category,
@@ -493,7 +516,31 @@ async function buildDetail(plan, viewerIsOwner) {
         } : null,
         source: v.source
       }))
-    })),
+    };
+  });
+
+  return {
+    ...shapeSummary({ ...plan,
+      total_visits: visits.length,
+      total_dealers: new Set(visits.map(v => v.dealer_sap_code)).size,
+      total_days: byDay.size,
+      total_distance_km: Math.round(overallDistanceKm * 100) / 100,
+      first_visit_date: visits[0]?.visit_date || null,
+      last_visit_date: visits[visits.length - 1]?.visit_date || null
+    }, viewerIsOwner),
+    category_mix: categoryMix,
+    total_distance_km: Math.round(overallDistanceKm * 100) / 100,
+    cycle_window: {
+      from: allowedDays[0] || null,
+      to: allowedDays[allowedDays.length - 1] || null,
+      daily_cap: dailyCap,
+      days: allowedDays.map(date => ({
+        visit_date: date,
+        visit_count: (byDay.get(date) || []).length,
+        full: (byDay.get(date) || []).length >= dailyCap
+      }))
+    },
+    days: shapedDays,
     history
   };
 }
@@ -589,6 +636,50 @@ async function validateDayCapacity(plan, visitDate, dealerSapCode, excludeDetail
     return `${dealerSapCode} is already scheduled on ${visitDate}. A dealer can only be visited once a day.`;
   }
   return null;
+}
+
+/**
+ * Re-sequence and calculate route distances for a specific day after visit add/move/remove.
+ */
+async function resequencePlanDayRoute(planId, visitDate) {
+  try {
+    const visits = await dbAll(
+      `SELECT d.id, d.sequence, d.dealer_sap_code, d.dealer_name, d.purpose_of_visit,
+              COALESCE(d.latitude, md.latitude, mcc.latitude) AS latitude,
+              COALESCE(d.longitude, md.longitude, mcc.longitude) AS longitude,
+              COALESCE(d.route_name, md.route_name, mcc.route_name) AS route_name
+       FROM sales_plan_details d
+       LEFT JOIN master_dealers md 
+              ON (d.dealer_id IS NOT NULL AND md.id = d.dealer_id)
+              OR (d.dealer_sap_code IS NOT NULL AND (
+                   UPPER(TRIM(md.sap_code)) = UPPER(TRIM(d.dealer_sap_code))
+                OR UPPER(TRIM(md.sfa_code)) = UPPER(TRIM(d.dealer_sap_code))
+              ))
+       LEFT JOIN master_customer_coordinates mcc
+              ON (d.dealer_sap_code IS NOT NULL AND (
+                   UPPER(TRIM(mcc.dns_customer_code)) = UPPER(TRIM(d.dealer_sap_code))
+                OR UPPER(TRIM(mcc.customer_code)) = UPPER(TRIM(d.dealer_sap_code))
+              ))
+              OR (md.sfa_code IS NOT NULL AND UPPER(TRIM(mcc.dns_customer_code)) = UPPER(TRIM(md.sfa_code)))
+       WHERE d.plan_id = ? AND d.visit_date = ?
+       ORDER BY d.sequence ASC`,
+      [planId, visitDate]
+    );
+
+    if (!visits || visits.length === 0) return;
+
+    const { orderedVisits } = optimizeDayRoute(visits);
+    for (const v of orderedVisits) {
+      await dbRun(
+        `UPDATE sales_plan_details 
+         SET sequence = ?, latitude = ?, longitude = ?, distance_from_prev_km = ?, route_name = ?
+         WHERE id = ?`,
+        [v.sequence, v.latitude || null, v.longitude || null, v.distance_from_prev_km || 0, v.route_name || null, v.id]
+      );
+    }
+  } catch (err) {
+    console.warn(`[resequencePlanDayRoute] Warning for plan ${planId} on ${visitDate}:`, err.message);
+  }
 }
 
 /**
@@ -705,6 +796,7 @@ export async function addVisit(req, res) {
       ]
     );
     await touch(plan.id, empCode);
+    await resequencePlanDayRoute(plan.id, visitDate);
 
     res.json({
       success: true,
@@ -736,6 +828,7 @@ export async function removeVisit(req, res) {
 
     await dbRun('DELETE FROM sales_plan_details WHERE id = ?', [req.params.detailId]);
     await touch(plan.id, empCode);
+    await resequencePlanDayRoute(plan.id, String(detail.visit_date).slice(0, 10));
 
     res.json({
       success: true,
@@ -764,11 +857,12 @@ export async function moveVisit(req, res) {
     );
     if (!detail) return res.status(404).json({ error: 'Visit not found on this plan.' });
 
-    const newDate = norm(req.body.visitDate) || String(detail.visit_date).slice(0, 10);
+    const oldDate = String(detail.visit_date).slice(0, 10);
+    const newDate = norm(req.body.visitDate) || oldDate;
     const dateErr = await validateVisitDate(plan, newDate);
     if (dateErr) return res.status(400).json({ error: dateErr });
 
-    if (newDate !== String(detail.visit_date).slice(0, 10)) {
+    if (newDate !== oldDate) {
       const capErr = await validateDayCapacity(plan, newDate, detail.dealer_sap_code, detail.id);
       if (capErr) return res.status(409).json({ error: capErr });
     }
@@ -787,6 +881,10 @@ export async function moveVisit(req, res) {
       [newDate, seq, norm(req.body.purposeOfVisit) || null, detail.id]
     );
     await touch(plan.id, empCode);
+    await resequencePlanDayRoute(plan.id, oldDate);
+    if (newDate !== oldDate) {
+      await resequencePlanDayRoute(plan.id, newDate);
+    }
 
     res.json({
       success: true,
@@ -3380,6 +3478,96 @@ export async function restampRouting(req, res) {
     });
   } catch (err) {
     console.error('[restampRouting]', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/**
+ * GET /api/app/plans/:planId/route-map
+ * GET /api/app/officers/:empCode/plans/:planId/route-map
+ * 
+ * Returns full heuristic route map data for a plan:
+ * - Total distance (km)
+ * - Number of days and stops
+ * - Detailed stop sequences with GPS coordinates, route names, distances, and polylines.
+ */
+export async function getPlanRouteMap(req, res) {
+  try {
+    const planId = req.params.planId;
+    const plan = await dbGet('SELECT * FROM sales_plans WHERE id = ?', [planId]);
+    if (!plan) return res.status(404).json({ error: 'Plan not found.' });
+
+    const detail = await buildDetail(plan, false);
+
+    const days = (detail.days || []).map(d => ({
+      visitDate: d.visit_date,
+      visitCount: d.visit_count,
+      totalDistanceKm: d.total_distance_km || 0,
+      hasCoordinatesCount: d.has_coordinates_count || 0,
+      polyline: d.polyline || [],
+      stops: (d.visits || []).map(v => ({
+        detailId: v.detail_id,
+        sequence: v.sequence,
+        dealerName: v.dealer.name,
+        dealerSapCode: v.dealer.sap_code,
+        dealerSfaCode: v.dealer.sfa_code,
+        dealerType: v.dealer.type,
+        latitude: v.dealer.latitude,
+        longitude: v.dealer.longitude,
+        hasCoordinates: v.dealer.has_coordinates,
+        distanceFromPrevKm: v.distance_from_prev_km || 0,
+        cumulativeDistanceKm: v.cumulative_distance_km || 0,
+        routeName: v.dealer.route_name || '',
+        block: v.dealer.block || '',
+        finalCategory: v.final_category,
+        grade: v.grade,
+        executed: v.executed
+      }))
+    }));
+
+    res.json({
+      success: true,
+      planId: Number(planId),
+      empCode: plan.emp_code,
+      empName: plan.emp_name,
+      role: plan.emp_role,
+      periodMonth: plan.period_month,
+      cycleCode: plan.cycle_code,
+      status: plan.status,
+      totalDistanceKm: detail.total_distance_km || 0,
+      totalDays: days.length,
+      totalVisits: detail.total_visits,
+      days
+    });
+  } catch (err) {
+    console.error('[getPlanRouteMap]', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/**
+ * POST /api/sync/customer-coordinates
+ * Trigger on-demand sync of customer lat/long coordinates from SFA API
+ */
+export async function syncCoordinatesEndpoint(req, res) {
+  try {
+    const force = req.body?.force === true;
+    const allRecords = req.body?.allRecords === true;
+    const result = await syncCustomerCoordinatesFromApi({ force, allRecords });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/**
+ * GET /api/sync/customer-coordinates/status
+ */
+export async function getCoordinatesStatusEndpoint(req, res) {
+  try {
+    const status = await getCustomerCoordinateStatus();
+    res.json(status);
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 }

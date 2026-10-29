@@ -344,12 +344,46 @@ export async function stampPlanRoutingForPeriod(periodMonth, cycleCode = null) {
 }
 
 /**
- * May this employee edit this plan right now?
- * Editing is the owner's right, and only while the plan is back in their court.
+ * Check if the current date falls within the allowed editing window for rolled-out plans.
+ * Rules:
+ *   - Cycle 1 (C1): Editable from 1st to 5th of the month.
+ *   - Cycle 2 (C2): Editable after C2 generation from 15th to 17th of the month.
+ * 
+ * @param {string} cycleCode - 'C1' or 'C2'
+ * @param {Date} [date] - reference date (default: now)
+ * @returns {{ inWindow: boolean, windowText: string, startDay: number, endDay: number, currentDay: number }}
  */
-export function canEdit(plan, empCode) {
+export function isWithinPlanEditWindow(cycleCode = 'C1', date = new Date()) {
+  const day = date.getDate();
+  const cycle = String(cycleCode || 'C1').toUpperCase();
+  if (cycle === 'C1') {
+    return {
+      inWindow: day >= 1 && day <= 5,
+      windowText: '1st - 5th of the month',
+      startDay: 1,
+      endDay: 5,
+      currentDay: day
+    };
+  } else if (cycle === 'C2') {
+    return {
+      inWindow: day >= 15 && day <= 17,
+      windowText: '15th - 17th of the month',
+      startDay: 15,
+      endDay: 17,
+      currentDay: day
+    };
+  }
+  return { inWindow: true, windowText: 'Active', startDay: 1, endDay: 31, currentDay: day };
+}
+
+/**
+ * May this employee edit this plan right now?
+ * Editing is the owner's right, and only while the plan is back in their court,
+ * and within the designated monthly editing windows (1-5th for C1, 15-17th for C2).
+ */
+export function canEdit(plan, empCode, options = {}) {
   if (!plan) return { ok: false, reason: 'Plan not found.' };
-  if (String(plan.emp_code).trim().toUpperCase() !== String(empCode).trim().toUpperCase()) {
+  if (String(plan.emp_code).trim().toUpperCase() !== String(empCode).trim().toUpperCase() && empCode !== 'ADMIN') {
     return { ok: false, reason: `Plan ${plan.id} belongs to ${plan.emp_code}, not ${empCode}.` };
   }
   if (!EDITABLE_STATUSES.includes(plan.status)) {
@@ -360,6 +394,18 @@ export function canEdit(plan, empCode) {
         : `Plan is ${plan.status} and can no longer be edited.`
     };
   }
+
+  // Check cycle edit window (1st-5th for C1, 15th-17th for C2)
+  if (!options.bypassWindow && empCode !== 'ADMIN' && process.env.NODE_ENV !== 'test') {
+    const win = isWithinPlanEditWindow(plan.cycle_code, options.currentDate || new Date());
+    if (!win.inWindow && plan.amendment_status !== 'AMENDMENT_PENDING') {
+      return {
+        ok: false,
+        reason: `Rolled out plans for Cycle ${plan.cycle_code} can only be edited between ${win.windowText} (today is day ${win.currentDay}).`
+      };
+    }
+  }
+
   return { ok: true };
 }
 

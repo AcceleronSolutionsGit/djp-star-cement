@@ -726,7 +726,8 @@ function renderPlanDetail() {
     ${(p.days || []).map(d => `
       <div class="day">
         <h4>${esc(dayLabel(d.visit_date))}
-          <span class="muted" style="font-weight:400">${d.visit_count} visit${d.visit_count===1?'':'s'}</span></h4>
+          <span class="muted" style="font-weight:400">${d.visit_count} visit${d.visit_count===1?'':'s'}</span>
+          ${d.total_distance_km > 0 ? `<span class="badge" style="background:#E0F2FE;color:#0369A1;font-size:11px;font-weight:600;margin-left:6px;padding:2px 6px;border-radius:4px">🚗 ~${d.total_distance_km} km</span>` : ''}</h4>
         ${d.visits.map(v => `
           <div class="visit${v.executed ? ' done' : ''}">
             <div class="seq">${v.sequence ?? '•'}</div>
@@ -734,12 +735,15 @@ function renderPlanDetail() {
               <div class="name">${esc(v.dealer.name)}
                 ${v.executed ? `<span class="punched">✓ visited ${esc((v.execution?.check_in_time||'').slice(0,5))}</span>` : ''}</div>
               <div class="meta">${esc(v.dealer.sap_code || v.dealer.sfa_code || '')}
-                ${v.dealer.block ? '· ' + esc(v.dealer.block) : ''}
+                ${v.distance_from_prev_km > 0 ? `· <span style="color:#059669;font-weight:600">+${v.distance_from_prev_km} km</span>` : ''}
+                ${v.dealer.route_name ? `· 📍 ${esc(v.dealer.route_name)}` : (v.dealer.block ? '· ' + esc(v.dealer.block) : '')}
                 ${v.final_category ? `<span class="cat ${catClass(v.final_category)}">${esc(v.final_category)}</span>` : ''}
                 ${v.grade ? '· grade ' + esc(v.grade) : ''}
+                ${v.dealer.has_coordinates ? '· <span style="color:#16A34A;font-size:10.5px">GPS</span>' : ''}
                 ${v.source === 'UNMAPPED' || v.is_unmapped ? '· <b style="color:var(--warn)">[Unmapped Counter]</b>' : (v.source === 'AGENT' ? '· <b>added by you</b>' : '')}</div>
             </div>
             <div class="acts">
+              ${v.dealer.latitude && v.dealer.longitude ? `<a href="https://www.google.com/maps/search/?api=1&query=${v.dealer.latitude},${v.dealer.longitude}" target="_blank" class="tiny" style="text-decoration:none;display:inline-flex;align-items:center;padding:2px 6px" title="Open GPS Location in Maps">📍 Map</a>` : ''}
               ${v.executed ? '' : `<button class="tiny" onclick="openPunch('${d.visit_date}','${esc(v.dealer.sfa_code || v.dealer.sap_code || '')}','${esc(v.dealer.name)}','${esc(v.purpose_of_visit || '')}')">Punch</button>`}
               <button class="tiny" ${a.can_edit?'':'disabled'} onclick="openMove(${v.detail_id},'${esc(v.dealer.name)}','${d.visit_date}')">Move</button>
               <button class="tiny" ${a.can_edit?'':'disabled'} onclick="removeVisit(${v.detail_id})">Remove</button>

@@ -1,0 +1,9 @@
+node_modules/
+.env
+*.log
+scratch/
+upload-files/SFA_Sync_*.xlsx
+upload-files/Consolidated_Master_Import.xlsx
+Consolidated_Master_Import.xlsx
+.DS_Store
+Thumbs.db

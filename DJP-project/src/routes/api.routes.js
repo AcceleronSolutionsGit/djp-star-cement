@@ -51,6 +51,17 @@ import {
   getUnplannedVisitRequests
 } from '../controllers/plan.controller.js';
 import {
+  listZonalHeads,
+  resolveZonalHeadEndpoint,
+  healZonalHeadsEndpoint
+} from '../controllers/zonalHead.controller.js';
+import {
+  listEmployeesMaster,
+  getEmployeeMasterDetail,
+  syncEmployeeMasterEndpoint,
+  getEmployeeMasterStatusEndpoint
+} from '../controllers/employeeMaster.controller.js';
+import {
   listMyPlans,
   getMySummary,
   getMyPlanDetail,
@@ -67,6 +78,9 @@ import {
   listAllPlans,
   listPlanPeriods,
   getPlanDetailAdmin,
+  getPlanRouteMap,
+  syncCoordinatesEndpoint,
+  getCoordinatesStatusEndpoint,
   getAdherenceReport,
   getDailyAdherence,
   getCounterAdherence,
@@ -375,6 +389,18 @@ router.post  ('/app/approvers/:empCode/plans/:planId/decision',    decidePlan);
 router.get   ('/app/admin/plan-periods',                           listPlanPeriods);
 router.get   ('/app/admin/plans',                                  listAllPlans);
 router.get   ('/app/admin/plans/:planId',                          getPlanDetailAdmin);
+router.get   ('/app/admin/plans/:planId/route-map',                getPlanRouteMap);
+router.get   ('/app/officers/:empCode/plans/:planId/route-map',    getPlanRouteMap);
+router.get   ('/app/plans/:planId/route-map',                      getPlanRouteMap);
+router.get   ('/hierarchy/zonal-heads',                            listZonalHeads);
+router.get   ('/hierarchy/zonal-heads/resolve',                    resolveZonalHeadEndpoint);
+router.post  ('/hierarchy/zonal-heads/heal',                       healZonalHeadsEndpoint);
+router.get   ('/employees/master',                                 listEmployeesMaster);
+router.get   ('/employees/master/:empCode',                        getEmployeeMasterDetail);
+router.post  ('/sync/employee-master',                             syncEmployeeMasterEndpoint);
+router.get   ('/sync/employee-master/status',                      getEmployeeMasterStatusEndpoint);
+router.post  ('/sync/customer-coordinates',                        syncCoordinatesEndpoint);
+router.get   ('/sync/customer-coordinates/status',                 getCoordinatesStatusEndpoint);
 router.get   ('/app/admin/adherence',                              getAdherenceReport);
 router.get   ('/app/admin/adherence/daily',                        getDailyAdherence);
 router.get   ('/app/admin/adherence/counters',                     getCounterAdherence);

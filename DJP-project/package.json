@@ -9,6 +9,7 @@
     "dev": "node --watch src/index.js",
     "init-db": "node src/scripts/init-db.js",
     "migrate-db": "node src/scripts/migrate-sqlite-to-mysql.js",
+    "migrate-all": "node src/scripts/run-all-migrations.js",
     "import-all": "node src/scripts/run-all-imports.js",
     "test-djp": "node src/scripts/test-djp-generator.js",
     "test:pjp": "node src/scripts/test-canonical-pjp.js",

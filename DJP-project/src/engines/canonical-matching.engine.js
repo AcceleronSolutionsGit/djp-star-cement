@@ -44,11 +44,15 @@ export async function matchAndUpsertCanonicalDealer({
   const block = normalizeString(rawBlock);
   const effectiveZone = region || zone || null;
   const cleanRegion = normalizeRegion(effectiveZone);
-  let dType = 'STAR';
-  if (dealerType === 'PROSPECTIVE') {
+  let dType = 'DEALER';
+  if (dealerType === 'RSAR') {
+    dType = 'RSAR';
+  } else if (dealerType === 'PROSPECTIVE') {
     dType = 'PROSPECTIVE';
   } else if (dealerType === 'NON_STAR' || dealerType === 'NON-STAR') {
     dType = 'NON_STAR';
+  } else if (dealerType === 'STAR') {
+    dType = 'DEALER';
   }
 
   let matchMethod = 'NONE';
