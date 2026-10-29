@@ -100,7 +100,6 @@ export async function runPlanEnhancementsMigration() {
 
   console.log('[Migration] Plan enhancements migration complete.');
 }
-}
 
 if (process.argv[1]?.endsWith('migrate-plan-enhancements.js')) {
   runPlanEnhancementsMigration()
