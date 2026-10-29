@@ -99,3 +99,4 @@ runBatchImport().catch(err => {
   console.error('\n❌ Fatal error in batch import:', err);
   process.exit(1);
 });
+
