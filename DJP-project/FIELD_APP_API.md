@@ -8,6 +8,23 @@ AGARTALA demo data, not an invented example.
 - **Content type** — `application/json` on every request that has a body
 - **Version** — no version prefix; breaking changes are announced in the project docs
 
+> [!IMPORTANT]
+> ### Platform Update Summary (October 2026 Release)
+> Developers updating the mobile/field client should implement the following new features:
+> 1. **Heuristic Route Map Endpoint (`GET /api/app/plans/:planId/route-map`)**: Interactive GPS route polyline, sequence reordering, and cumulative mileage for map view.
+> 2. **Dealer Categorization (`DEALER`, `RSAR`, `PROSPECTIVE`)**: Legacy `STAR` types are replaced. Every counter carries an explicit `dealer_type`:
+>    - `DEALER`: Primary direct authorized dealer.
+>    - `RSAR`: Rural Sales Associate / Sub-dealer counter (linked to dealer).
+>    - `PROSPECTIVE`: Prospective non-Star counter (no SAP code).
+> 3. **Plan Editing Windows**: Plan modifications (`POST /visits`, `PUT /visits/:id`, `DELETE /visits/:id`) are strictly time-gated:
+>    - Cycle 1 (C1): Open only from **Day 1 to Day 5** of the month.
+>    - Cycle 2 (C2): Open only from **Day 15 to Day 17** of the month.
+>    - Attempts to edit outside these windows return `409 Conflict`.
+> 4. **Backdated Visit Detection & Approver Alert**: Adding or rescheduling visits for dates that have already passed automatically tags `is_backdated_edit: 1`. Approver review payloads include a prominent `backdatedAlert` object to render warning banners.
+> 5. **6-Day Work Week (All Saturdays Working)**: The calendar engine now treats **all Saturdays** (1st, 2nd, 3rd, 4th, 5th) as full working days. Only Sundays and official gazetted holidays are off.
+> 6. **Corporate Zonal Head Hierarchy (`GET /api/hierarchy/zonal-heads`)**: Standardized 7 corporate zones (`NE1`, `NE2`, `NB1`, `NB2`, `BIHAR`, `SOUTH BENGAL`, `NT`) with authoritative Zonal Heads.
+> 7. **Unplanned Visits**: Field punch and manager review workflow for off-schedule customer visits (`POST /api/plans/visits/unplanned/request`).
+
 ---
 
 ## 1. Authentication and identity
@@ -63,6 +80,35 @@ rule is:
 const dealerCode = dealer.sap_code || dealer.sfa_code;   // never the other way round
 ```
 
+### Dealer types (DEALER vs RSAR vs PROSPECTIVE)
+Counters are strictly categorized into one of three canonical types in `dealer.type` / `dealer_type`:
+- `DEALER` — Authorized Main Direct Dealer.
+- `RSAR` — Rural Sales Associate / Sub-dealer counter (linked to a main dealer or carrying RSSD code).
+- `PROSPECTIVE` — Non-Star prospective counter being cultivated for onboarding (no SAP code).
+
+Show these as distinct chips / tags in the mobile UI. Do not show generic "STAR".
+
+### Plan edit windows
+Plan editing (`POST /visits`, `PUT /visits/:detailId`, `DELETE /visits/:detailId`) is strictly time-windowed:
+- **Cycle 1 (C1)**: Open only from **Day 1 to Day 5** of the month.
+- **Cycle 2 (C2)**: Open only from **Day 15 to Day 17** of the month.
+
+Outside these windows, modifications return `409 Conflict`:
+`"Editing is closed for Cycle 1. Edit window is open only from day 1 to 5."`
+
+Disable editing buttons in the UI when the current calendar day is outside these dates.
+
+### Backdated visit detection
+If an officer adds or reschedules a visit to a date in the past (`visit_date < CURRENT_DATE`):
+- The visit is saved with `is_backdated_edit = 1` and `edited_after_date = 1`.
+- When the approver reviews the plan, the response includes an explicit `backdatedAlert` object (see §5.2).
+- Highlight backdated visits in the UI with an amber/warning badge.
+
+### Working days calendar
+All Saturdays (1st, 2nd, 3rd, 4th, 5th) are **full working days** for field officers.
+- Working days = Monday through Saturday (excluding declared company public holidays).
+- Non-working days = Sundays and declared public holidays only.
+
 ### Plan statuses
 ```
 DRAFT ──submit──> SUBMITTED ──approve──> APPROVED   (final)
@@ -103,27 +149,33 @@ it. Surface the text.
 | GET | `/app/officers/:empCode/summary` | home-screen counters |
 | GET | `/app/officers/:empCode/plans` | his plans |
 | GET | `/app/officers/:empCode/plans/:planId` | one plan, day by day |
+| GET | `/app/officers/:empCode/plans/:planId/route-map` | **NEW**: GPS route map, polyline & stop sequence |
+| GET | `/app/plans/:planId/route-map` | **NEW**: General route map by plan ID |
 | GET | `/app/officers/:empCode/dealers` | counters he may add |
-| POST | `/app/officers/:empCode/plans/:planId/visits` | add a visit |
-| PUT | `/app/officers/:empCode/plans/:planId/visits/:detailId` | move a visit |
-| DELETE | `/app/officers/:empCode/plans/:planId/visits/:detailId` | remove a visit |
+| POST | `/app/officers/:empCode/plans/:planId/visits` | add a visit (window checked) |
+| PUT | `/app/officers/:empCode/plans/:planId/visits/:detailId` | move a visit (window checked) |
+| DELETE | `/app/officers/:empCode/plans/:planId/visits/:detailId` | remove a visit (window checked) |
 | POST | `/app/officers/:empCode/plans/:planId/submit` | send to L1 |
 | POST | `/app/officers/:empCode/visits/punch` | record a visit he made |
 | GET | `/app/officers/:empCode/adherence` | his adherence + counters |
+| POST | `/plans/visits/unplanned/request` | **NEW**: punch an unplanned visit to a non-PJP counter |
+| GET | `/app/officers/:empCode/unplanned-visits` | **NEW**: list his unplanned visits |
 
 ### Approver (L1)
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/app/approvers/:empCode/inbox` | plans awaiting him |
-| GET | `/app/approvers/:empCode/plans/:planId` | review a plan |
+| GET | `/app/approvers/:empCode/plans/:planId` | review a plan (includes `backdatedAlert`) |
 | POST | `/app/approvers/:empCode/plans/:planId/decision` | approve or send back |
 | GET | `/app/approvers/:empCode/team-adherence` | one line per officer |
 | GET | `/app/approvers/:empCode/adherence/daily` | team, day by day |
 | GET | `/app/approvers/:empCode/adherence/counters` | team counter tracker |
+| POST | `/plans/visits/unplanned/:requestId/approve` | **NEW**: approve/reject unplanned visit request |
 
 ### Hierarchy & reporting
 | Method | Path | Purpose |
 |---|---|---|
+| GET | `/hierarchy/zonal-heads` | **NEW**: corporate Zonal Heads & branch coverage |
 | GET | `/app/hierarchy/:empCode/analysis` | the funnel + everyone below him |
 | GET | `/app/hierarchy/:viewerCode/officer/:empCode/visits` | one officer's diary, adhered or not |
 | GET | `/app/admin/adherence/daily` | day-by-day running total |
@@ -340,11 +392,17 @@ This is the screen the officer spends his time on. It returns the plan summary *
               "type": "DEALER",
               "area": "AGARTALA",
               "zone": "NE2",
-              "block": "AMC (SADAR)"
+              "block": "AMC (SADAR)",
+              "latitude": 23.8315,
+              "longitude": 91.2868,
+              "has_coordinates": true,
+              "route_name": "Agartala Central Beat"
             },
             "final_category": "Growing",
             "grade": "D",
             "priority_score": 33,
+            "distance_from_prev_km": 0,
+            "is_backdated_edit": false,
             "purpose_of_visit": "PJP Scheduled Visit (D - Growing)",
             "visit_status": "ACTIVE",
             "executed": false,
@@ -369,7 +427,13 @@ This is the screen the officer spends his time on. It returns the plan summary *
 | `actions.rectify_blocked_reason` | a sentence to show when `can_rectify` is false |
 | `cycle_window.days[]` | **every legal day**, with how full each is. Use this for day pickers — `days[]` only has days that already have visits |
 | `cycle_window.daily_cap` | max visits per day for this role (SO 8, ASM 5, RSM 3) |
+| `dealer.type` | **`DEALER`**, **`RSAR`**, or **`PROSPECTIVE`** — use for badge chips in UI |
+| `dealer.latitude` / `longitude` | GPS coordinates for map navigation |
+| `dealer.route_name` | beat/route name for filtering |
 | `visit.detail_id` | the id for move and remove |
+| `visit.sequence` | stop order sequence on that day (1, 2, 3...) |
+| `visit.distance_from_prev_km` | road distance from previous counter on that day (in km) |
+| `visit.is_backdated_edit` | true if this visit was scheduled/moved to a date that already passed |
 | `visit.executed` / `execution` | whether that visit has been punched, and when |
 | `visit.source` | `AUTO` from the generator, `AGENT` if the officer added it |
 | `dealer.sap_code` | **null for a prospect** — fall back to `sfa_code` |
@@ -464,7 +528,10 @@ Refusals:
 | `400` | no date or code; date outside the plan month or cycle |
 | `403` | plan is not his, or is SUBMITTED/APPROVED (not editable) |
 | `404` | the dealer is not one of his targets this cycle |
-| `409` | the day is at its cap, or that dealer is already on that day |
+| `409` | **Edit window closed** (C1 edit window is day 1–5; C2 is day 15–17); or the day is at its daily cap; or dealer is already on that day |
+
+> [!NOTE]
+> **Backdated visit tagging**: If `visitDate` is earlier than today's date (`visitDate < CURRENT_DATE`), the visit is accepted and automatically stamped with `is_backdated_edit: 1` and `edited_after_date: 1`. When the plan is submitted, an alert banner will inform the approver that past-dated visits were scheduled.
 
 ---
 
@@ -684,6 +751,164 @@ means he has no plan that month; it is a `200`, not an error.
 
 ---
 
+### 4.11 Route map & heuristic navigation
+
+```
+GET /app/plans/:planId/route-map
+GET /app/officers/:empCode/plans/:planId/route-map
+```
+
+Provides the field officer and manager with a complete GPS route map of the plan. Computes the optimal heuristic visiting sequence and road distances between stops, providing polyline coordinates ready for rendering on Google Maps, Mapbox, or Leaflet.
+
+**Query Parameters:**
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `visitDate` | `YYYY-MM-DD` | No | Filter route map to a specific calendar date (e.g. `2026-06-03`) |
+
+`200 OK` Response:
+```json
+{
+  "success": true,
+  "planId": 194,
+  "empCode": "11003102",
+  "empName": "PARTHA SARKAR",
+  "role": "SO",
+  "periodMonth": "2026-06",
+  "cycleCode": "C1",
+  "status": "APPROVED",
+  "totalDistanceKm": 66.64,
+  "totalDays": 11,
+  "totalVisits": 34,
+  "days": [
+    {
+      "visitDate": "2026-06-03",
+      "visitCount": 8,
+      "totalDistanceKm": 14.82,
+      "hasCoordinatesCount": 8,
+      "polyline": [
+        [23.8315, 91.2868],
+        [23.8341, 91.2895],
+        [23.8410, 91.2950]
+      ],
+      "stops": [
+        {
+          "detailId": 12,
+          "sequence": 1,
+          "dealerName": "RADHIKA ENTERPRISE",
+          "dealerSapCode": "1000000058",
+          "dealerSfaCode": "NER150",
+          "dealerType": "DEALER",
+          "latitude": 23.8315,
+          "longitude": 91.2868,
+          "hasCoordinates": true,
+          "distanceFromPrevKm": 0,
+          "cumulativeDistanceKm": 0,
+          "routeName": "Agartala Central Beat",
+          "block": "AMC (SADAR)",
+          "finalCategory": "Growing",
+          "grade": "D",
+          "executed": false
+        },
+        {
+          "detailId": 13,
+          "sequence": 2,
+          "dealerName": "TRIPURA HARDWARE",
+          "dealerSapCode": "1000000089",
+          "dealerSfaCode": "NER182",
+          "dealerType": "DEALER",
+          "latitude": 23.8341,
+          "longitude": 91.2895,
+          "hasCoordinates": true,
+          "distanceFromPrevKm": 0.45,
+          "cumulativeDistanceKm": 0.45,
+          "routeName": "Agartala Central Beat",
+          "block": "AMC (SADAR)",
+          "finalCategory": "Growing",
+          "grade": "C",
+          "executed": false
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Mobile / Frontend Developer Implementation Guide:**
+- **Pin Markers**: Iterate over `days[].stops[]`. Render custom pins showing `stops[].sequence` number on the map pin icon.
+- **Polyline Route**: Pass `days[].polyline` (an array of `[lat, lng]` coordinate tuples) directly to your map polyline renderer (`L.polyline`, `google.maps.Polyline`, or `Mapbox gl-draw`).
+- **Missing Coordinates**: If `hasCoordinates === false` (`latitude: 0, longitude: 0`), display a grey question mark pin or list item indicating "GPS coordinates pending SFA geotag".
+- **Turn-by-turn Navigation**: Use `geo:${latitude},${longitude}?q=${latitude},${longitude}(${encodeURIComponent(dealerName)})` or Google Maps intent URL (`https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}`) to launch native GPS navigation.
+
+---
+
+### 4.12 Unplanned visits (Field Punching & Log)
+
+Allows a field officer to log an ad-hoc or unplanned visit to a counter that was not in his original PJP schedule for that day.
+
+#### Record an unplanned visit:
+```
+POST /plans/visits/unplanned/request
+```
+
+```json
+{
+  "emp_code": "11003102",
+  "visit_date": "2026-10-30",
+  "dealer_id": 23,
+  "dealer_code": "1000000058",
+  "reason": "Emergency order collection and stock dispute resolution",
+  "latitude": 23.8315,
+  "longitude": 91.2868
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `emp_code` | string | **yes** | Officer employee code |
+| `visit_date` | string | **yes** | `YYYY-MM-DD` |
+| `dealer_code` | string | **yes** | SAP code or SFA code of the counter |
+| `reason` | string | **yes** | Business justification for the unplanned visit |
+| `latitude` / `longitude` | number | no | Officer's current GPS location at punch time |
+
+`200 OK` Response:
+```json
+{
+  "success": true,
+  "requestId": 142,
+  "message": "Unplanned visit request submitted successfully.",
+  "status": "SUBMITTED"
+}
+```
+
+#### List officer's unplanned visits:
+```
+GET /app/officers/:empCode/unplanned-visits?month=2026-10
+```
+
+`200 OK` Response:
+```json
+{
+  "success": true,
+  "empCode": "11003102",
+  "month": "2026-10",
+  "count": 2,
+  "visits": [
+    {
+      "id": 142,
+      "visit_date": "2026-10-30",
+      "dealer_name": "RADHIKA ENTERPRISE",
+      "dealer_sap_code": "1000000058",
+      "reason": "Emergency order collection and stock dispute resolution",
+      "status": "APPROVED",
+      "approver_name": "BIKRAM KUMAR HALDER",
+      "approved_at": "2026-10-30 14:15:00"
+    }
+  ]
+}
+```
+
+---
+
 ## 5. Approver endpoints
 
 ### 5.1 Inbox
@@ -709,6 +934,37 @@ approver actually reads before deciding:
 ```json
 { "Growing": 20, "De-growing": 37, "Unclassified": 3, "Zero Lifter": 10 }
 ```
+
+#### Backdated Visits Alert (`backdatedAlert`)
+When reviewing a plan, the response includes an explicit `backdatedAlert` object. If the officer scheduled or modified any visits for dates that had already passed, `hasBackdatedVisits` is `true`:
+
+```json
+{
+  "plan": { "..." : "..." },
+  "backdatedAlert": {
+    "hasBackdatedVisits": true,
+    "count": 2,
+    "message": "Warning: 2 visit(s) in this plan were added or modified for dates that have already passed.",
+    "visits": [
+      {
+        "id": 145,
+        "visit_date": "2026-10-18",
+        "dealer_name": "RADHIKA ENTERPRISE",
+        "dealer_sap_code": "1000000058",
+        "dealer_type": "DEALER",
+        "created_at": "2026-10-29 11:20:00",
+        "updated_at": "2026-10-29 11:20:00"
+      }
+    ]
+  }
+}
+```
+
+**Approver UI Guidelines:**
+- If `backdatedAlert.hasBackdatedVisits === true`, display an amber/red warning banner at the top of the plan review screen.
+- Show `backdatedAlert.message` and allow the approver to view the flagged visits before deciding whether to approve or request rectification.
+
+---
 
 ### 5.3 Decide
 
@@ -1825,6 +2081,96 @@ Allow **several minutes** of client timeout and disable the button while it runs
 
 ---
 
+### 6.8 Corporate Zonal Head Hierarchy
+
+```
+GET /hierarchy/zonal-heads
+```
+
+Returns the canonical corporate zones and their designated General Managers / Zonal Heads, designations, and territory coverage.
+
+`200 OK` Response:
+```json
+{
+  "success": true,
+  "count": 7,
+  "zones": [
+    {
+      "zone_code": "NE1",
+      "zone_name": "Northeast 1",
+      "zh_name": "TARAK NATH GHOSH",
+      "zh_code": "1100077",
+      "designation": "GM - Sales",
+      "level": "L7",
+      "state": "Assam, Meghalaya, Arunachal, Nagaland, Manipur",
+      "area_keywords": "GUWAHATI, LOWER ASSAM, BONGAIGAON, BARPETA, NALBARI, TEZPUR, NAGAON, SHILLONG, TURA..."
+    },
+    {
+      "zone_code": "NE2",
+      "zone_name": "Northeast 2",
+      "zh_name": "BRIJESH SINGH",
+      "zh_code": "11001891",
+      "designation": "GM - Sales",
+      "level": "L7",
+      "state": "Tripura, Mizoram, Barak Valley",
+      "area_keywords": "AGARTALA, UDAIPUR, DHARMANAGAR, SILCHAR, CACHAR, HAILAKANDI, KARIMGANJ, AIZAWL..."
+    },
+    {
+      "zone_code": "NB1",
+      "zone_name": "North Bengal 1",
+      "zh_name": "DIBYAJYOTI GUHA",
+      "zh_code": "1100380",
+      "designation": "GM - Sales",
+      "level": "L7",
+      "state": "West Bengal, Sikkim",
+      "area_keywords": "SILIGURI, JALPAIGURI, COOCHBEHAR, ALIPURDUAR, DARJEELING, GANGTOK..."
+    },
+    {
+      "zone_code": "NB2",
+      "zone_name": "North Bengal 2",
+      "zh_name": "DIBYAJYOTI GUHA",
+      "zh_code": "1100380",
+      "designation": "GM - Sales",
+      "level": "L7",
+      "state": "West Bengal",
+      "area_keywords": "MALDA, DINAJPUR, BALURGHAT, RAIGANJ..."
+    },
+    {
+      "zone_code": "BIHAR",
+      "zone_name": "Bihar",
+      "zh_name": "RAJESH SRIVASTAVA",
+      "zh_code": "1100067",
+      "designation": "GM - Sales",
+      "level": "L7",
+      "state": "Bihar",
+      "area_keywords": "PATNA, MUZAFFARPUR, BHAGALPUR, PURNIA, GAYA..."
+    },
+    {
+      "zone_code": "SOUTH BENGAL",
+      "zone_name": "South Bengal",
+      "zh_name": "ATANU BANERJEE",
+      "zh_code": "1100144",
+      "designation": "GM - Sales",
+      "level": "L7",
+      "state": "West Bengal",
+      "area_keywords": "KOLKATA, HOWRAH, HOOGHLY, BURDWAN, DURGAPUR, ASANSOL..."
+    },
+    {
+      "zone_code": "NT",
+      "zone_name": "Non Trade",
+      "zh_name": "ABHISHEK JOSHI",
+      "zh_code": "1100088",
+      "designation": "VP - Institutional",
+      "level": "L8",
+      "state": "All",
+      "area_keywords": "NON TRADE, INSTITUTIONAL, PROJECTS..."
+    }
+  ]
+}
+```
+
+---
+
 ## 7. Implementation guide
 
 ### 7.1 Screen by screen
@@ -1861,8 +2207,11 @@ detail so the tick appears, and the adherence screen if it is open. If `planned`
 **Adherence.** `GET .../adherence` for the headline and the counter list;
 `/app/admin/adherence/daily?empCode=` for his day-by-day run. Two calls, both cheap.
 
-**Approvals.** `inbox` → `plans/:planId` → `decision`. After a decision, re-fetch the
-inbox; the plan leaves it.
+**Approvals.** `inbox` → `plans/:planId` → `decision`. Check `backdatedAlert.hasBackdatedVisits`: if true, render the alert card at the top so the approver sees why visits were flagged. After a decision, re-fetch the inbox; the plan leaves it.
+
+**Route Map.** `GET /app/plans/:planId/route-map` loads the day's stops and polyline. Plot pins with sequence numbers, draw polyline on map, and support 1-tap navigation via Google Maps intent URL (`geo:lat,lng` or `google.maps.dir`).
+
+**Unplanned Visit.** When punching an ad-hoc visit to a dealer not on today's schedule, call `POST /plans/visits/unplanned/request` with `reason`, `dealer_code`, and GPS coordinates.
 
 **Manager reports.** `GET /app/hierarchy/:empCode/analysis` is one call for the whole
 screen — the funnel, a band per role, and the nested tree. Render `levels[]` as the
@@ -1881,6 +2230,10 @@ rather than show an empty one.
 | Rule | Where you see it |
 |---|---|
 | editable only in DRAFT / RECTIFY | `actions.can_edit` |
+| edit window closed outside allowed days | `409` on add / move / delete (C1: days 1–5; C2: days 15–17) |
+| backdated edit alert | `backdatedAlert` in approver plan review, `is_backdated_edit: true` on visit |
+| 6-day work week (all Saturdays working) | `working_days` count in plan header (Sundays & holidays off) |
+| canonical dealer types | `dealer.type`: `DEALER`, `RSAR`, or `PROSPECTIVE` |
 | one send-back per plan | `rectification.remaining`, `actions.rectify_blocked_reason` |
 | daily cap per role | `cycle_window.daily_cap`, `days[].full`, else `409` |
 | one dealer once per day on a plan | `409` on add / move |
