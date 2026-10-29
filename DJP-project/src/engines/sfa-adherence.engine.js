@@ -164,6 +164,35 @@ export async function buildDealerCodeIndex() {
       index.set(key(codeInName[1]), { canonical, name: d.dealer_name });
     }
   }
+
+  // 3. Mapping table fallback
+  const mapRows = await dbAll(
+    `SELECT sap_code, linked_dealer_code, dealer_name FROM master_dealer_so_mapping`
+  ).catch(() => []);
+  for (const m of mapRows) {
+    const canonical = norm(m.sap_code) || norm(m.linked_dealer_code);
+    if (!canonical) continue;
+    if (m.sap_code && !index.has(key(m.sap_code))) {
+      index.set(key(m.sap_code), { canonical, name: m.dealer_name });
+    }
+    if (m.linked_dealer_code && !index.has(key(m.linked_dealer_code))) {
+      index.set(key(m.linked_dealer_code), { canonical, name: m.dealer_name });
+    }
+  }
+
+  // 4. Coordinate cross-reference (links SFA DNS customer codes to SAP customer codes)
+  const coordRows = await dbAll(
+    `SELECT dns_customer_code, customer_code, display_code, customer_name FROM master_customer_coordinates`
+  ).catch(() => []);
+  for (const c of coordRows) {
+    const sapHit = index.get(key(c.customer_code)) || index.get(key(c.dns_customer_code)) || index.get(key(c.display_code));
+    if (sapHit) {
+      if (c.dns_customer_code && !index.has(key(c.dns_customer_code))) index.set(key(c.dns_customer_code), sapHit);
+      if (c.customer_code && !index.has(key(c.customer_code))) index.set(key(c.customer_code), sapHit);
+      if (c.display_code && !index.has(key(c.display_code))) index.set(key(c.display_code), sapHit);
+    }
+  }
+
   return index;
 }
 

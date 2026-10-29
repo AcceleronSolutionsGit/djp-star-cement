@@ -152,16 +152,35 @@ export async function syncCustomerCoordinatesFromApi(options = {}) {
 export async function updateMasterDealersFromCoordinates() {
   try {
     let affected = 0;
+    console.log('[CustomerCoords] Checking master_dealers for missing coordinates / counter details...');
+
+    const needUpdate = await dbGet(`
+      SELECT COUNT(*) as cnt 
+      FROM master_dealers 
+      WHERE has_coordinates = 0 
+         OR latitude IS NULL 
+         OR latitude = 0 
+         OR dealer_type IS NULL 
+         OR dealer_type = 'STAR' 
+         OR dealer_name LIKE 'SBG-%'
+    `);
+
+    if (!needUpdate || needUpdate.cnt === 0) {
+      console.log('[CustomerCoords] ✓ All master_dealers already have valid coordinates and counter metadata.');
+      return { affectedRows: 0 };
+    }
+
+    console.log(`[CustomerCoords] Updating ${needUpdate.cnt} dealer(s) from coordinates cache...`);
 
     // 1. Direct indexed match on sfa_code = dns_customer_code
     const res1 = await dbRun(`
       UPDATE master_dealers d
       JOIN master_customer_coordinates c ON d.sfa_code = c.dns_customer_code
       SET
-        d.latitude = c.latitude,
-        d.longitude = c.longitude,
-        d.route_name = COALESCE(c.route_name, d.route_name),
-        d.has_coordinates = c.has_coordinates,
+        d.latitude = CASE WHEN (d.latitude IS NULL OR d.latitude = 0) AND c.has_coordinates = 1 THEN c.latitude ELSE d.latitude END,
+        d.longitude = CASE WHEN (d.longitude IS NULL OR d.longitude = 0) AND c.has_coordinates = 1 THEN c.longitude ELSE d.longitude END,
+        d.route_name = COALESCE(d.route_name, c.route_name),
+        d.has_coordinates = CASE WHEN c.has_coordinates = 1 THEN 1 ELSE d.has_coordinates END,
         d.dealer_name = CASE 
           WHEN d.dealer_name IS NULL OR d.dealer_name = '' OR d.dealer_name LIKE 'SBG-%' THEN c.customer_name 
           ELSE d.dealer_name 
@@ -171,7 +190,8 @@ export async function updateMasterDealersFromCoordinates() {
           WHEN c.customer_type IN ('Dealer', 'Exclusive Dealer') AND (d.dealer_type = 'STAR' OR d.dealer_type IS NULL) THEN 'DEALER'
           ELSE d.dealer_type
         END
-      WHERE c.has_coordinates = 1 OR c.customer_name IS NOT NULL
+      WHERE (d.has_coordinates = 0 OR d.latitude IS NULL OR d.latitude = 0 OR d.dealer_type IS NULL OR d.dealer_type = 'STAR' OR d.dealer_name LIKE 'SBG-%')
+        AND (c.has_coordinates = 1 OR c.customer_name IS NOT NULL)
     `);
     affected += (res1.affectedRows || res1.changes || 0);
 
@@ -180,10 +200,10 @@ export async function updateMasterDealersFromCoordinates() {
       UPDATE master_dealers d
       JOIN master_customer_coordinates c ON d.sap_code = c.customer_code
       SET
-        d.latitude = c.latitude,
-        d.longitude = c.longitude,
-        d.route_name = COALESCE(c.route_name, d.route_name),
-        d.has_coordinates = c.has_coordinates,
+        d.latitude = CASE WHEN (d.latitude IS NULL OR d.latitude = 0) AND c.has_coordinates = 1 THEN c.latitude ELSE d.latitude END,
+        d.longitude = CASE WHEN (d.longitude IS NULL OR d.longitude = 0) AND c.has_coordinates = 1 THEN c.longitude ELSE d.longitude END,
+        d.route_name = COALESCE(d.route_name, c.route_name),
+        d.has_coordinates = CASE WHEN c.has_coordinates = 1 THEN 1 ELSE d.has_coordinates END,
         d.dealer_name = CASE 
           WHEN d.dealer_name IS NULL OR d.dealer_name = '' OR d.dealer_name LIKE 'SBG-%' THEN c.customer_name 
           ELSE d.dealer_name 
@@ -193,7 +213,8 @@ export async function updateMasterDealersFromCoordinates() {
           WHEN c.customer_type IN ('Dealer', 'Exclusive Dealer') AND (d.dealer_type = 'STAR' OR d.dealer_type IS NULL) THEN 'DEALER'
           ELSE d.dealer_type
         END
-      WHERE c.has_coordinates = 1 OR c.customer_name IS NOT NULL
+      WHERE (d.has_coordinates = 0 OR d.latitude IS NULL OR d.latitude = 0 OR d.dealer_type IS NULL OR d.dealer_type = 'STAR' OR d.dealer_name LIKE 'SBG-%')
+        AND (c.has_coordinates = 1 OR c.customer_name IS NOT NULL)
     `);
     affected += (res2.affectedRows || res2.changes || 0);
 
@@ -202,10 +223,10 @@ export async function updateMasterDealersFromCoordinates() {
       UPDATE master_dealers d
       JOIN master_customer_coordinates c ON d.sap_code = c.dns_customer_code
       SET
-        d.latitude = c.latitude,
-        d.longitude = c.longitude,
-        d.route_name = COALESCE(c.route_name, d.route_name),
-        d.has_coordinates = c.has_coordinates,
+        d.latitude = CASE WHEN (d.latitude IS NULL OR d.latitude = 0) AND c.has_coordinates = 1 THEN c.latitude ELSE d.latitude END,
+        d.longitude = CASE WHEN (d.longitude IS NULL OR d.longitude = 0) AND c.has_coordinates = 1 THEN c.longitude ELSE d.longitude END,
+        d.route_name = COALESCE(d.route_name, c.route_name),
+        d.has_coordinates = CASE WHEN c.has_coordinates = 1 THEN 1 ELSE d.has_coordinates END,
         d.dealer_name = CASE 
           WHEN d.dealer_name IS NULL OR d.dealer_name = '' OR d.dealer_name LIKE 'SBG-%' THEN c.customer_name 
           ELSE d.dealer_name 
@@ -215,10 +236,12 @@ export async function updateMasterDealersFromCoordinates() {
           WHEN c.customer_type IN ('Dealer', 'Exclusive Dealer') AND (d.dealer_type = 'STAR' OR d.dealer_type IS NULL) THEN 'DEALER'
           ELSE d.dealer_type
         END
-      WHERE c.has_coordinates = 1 OR c.customer_name IS NOT NULL
+      WHERE (d.has_coordinates = 0 OR d.latitude IS NULL OR d.latitude = 0 OR d.dealer_type IS NULL OR d.dealer_type = 'STAR' OR d.dealer_name LIKE 'SBG-%')
+        AND (c.has_coordinates = 1 OR c.customer_name IS NOT NULL)
     `);
     affected += (res3.affectedRows || res3.changes || 0);
 
+    console.log(`[CustomerCoords] ✓ Finished updating master_dealers: ${affected} records updated.`);
     return { affectedRows: affected };
   } catch (err) {
     console.warn('[CustomerCoords] Warning updating master_dealers:', err.message);

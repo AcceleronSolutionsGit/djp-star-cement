@@ -39,6 +39,25 @@ export async function runCoordinateMigrations() {
     }
   };
 
+  const checkIndex = async (tbl, idxName, cols) => {
+    try {
+      const idxs = await dbAll(`SHOW INDEX FROM ${tbl}`);
+      if (!idxs.some(i => i.Key_name === idxName)) {
+        await dbRun(`CREATE INDEX ${idxName} ON ${tbl} (${cols})`);
+        console.log(`[Migration] Created index ${idxName} on ${tbl}(${cols})`);
+      }
+    } catch (err) {
+      console.warn(`[Migration] Could not create index ${idxName} on ${tbl}:`, err.message);
+    }
+  };
+
+  // Ensure critical performance indexes exist
+  await checkIndex('master_customer_coordinates', 'idx_mcc_dns', 'dns_customer_code');
+  await checkIndex('master_customer_coordinates', 'idx_mcc_cust', 'customer_code');
+  await checkIndex('master_customer_coordinates', 'idx_mcc_coords', 'has_coordinates');
+  await checkIndex('master_dealers', 'idx_dealer_sap', 'sap_code');
+  await checkIndex('master_dealers', 'idx_dealer_sfa', 'sfa_code');
+
   await checkCol('master_dealers', 'latitude', 'DOUBLE NULL');
   await checkCol('master_dealers', 'longitude', 'DOUBLE NULL');
   await checkCol('master_dealers', 'route_name', 'VARCHAR(255) NULL');

@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import apiRoutes from './routes/api.routes.js';
-import { dbAll, dbRun } from './config/database.js';
+import { dbAll, dbRun, dbGet } from './config/database.js';
 import { startSfaSyncCron } from './services/sfaSync.service.js';
 import { runCoordinateMigrations } from './scripts/migrate-customer-coordinates.js';
 import { syncCustomerCoordinatesFromApi } from './services/customerCoordinates.service.js';
@@ -15,6 +15,15 @@ import { healAllMissingZonalHeads } from './services/zonalHead.service.js';
 import { runPlanEnhancementsMigration } from './scripts/migrate-plan-enhancements.js';
 
 dotenv.config();
+
+// Global unhandled rejection and exception traps to prevent PM2 crash loops
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Unhandled Rejection at Promise]', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[Uncaught Exception]', err);
+});
 
 /**
  * Run idempotent DB migrations at startup.
@@ -61,57 +70,87 @@ async function runStartupMigrations() {
 
   try {
     // Migration 3: Clean dummy '-' placeholders from master_dealers and backfill from master_dealer_so_mapping
-    await dbRun(`UPDATE master_dealers SET so_name = NULL WHERE so_name IN ('-', 'NA', 'N/A')`);
-    await dbRun(`UPDATE master_dealers SET so_emp_code = NULL WHERE so_emp_code IN ('-', 'NA', 'N/A')`);
-    await dbRun(`UPDATE master_dealers SET asm_name = NULL WHERE asm_name IN ('-', 'NA', 'N/A')`);
-    await dbRun(`UPDATE master_dealers SET asm_code = NULL WHERE asm_code IN ('-', 'NA', 'N/A')`);
-    await dbRun(`UPDATE master_dealers SET rsm_name = NULL WHERE rsm_name IN ('-', 'NA', 'N/A')`);
-    await dbRun(`UPDATE master_dealers SET rsm_code = NULL WHERE rsm_code IN ('-', 'NA', 'N/A')`);
-    await dbRun(`UPDATE master_dealers SET zh_name = NULL WHERE zh_name IN ('-', 'NA', 'N/A')`);
-    await dbRun(`UPDATE master_dealers SET zh_code = NULL WHERE zh_code IN ('-', 'NA', 'N/A')`);
-
-    // Backfill master_dealers from master_dealer_so_mapping where hierarchy is missing
-    await dbRun(`
-      UPDATE master_dealers d
-      JOIN master_dealer_so_mapping m ON (d.id = m.dealer_id OR (d.sap_code IS NOT NULL AND d.sap_code = m.sap_code))
-      SET
-        d.dm_area = COALESCE(d.dm_area, m.area),
-        d.area = COALESCE(d.area, m.area),
-        d.so_name = COALESCE(d.so_name, NULLIF(NULLIF(m.so_name, '-'), 'NA')),
-        d.so_emp_code = COALESCE(d.so_emp_code, NULLIF(NULLIF(m.so_emp_code, '-'), 'NA')),
-        d.asm_name = COALESCE(d.asm_name, NULLIF(NULLIF(m.asm_name, '-'), 'NA')),
-        d.asm_code = COALESCE(d.asm_code, NULLIF(NULLIF(m.asm_code, '-'), 'NA')),
-        d.rsm_name = COALESCE(d.rsm_name, NULLIF(NULLIF(m.rsm_name, '-'), 'NA')),
-        d.rsm_code = COALESCE(d.rsm_code, NULLIF(NULLIF(m.rsm_code, '-'), 'NA')),
-        d.zh_name = COALESCE(d.zh_name, NULLIF(NULLIF(m.zh_name, '-'), 'NA')),
-        d.zh_code = COALESCE(d.zh_code, NULLIF(NULLIF(m.zh_code, '-'), 'NA'))
-      WHERE d.so_emp_code IS NULL OR d.asm_code IS NULL OR d.dm_area IS NULL
+    const needDealerHealing = await dbGet(`
+      SELECT 1 FROM master_dealers 
+      WHERE so_name IN ('-', 'NA', 'N/A') 
+         OR so_emp_code IS NULL 
+         OR asm_code IS NULL 
+         OR dm_area IS NULL 
+         OR zh_name IS NULL 
+         OR zh_name LIKE 'Zonal Head%' 
+         OR zh_code = 'ZH001'
+      LIMIT 1
     `);
-    console.log('[Migration] ✓ Healed dealer hierarchy from master_dealer_so_mapping');
+
+    if (needDealerHealing) {
+      await dbRun(`UPDATE master_dealers SET so_name = NULL WHERE so_name IN ('-', 'NA', 'N/A')`);
+      await dbRun(`UPDATE master_dealers SET so_emp_code = NULL WHERE so_emp_code IN ('-', 'NA', 'N/A')`);
+      await dbRun(`UPDATE master_dealers SET asm_name = NULL WHERE asm_name IN ('-', 'NA', 'N/A')`);
+      await dbRun(`UPDATE master_dealers SET asm_code = NULL WHERE asm_code IN ('-', 'NA', 'N/A')`);
+      await dbRun(`UPDATE master_dealers SET rsm_name = NULL WHERE rsm_name IN ('-', 'NA', 'N/A')`);
+      await dbRun(`UPDATE master_dealers SET rsm_code = NULL WHERE rsm_code IN ('-', 'NA', 'N/A')`);
+      await dbRun(`UPDATE master_dealers SET zh_name = NULL WHERE zh_name IN ('-', 'NA', 'N/A')`);
+      await dbRun(`UPDATE master_dealers SET zh_code = NULL WHERE zh_code IN ('-', 'NA', 'N/A')`);
+
+      // Backfill master_dealers from master_dealer_so_mapping where hierarchy is missing
+      await dbRun(`
+        UPDATE master_dealers d
+        JOIN master_dealer_so_mapping m ON (d.id = m.dealer_id OR (d.sap_code IS NOT NULL AND d.sap_code = m.sap_code))
+        SET
+          d.dm_area = COALESCE(d.dm_area, m.area),
+          d.area = COALESCE(d.area, m.area),
+          d.so_name = COALESCE(d.so_name, NULLIF(NULLIF(m.so_name, '-'), 'NA')),
+          d.so_emp_code = COALESCE(d.so_emp_code, NULLIF(NULLIF(m.so_emp_code, '-'), 'NA')),
+          d.asm_name = COALESCE(d.asm_name, NULLIF(NULLIF(m.asm_name, '-'), 'NA')),
+          d.asm_code = COALESCE(d.asm_code, NULLIF(NULLIF(m.asm_code, '-'), 'NA')),
+          d.rsm_name = COALESCE(d.rsm_name, NULLIF(NULLIF(m.rsm_name, '-'), 'NA')),
+          d.rsm_code = COALESCE(d.rsm_code, NULLIF(NULLIF(m.rsm_code, '-'), 'NA')),
+          d.zh_name = COALESCE(d.zh_name, NULLIF(NULLIF(m.zh_name, '-'), 'NA')),
+          d.zh_code = COALESCE(d.zh_code, NULLIF(NULLIF(m.zh_code, '-'), 'NA'))
+        WHERE d.so_emp_code IS NULL OR d.asm_code IS NULL OR d.dm_area IS NULL
+      `);
+      console.log('[Migration] ✓ Healed dealer hierarchy from master_dealer_so_mapping');
+    }
   } catch (err) {
     console.warn('[Migration] Warning during startup hierarchy healing:', err.message);
   }
 
   try {
     // Migration 4: Normalize any 'Active in SAP' or mixed-case status values to canonical 'ACTIVE'
-    await dbRun(`
-      UPDATE master_dealers
-      SET status = 'ACTIVE'
-      WHERE UPPER(TRIM(status)) IN ('ACTIVE IN SAP', 'ACTIVE IN SFA', 'ACTIVE', 'VALIDATED')
+    const needStatusNorm = await dbGet(`
+      SELECT 1 FROM master_dealers
+      WHERE UPPER(TRIM(status)) IN ('ACTIVE IN SAP', 'ACTIVE IN SFA', 'VALIDATED', 'INACTIVE IN SAP', 'IN-ACTIVE')
          OR (status IS NULL AND (dealer_type != 'PROSPECTIVE' OR dealer_type IS NULL))
+      LIMIT 1
     `);
-    await dbRun(`
-      UPDATE master_dealers
-      SET status = 'INACTIVE'
-      WHERE UPPER(TRIM(status)) IN ('INACTIVE', 'INACTIVE IN SAP', 'IN-ACTIVE')
-    `);
-    console.log('[Migration] ✓ Normalized dealer status values to canonical ACTIVE/INACTIVE');
+
+    if (needStatusNorm) {
+      await dbRun(`
+        UPDATE master_dealers
+        SET status = 'ACTIVE'
+        WHERE UPPER(TRIM(status)) IN ('ACTIVE IN SAP', 'ACTIVE IN SFA', 'ACTIVE', 'VALIDATED')
+           OR (status IS NULL AND (dealer_type != 'PROSPECTIVE' OR dealer_type IS NULL))
+      `);
+      await dbRun(`
+        UPDATE master_dealers
+        SET status = 'INACTIVE'
+        WHERE UPPER(TRIM(status)) IN ('INACTIVE', 'INACTIVE IN SAP', 'IN-ACTIVE')
+      `);
+      console.log('[Migration] ✓ Normalized dealer status values to canonical ACTIVE/INACTIVE');
+    }
   } catch (err) {
     console.warn('[Migration] Warning during status normalization:', err.message);
   }
 
   try {
     // Migration 5: Heal missing ASM on prospective dealers in master_dealers and master_dealer_so_mapping
+    const needProspectASM = await dbGet(`
+      SELECT 1 FROM master_dealers 
+      WHERE dealer_type = 'PROSPECTIVE' AND (asm_name IS NULL OR asm_name = '' OR asm_name = '-')
+      LIMIT 1
+    `);
+
+    if (needProspectASM) {
     // 5a. Match ASM from other dealers with same so_emp_code or so_name
     await dbRun(`
       UPDATE master_dealers p
@@ -204,12 +243,22 @@ async function runStartupMigrations() {
     `);
 
     console.log('[Migration] ✓ Healed missing ASM and upper hierarchy for prospective dealers');
+    }
   } catch (err) {
     console.warn('[Migration] Warning during prospect ASM healing:', err.message);
   }
 
   try {
     // Migration 6: Heal prospect visit frequencies in dealer_visit_targets (ASM visits restored from approved matrix)
+    const needTargetHealing = await dbGet(`
+      SELECT 1 FROM dealer_visit_targets
+      WHERE (dealer_status = 'Prospective' OR cust_type = 'NON STAR' OR sap_code IS NULL)
+        AND (asm_visits = 0 OR asm_visits IS NULL)
+        AND (dealer_status != 'Churn')
+      LIMIT 1
+    `);
+
+    if (needTargetHealing) {
     await dbRun(`
       UPDATE dealer_visit_targets
       SET asm_visits = CASE 
@@ -255,6 +304,7 @@ async function runStartupMigrations() {
     `);
 
     console.log('[Migration] ✓ Healed prospect visit targets and missing employee codes');
+    }
   } catch (err) {
     console.warn('[Migration] Warning during visit target healing:', err.message);
   }
@@ -283,7 +333,7 @@ async function runStartupMigrations() {
   try {
     // Migration 8: Ensure customer coordinates table & columns exist and sync cache
     await runCoordinateMigrations();
-    syncCustomerCoordinatesFromApi({ force: false }).catch(e => console.warn('[CustomerCoords] Startup sync warning:', e.message));
+    dbGet('SELECT COUNT(*) as cnt FROM master_customer_coordinates').then(r => { if (!r || r.cnt === 0) syncCustomerCoordinatesFromApi({ force: false }).catch(e => console.warn('[CustomerCoords] Startup sync warning:', e.message)); });
   } catch (err) {
     console.warn('[Migration] Warning during coordinate initialization:', err.message);
   }
@@ -291,7 +341,7 @@ async function runStartupMigrations() {
   try {
     // Migration 9: Ensure employee_master table exists and sync cache
     await runEmployeeMasterMigration();
-    syncEmployeeMasterFromApi({ force: false }).catch(e => console.warn('[EmployeeMaster] Startup sync warning:', e.message));
+    dbGet('SELECT COUNT(*) as cnt FROM employee_master').then(r => { if (!r || r.cnt === 0) syncEmployeeMasterFromApi({ force: false }).catch(e => console.warn('[EmployeeMaster] Startup sync warning:', e.message)); });
   } catch (err) {
     console.warn('[Migration] Warning during employee master initialization:', err.message);
   }

@@ -16,20 +16,40 @@ function normalizeHeader(h) {
 
 const HEADER_MAP = {
   // Canonical 9-column headers
+  'dealer code': 'sap_code',
   'dealer sap code': 'sap_code',
+  'sap code': 'sap_code',
+  'sap': 'sap_code',
+  'customer code': 'customer_code',
+  'dns customer code': 'sfa_code',
+  'dns_customer_code': 'sfa_code',
+  'dns customer_code': 'sfa_code',
+  'sfa code': 'sfa_code',
+  'sfa_code': 'sfa_code',
   'dealer name': 'dealer_name',
   'account name': 'dealer_name',
-  'branch': 'area',
-  'branch name': 'area',
+  'branch': 'branch',
+  'branch name': 'branch',
   'region': 'region',
+  'zone': 'zone',
   'so name': 'so_name',
+  'so code': 'so_emp_code',
   'so e code': 'so_emp_code',
+  'so emp code': 'so_emp_code',
+  'so/se name': 'so_name',
+  'so/se  name': 'so_name',
+  'so / se name': 'so_name',
   'asm name': 'asm_name',
   'asm code': 'asm_code',
+  'asm': 'asm_name',
+  'rsm name': 'rsm_name',
+  'rsm code': 'rsm_code',
+  'rsm': 'rsm_name',
+  'zonal head': 'zh_name',
+  'zh': 'zh_name',
+  'zh name': 'zh_name',
+  'zh code': 'zh_code',
   'linked dealer code': 'linked_dealer_code',
-
-  // 10-column Territory / Dealer Mapping headers
-  'zone': 'zone',
   'cust type': 'cust_type',
   'customer type': 'cust_type',
   'area': 'area',
@@ -39,23 +59,6 @@ const HEADER_MAP = {
   'block': 'block',
   'block (taluka)': 'block',
   'taluka': 'block',
-  'zonal head': 'zh_name',
-  'zh': 'zh_name',
-  'zh name': 'zh_name',
-  'zh code': 'zh_code',
-  'rsm': 'rsm_name',
-  'rsm name': 'rsm_name',
-  'rsm code': 'rsm_code',
-  'asm': 'asm_name',
-  'so/se name': 'so_name',
-  'so/se  name': 'so_name',
-  'so / se name': 'so_name',
-  'so emp code': 'so_emp_code',
-  'so code': 'so_emp_code',
-  'customer code': 'customer_code',
-  'sap code': 'sap_code',
-  'sap': 'sap_code',
-  'sfa code': 'sfa_code',
   'customer name': 'dealer_name',
   'dlr counter potential': 'counter_potential',
   'counter potential': 'counter_potential',
@@ -73,16 +76,24 @@ const HEADER_MAP = {
  */
 async function upsertEmployee(empCode, empName, designation, region) {
   if (!empCode || !empName) return;
+  const cleanCode = String(empCode).trim();
+  const cleanName = String(empName).trim();
+  if (!cleanCode || !cleanName) return;
+  const upperCode = cleanCode.toUpperCase();
+  const upperName = cleanName.toUpperCase();
+  if (upperCode === 'VACANT' || upperName === 'VACANT' || upperCode === '-' || upperName === '-' || upperCode === 'NA' || upperName === 'NA') {
+    return;
+  }
 
   const existing = await dbGet(
     'SELECT id, designation FROM master_employees WHERE emp_code = ?',
-    [empCode]
+    [cleanCode]
   );
 
   if (!existing) {
     await dbRun(
       'INSERT INTO master_employees (emp_code, emp_name, designation, zone, region) VALUES (?, ?, ?, ?, ?)',
-      [empCode, empName, designation, region || null, region || null]
+      [cleanCode, cleanName, designation, region || null, region || null]
     );
     return;
   }
@@ -93,7 +104,7 @@ async function upsertEmployee(empCode, empName, designation, region) {
          designation = COALESCE(NULLIF(designation, ''), ?),
          region = COALESCE(?, region)
      WHERE id = ?`,
-    [empName, designation, region || null, existing.id]
+    [cleanName, designation, region || null, existing.id]
   );
 }
 
@@ -362,11 +373,16 @@ export async function importDealerMapping(filePath, batchCode = null) {
       // counter_potential is the DM potential (separate from sbg_potential)
       await dbRun(
         `UPDATE master_dealers SET
+          sap_code = COALESCE(?, sap_code),
+          sfa_code = COALESCE(?, sfa_code),
           dm_area = ?,
           dm_sap_code = COALESCE(?, dm_sap_code),
           dm_customer_code = COALESCE(?, dm_customer_code),
           dm_sfa_code = COALESCE(?, dm_sfa_code),
           area = COALESCE(?, area),
+          branch = COALESCE(?, branch),
+          zone = COALESCE(?, zone),
+          region = COALESCE(?, region),
           counter_potential = COALESCE(?, counter_potential),
           doa = COALESCE(?, doa),
           territory_code = COALESCE(?, territory_code),
@@ -381,11 +397,16 @@ export async function importDealerMapping(filePath, batchCode = null) {
           zh_name = COALESCE(?, NULLIF(NULLIF(zh_name, '-'), 'NA'))
          WHERE id = ?`,
         [
+          rawSapCode || null,
+          rawSfaCode || null,
           dmArea || null,
           rawSapCode || null,
           rawCustomerCode || null,
           rawSfaCode || null,
           dmArea || null,
+          branch || null,
+          effectiveZone || null,
+          effectiveZone || null,
           counterPotential,
           doa,
           territoryCode || null,
@@ -411,6 +432,7 @@ export async function importDealerMapping(filePath, batchCode = null) {
           dealer_name = ?,
           area = COALESCE(?, area),
           branch = COALESCE(?, branch),
+          zone = COALESCE(?, zone),
           region = COALESCE(?, region),
           block = COALESCE(?, block),
           so_name = COALESCE(?, so_name),
@@ -429,7 +451,9 @@ export async function importDealerMapping(filePath, batchCode = null) {
           [
             rawSapCode || null, rawDealerName,
             dmArea || null,    // DM area — authoritative
-            branch || null, region || null,
+            branch || null,
+            effectiveZone || null,
+            effectiveZone || null,
             block || null,     // DM block (not sbg_block)
             effectiveSoName, soEmpCode || null, asmName || null, asmCode || null,
             rsmName || null, rsmCode || null, effectiveZhName || null, effectiveZhCode || null,
@@ -441,12 +465,14 @@ export async function importDealerMapping(filePath, batchCode = null) {
       } else {
         await dbRun(
           `INSERT INTO master_dealer_so_mapping 
-          (dealer_id, sap_code, dealer_name, area, branch, region, block, so_name, so_emp_code, asm_name, asm_code, rsm_name, rsm_code, zh_name, zh_code, territory_code, territory_name, linked_dealer_code, batch_code) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (dealer_id, sap_code, dealer_name, area, branch, zone, region, block, so_name, so_emp_code, asm_name, asm_code, rsm_name, rsm_code, zh_name, zh_code, territory_code, territory_name, linked_dealer_code, batch_code) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             internalId, rawSapCode || null, rawDealerName,
             dmArea || null,    // DM area — authoritative
-            branch || null, region || null,
+            branch || null,
+            effectiveZone || null,
+            effectiveZone || null,
             block || null,     // DM block (not sbg_block)
             effectiveSoName, soEmpCode || null, asmName || null, asmCode || null,
             rsmName || null, rsmCode || null, effectiveZhName || null, effectiveZhCode || null,
