@@ -151,12 +151,12 @@ export async function syncCustomerCoordinatesFromApi(options = {}) {
  */
 export async function updateMasterDealersFromCoordinates() {
   try {
+    let affected = 0;
+
+    // 1. Direct indexed match on sfa_code = dns_customer_code
     const res1 = await dbRun(`
       UPDATE master_dealers d
-      JOIN master_customer_coordinates c 
-        ON (d.sfa_code IS NOT NULL AND UPPER(TRIM(d.sfa_code)) = UPPER(TRIM(c.dns_customer_code)))
-        OR (d.sap_code IS NOT NULL AND UPPER(TRIM(d.sap_code)) = UPPER(TRIM(c.dns_customer_code)))
-        OR (d.sap_code IS NOT NULL AND UPPER(TRIM(d.sap_code)) = UPPER(TRIM(c.customer_code)))
+      JOIN master_customer_coordinates c ON d.sfa_code = c.dns_customer_code
       SET
         d.latitude = c.latitude,
         d.longitude = c.longitude,
@@ -173,8 +173,53 @@ export async function updateMasterDealersFromCoordinates() {
         END
       WHERE c.has_coordinates = 1 OR c.customer_name IS NOT NULL
     `);
+    affected += (res1.affectedRows || res1.changes || 0);
 
-    return { affectedRows: res1.affectedRows || res1.changes || 0 };
+    // 2. Direct indexed match on sap_code = customer_code
+    const res2 = await dbRun(`
+      UPDATE master_dealers d
+      JOIN master_customer_coordinates c ON d.sap_code = c.customer_code
+      SET
+        d.latitude = c.latitude,
+        d.longitude = c.longitude,
+        d.route_name = COALESCE(c.route_name, d.route_name),
+        d.has_coordinates = c.has_coordinates,
+        d.dealer_name = CASE 
+          WHEN d.dealer_name IS NULL OR d.dealer_name = '' OR d.dealer_name LIKE 'SBG-%' THEN c.customer_name 
+          ELSE d.dealer_name 
+        END,
+        d.dealer_type = CASE
+          WHEN c.customer_type = 'Sub Dealer' OR c.customer_type LIKE '%Sub%' THEN 'RSAR'
+          WHEN c.customer_type IN ('Dealer', 'Exclusive Dealer') AND (d.dealer_type = 'STAR' OR d.dealer_type IS NULL) THEN 'DEALER'
+          ELSE d.dealer_type
+        END
+      WHERE c.has_coordinates = 1 OR c.customer_name IS NOT NULL
+    `);
+    affected += (res2.affectedRows || res2.changes || 0);
+
+    // 3. Direct indexed match on sap_code = dns_customer_code
+    const res3 = await dbRun(`
+      UPDATE master_dealers d
+      JOIN master_customer_coordinates c ON d.sap_code = c.dns_customer_code
+      SET
+        d.latitude = c.latitude,
+        d.longitude = c.longitude,
+        d.route_name = COALESCE(c.route_name, d.route_name),
+        d.has_coordinates = c.has_coordinates,
+        d.dealer_name = CASE 
+          WHEN d.dealer_name IS NULL OR d.dealer_name = '' OR d.dealer_name LIKE 'SBG-%' THEN c.customer_name 
+          ELSE d.dealer_name 
+        END,
+        d.dealer_type = CASE
+          WHEN c.customer_type = 'Sub Dealer' OR c.customer_type LIKE '%Sub%' THEN 'RSAR'
+          WHEN c.customer_type IN ('Dealer', 'Exclusive Dealer') AND (d.dealer_type = 'STAR' OR d.dealer_type IS NULL) THEN 'DEALER'
+          ELSE d.dealer_type
+        END
+      WHERE c.has_coordinates = 1 OR c.customer_name IS NOT NULL
+    `);
+    affected += (res3.affectedRows || res3.changes || 0);
+
+    return { affectedRows: affected };
   } catch (err) {
     console.warn('[CustomerCoords] Warning updating master_dealers:', err.message);
     return { affectedRows: 0 };
