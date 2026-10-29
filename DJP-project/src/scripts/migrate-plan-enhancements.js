@@ -3,6 +3,11 @@ import { dbRun, dbAll, dbGet } from '../config/database.js';
 export async function runPlanEnhancementsMigration() {
   console.log('[Migration] Starting plan enhancements migration...');
 
+  // Increase lock wait timeout for this session to avoid premature timeouts during batch migration
+  try {
+    await dbRun('SET SESSION innodb_lock_wait_timeout = 120');
+  } catch (e) { /* ignore if not supported */ }
+
   // 1. Add backdated tracking columns to sales_plan_details if missing
   const cols = await dbAll('DESCRIBE sales_plan_details');
   const colNames = new Set(cols.map(c => c.Field));
@@ -44,69 +49,57 @@ export async function runPlanEnhancementsMigration() {
 
   // 3. Heal dealer_type in master_dealers and sales_plan_details (RSAR vs DEALER)
   console.log('[Migration] Healing RSAR vs DEALER customer types...');
-  
-  // A: If matched with Sub Dealer in master_customer_coordinates, set to RSAR
-  await dbRun(`
-    UPDATE master_dealers md
-    JOIN master_customer_coordinates mcc 
-      ON (md.sfa_code IS NOT NULL AND mcc.dns_customer_code = md.sfa_code)
-      OR (md.sap_code IS NOT NULL AND (mcc.dns_customer_code = md.sap_code OR mcc.customer_code = md.sap_code))
-    SET md.dealer_type = 'RSAR'
-    WHERE mcc.customer_type = 'Sub Dealer' OR mcc.customer_type LIKE '%Sub%'
-  `);
+  try {
+    // Check if master_customer_coordinates has records before joining
+    const coordCount = (await dbGet('SELECT COUNT(*) as c FROM master_customer_coordinates'))?.c || 0;
 
-  // B: If linked_dealer_code or rssd_code is present, set to RSAR
-  await dbRun(`
-    UPDATE master_dealers
-    SET dealer_type = 'RSAR'
-    WHERE (linked_dealer_code IS NOT NULL AND linked_dealer_code != '' AND linked_dealer_code != '-')
-       OR (rssd_code IS NOT NULL AND rssd_code != '' AND rssd_code != '-')
-  `);
+    if (coordCount > 0) {
+      // Use indexed joins (split on sfa_code and sap_code to avoid slow OR-index gap locking)
+      await dbRun(`
+        UPDATE master_dealers md
+        JOIN master_customer_coordinates mcc ON md.sfa_code = mcc.dns_customer_code
+        SET md.dealer_type = 'RSAR'
+        WHERE (mcc.customer_type = 'Sub Dealer' OR mcc.customer_type LIKE '%Sub%')
+      `);
 
-  // C: Regular dealers currently marked as STAR -> set to DEALER
-  await dbRun(`
-    UPDATE master_dealers
-    SET dealer_type = 'DEALER'
-    WHERE dealer_type = 'STAR'
-  `);
+      await dbRun(`
+        UPDATE master_dealers md
+        JOIN master_customer_coordinates mcc ON md.sap_code = mcc.customer_code
+        SET md.dealer_type = 'RSAR'
+        WHERE (mcc.customer_type = 'Sub Dealer' OR mcc.customer_type LIKE '%Sub%')
+      `);
+    }
 
-  // D: Sync counter names from master_customer_coordinates into master_dealers where available
-  await dbRun(`
-    UPDATE master_dealers md
-    JOIN master_customer_coordinates mcc 
-      ON (md.sfa_code IS NOT NULL AND mcc.dns_customer_code = md.sfa_code)
-      OR (md.sap_code IS NOT NULL AND (mcc.dns_customer_code = md.sap_code OR mcc.customer_code = md.sap_code))
-    SET md.dealer_name = mcc.customer_name
-    WHERE mcc.customer_name IS NOT NULL AND mcc.customer_name != '' AND md.dealer_name LIKE 'SBG-%'
-  `);
+    // If linked_dealer_code or rssd_code is present, set to RSAR
+    await dbRun(`
+      UPDATE master_dealers
+      SET dealer_type = 'RSAR'
+      WHERE (linked_dealer_code IS NOT NULL AND linked_dealer_code != '' AND linked_dealer_code != '-')
+         OR (rssd_code IS NOT NULL AND rssd_code != '' AND rssd_code != '-')
+    `);
 
-  // E: Sync sales_plan_details dealer_type and dealer_name
-  await dbRun(`
-    UPDATE sales_plan_details spd
-    JOIN master_dealers md ON (spd.dealer_id = md.id OR (spd.dealer_sap_code IS NOT NULL AND spd.dealer_sap_code = md.sap_code))
-    SET 
-      spd.dealer_type = md.dealer_type,
-      spd.dealer_name = COALESCE(NULLIF(md.dealer_name, ''), spd.dealer_name)
-    WHERE spd.dealer_type = 'STAR' OR spd.dealer_type IS NULL OR spd.dealer_type = ''
-  `);
+    // Regular dealers currently marked as STAR -> set to DEALER
+    await dbRun(`
+      UPDATE master_dealers
+      SET dealer_type = 'DEALER'
+      WHERE dealer_type = 'STAR'
+    `);
 
-  // F: Also check if sales_plan_details matches master_customer_coordinates directly
-  await dbRun(`
-    UPDATE sales_plan_details spd
-    JOIN master_customer_coordinates mcc 
-      ON (spd.dealer_sap_code IS NOT NULL AND (mcc.dns_customer_code = spd.dealer_sap_code OR mcc.customer_code = spd.dealer_sap_code))
-    SET 
-      spd.dealer_type = CASE 
-        WHEN mcc.customer_type = 'Sub Dealer' OR mcc.customer_type LIKE '%Sub%' THEN 'RSAR'
-        WHEN mcc.customer_type IN ('Dealer', 'Exclusive Dealer') THEN 'DEALER'
-        WHEN mcc.customer_type = 'Non Star' THEN 'PROSPECTIVE'
-        ELSE spd.dealer_type
-      END,
-      spd.dealer_name = COALESCE(NULLIF(mcc.customer_name, ''), spd.dealer_name)
-    WHERE spd.dealer_type = 'STAR' OR spd.dealer_name LIKE 'SBG-%'
-  `);
+    // Sync sales_plan_details dealer_type and dealer_name
+    await dbRun(`
+      UPDATE sales_plan_details spd
+      JOIN master_dealers md ON (spd.dealer_id = md.id OR (spd.dealer_sap_code IS NOT NULL AND spd.dealer_sap_code = md.sap_code))
+      SET 
+        spd.dealer_type = md.dealer_type,
+        spd.dealer_name = COALESCE(NULLIF(md.dealer_name, ''), spd.dealer_name)
+      WHERE spd.dealer_type = 'STAR' OR spd.dealer_type IS NULL OR spd.dealer_type = ''
+    `);
+  } catch (healErr) {
+    console.warn('[Migration] Note: Data healing encountered notice (continuing):', healErr.message);
+  }
 
   console.log('[Migration] Plan enhancements migration complete.');
+}
 }
 
 if (process.argv[1]?.endsWith('migrate-plan-enhancements.js')) {

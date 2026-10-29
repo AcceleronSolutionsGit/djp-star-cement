@@ -7,6 +7,8 @@
 
 USE star_one_djp;
 
+SET SESSION innodb_lock_wait_timeout = 120;
+
 -- ------------------------------------------------------------------------------
 -- 1. Table: master_customer_coordinates
 -- Stores SFA Customer Base GPS Coordinates & Route Names (API Synced)
@@ -167,20 +169,24 @@ ON DUPLICATE KEY UPDATE
 -- 9. Heal Dealer Types (Eliminate Generic 'STAR' -> DEALER vs RSAR)
 -- ------------------------------------------------------------------------------
 UPDATE master_dealers md
-JOIN master_customer_coordinates mcc 
-  ON (md.sfa_code IS NOT NULL AND UPPER(TRIM(md.sfa_code)) = UPPER(TRIM(mcc.dns_customer_code)))
-  OR (md.sap_code IS NOT NULL AND (UPPER(TRIM(md.sap_code)) = UPPER(TRIM(mcc.dns_customer_code)) OR UPPER(TRIM(md.sap_code)) = UPPER(TRIM(mcc.customer_code))))
+JOIN master_customer_coordinates mcc ON md.sfa_code = mcc.dns_customer_code
 SET md.dealer_type = 'RSAR'
-WHERE (mcc.customer_type = 'Sub Dealer' OR mcc.customer_type LIKE '%Sub%')
-  AND md.dealer_type IN ('STAR', 'DEALER', NULL);
+WHERE (mcc.customer_type = 'Sub Dealer' OR mcc.customer_type LIKE '%Sub%');
 
 UPDATE master_dealers md
-JOIN master_customer_coordinates mcc 
-  ON (md.sfa_code IS NOT NULL AND UPPER(TRIM(md.sfa_code)) = UPPER(TRIM(mcc.dns_customer_code)))
-  OR (md.sap_code IS NOT NULL AND (UPPER(TRIM(md.sap_code)) = UPPER(TRIM(mcc.dns_customer_code)) OR UPPER(TRIM(md.sap_code)) = UPPER(TRIM(mcc.customer_code))))
+JOIN master_customer_coordinates mcc ON md.sap_code = mcc.customer_code
+SET md.dealer_type = 'RSAR'
+WHERE (mcc.customer_type = 'Sub Dealer' OR mcc.customer_type LIKE '%Sub%');
+
+UPDATE master_dealers md
+JOIN master_customer_coordinates mcc ON md.sfa_code = mcc.dns_customer_code
 SET md.dealer_type = 'DEALER'
-WHERE mcc.customer_type IN ('Dealer', 'Exclusive Dealer')
-  AND md.dealer_type = 'STAR';
+WHERE mcc.customer_type IN ('Dealer', 'Exclusive Dealer') AND md.dealer_type = 'STAR';
+
+UPDATE master_dealers md
+JOIN master_customer_coordinates mcc ON md.sap_code = mcc.customer_code
+SET md.dealer_type = 'DEALER'
+WHERE mcc.customer_type IN ('Dealer', 'Exclusive Dealer') AND md.dealer_type = 'STAR';
 
 UPDATE master_dealers
 SET dealer_type = 'DEALER'
@@ -190,3 +196,4 @@ UPDATE sales_plan_details spd
 JOIN master_dealers md ON (spd.dealer_id = md.id OR spd.dealer_sap_code = md.sap_code)
 SET spd.dealer_type = md.dealer_type
 WHERE spd.dealer_type = 'STAR' OR spd.dealer_type IS NULL;
+

@@ -24,6 +24,11 @@ async function runAllMigrations() {
   console.log('====================================================\n');
 
   try {
+    // Increase session lock wait timeout for migration batch
+    try {
+      await pool.query('SET SESSION innodb_lock_wait_timeout = 120');
+    } catch (e) { /* ignore */ }
+
     // 1. Customer Coordinates Schema & Columns
     console.log('[Step 1/6] Running Customer Coordinates Schema Migrations...');
     await runCoordinateMigrations();
@@ -64,3 +69,4 @@ async function runAllMigrations() {
 }
 
 runAllMigrations();
+
