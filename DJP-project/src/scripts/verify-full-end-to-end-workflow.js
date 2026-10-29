@@ -82,8 +82,8 @@ async function runEndToEndVerification() {
   // STEP 1: Database & Health Check
   // ==============================================================
   console.log('--- Step 1: Database Connectivity & Core Table Verification ---');
-  const [dbRow] = await pool.query('SELECT DATABASE() as db, VERSION() as ver');
-  assert(dbRow && dbRow[0].db === 'star_one_djp', 'Connected to star_one_djp MySQL database');
+  const dbRow = await dbGet('SELECT DATABASE() as db, VERSION() as ver');
+  assert(dbRow && dbRow.db === 'star_one_djp', 'Connected to star_one_djp MySQL database');
   
   const tables = await dbAll(`
     SELECT table_name 
