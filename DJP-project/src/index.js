@@ -371,29 +371,28 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Run startup migrations then start server
-runStartupMigrations().then(() => {
-  startSfaSyncCron();
-  const server = app.listen(PORT, () => {
-    console.log(`====================================================`);
-    console.log(`Star Cement PJP / DJP Engine Server running on port ${PORT}`);
-    if (basePath) console.log(`Base Path:       ${basePath}`);
-    console.log(`Admin Panel UI: http://localhost:${PORT}${basePath}/`);
-    console.log(`Health check:    http://localhost:${PORT}${basePath}/health`);
-    console.log(`====================================================`);
-  });
+// Start server FIRST so Nginx never gets a 502, then run migrations in background
+const server = app.listen(PORT, () => {
+  console.log(`====================================================`);
+  console.log(`Star Cement PJP / DJP Engine Server running on port ${PORT}`);
+  if (basePath) console.log(`Base Path:       ${basePath}`);
+  console.log(`Admin Panel UI: http://localhost:${PORT}${basePath}/`);
+  console.log(`Health check:    http://localhost:${PORT}${basePath}/health`);
+  console.log(`====================================================`);
 
-  // A full C1 + C2 generation over the whole dealer population is a long request.
-  // Node's defaults (requestTimeout 300s, headersTimeout 60s) destroy the socket
-  // mid-run, which reaches the browser as a dead connection — res.json() then throws
-  // "... is not valid JSON" even though the server is still working and eventually
-  // finishes. Give long-running generation room, and disable the idle keep-alive
-  // timeout so a slow reply is not cut off.
-  server.requestTimeout = 30 * 60 * 1000;   // 30 min
-  server.headersTimeout = 31 * 60 * 1000;   // must exceed requestTimeout
-  server.keepAliveTimeout = 5 * 60 * 1000;
-  server.setTimeout(0);
-}).catch(err => {
-  console.error('Fatal startup error:', err);
-  process.exit(1);
+  // Run idempotent migrations in the background after server is already listening
+  runStartupMigrations().then(() => {
+    startSfaSyncCron();
+    console.log('[Startup] All background migrations and cron jobs initialized.');
+  }).catch(err => {
+    console.error('[Startup] Migration error (server still running):', err);
+  });
 });
+
+// A full C1 + C2 generation over the whole dealer population is a long request.
+// Node's defaults (requestTimeout 300s, headersTimeout 60s) destroy the socket
+// mid-run, which reaches the browser as a dead connection
+server.requestTimeout = 30 * 60 * 1000;   // 30 min
+server.headersTimeout = 31 * 60 * 1000;   // must exceed requestTimeout
+server.keepAliveTimeout = 5 * 60 * 1000;
+server.setTimeout(0);
