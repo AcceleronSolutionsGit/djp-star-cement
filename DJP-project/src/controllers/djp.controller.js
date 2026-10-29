@@ -4,6 +4,7 @@ import { generateDealerTrace } from '../engines/pjp/pjp-validator.engine.js';
 import { reconcileUniverse } from '../engines/pjp/reconciliation.service.js';
 import { checkAllExcelInputsAvailable, getLatestAvailableSalesPeriod } from '../engines/pjp/data-loader.engine.js';
 import { AutoPlanGenerator } from '../engines/autoPlanGenerator.js';
+import { resolveZonalHeadSync } from '../services/zonalHead.service.js';
 import { dbAll, dbGet, dbRun } from '../config/database.js';
 import XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
@@ -477,7 +478,9 @@ export async function exportPjpTradeExcel(req, res) {
         'Cust Type': custType,
         'Area': area,
         'Block': block,
-        'ZONAL HEAD': t.zh_name || '-',
+        'ZONAL HEAD': (t.zh_name && t.zh_name !== '-' && !t.zh_name.startsWith('Zonal Head')) 
+          ? t.zh_name 
+          : (resolveZonalHeadSync({ zone: t.zone, region: t.region, area: area, branch: t.branch })?.zh_name || '-'),
         'RSM': t.rsm_name || '-',
         'ASM': t.asm_name || '-',
         'SO/SE NAME': t.so_name || '-',
@@ -1046,7 +1049,9 @@ export async function exportVisitsExcel(req, res) {
         custType,
         t.dm_area || t.area || '',
         t.sbg_block || t.block || '',
-        t.zh_name || '',
+        ((t.zh_name && t.zh_name !== '-' && !t.zh_name.startsWith('Zonal Head'))
+          ? t.zh_name
+          : (resolveZonalHeadSync({ zone: t.zone, region: t.region, area: t.dm_area || t.area, branch: t.branch })?.zh_name || '')),
         t.rsm_name || '',
         t.asm_name || '',
         t.so_name || '',

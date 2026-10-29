@@ -21,6 +21,8 @@
  * In M.xlsx, with B2 = Jun-26, these read May'26 Sales / May'25 (Sales) / Apr'26 Sales.
  */
 
+import { resolveZonalHeadSync } from './zonalHead.service.js';
+
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** 'YYYY-MM' → { y, m } with m 1-based. */
@@ -216,12 +218,26 @@ export function buildRow(t, index, soAsmMap = null) {
     ? Number(t.counter_share)
     : (hasPotential ? currentSales / potential : 0);
 
+  // Resolve Zonal Head if missing on row
+  let zhName = s(t.zh_name);
+  let zoneName = s(t.zone);
+  if (!zhName || zhName === '-' || zhName.startsWith('Zonal Head')) {
+    const resolvedZh = resolveZonalHeadSync({
+      zone: zoneName,
+      region: s(t.region),
+      area: s(t.dm_area || t.area),
+      branch: s(t.branch)
+    });
+    zhName = resolvedZh?.zh_name || '';
+    if (!zoneName || zoneName === '-') zoneName = resolvedZh.zone;
+  }
+
   return {
     id:              t.id,
     cust_type:       custType(t),
     sl_no:           index + 1,
-    zone:            s(t.zone),
-    zh_name:         s(t.zh_name),
+    zone:            zoneName,
+    zh_name:         zhName,
     rsm_name:        s(t.rsm_name),
     asm_name:        asmName,
     area:            s(t.dm_area || t.area),

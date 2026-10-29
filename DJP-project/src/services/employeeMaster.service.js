@@ -1,4 +1,5 @@
 import { dbRun, dbAll, dbGet } from '../config/database.js';
+import { refreshDynamicZonalHeadCache, healAllMissingZonalHeads } from './zonalHead.service.js';
 
 const SFA_EMPLOYEE_MASTER_URL = process.env.SFA_EMPLOYEE_MASTER_URL || 'http://52.66.31.108/star-one-sfa/misreport/api_employee_master.php';
 
@@ -170,6 +171,14 @@ export async function syncEmployeeMasterFromApi(options = {}) {
 
     // Reconcile and enrich master_employees from employee_master
     const enrichedRes = await syncMasterEmployeesFromEmployeeMaster();
+
+    // Dynamically update zonal heads and heal across all tables
+    try {
+      await refreshDynamicZonalHeadCache(true);
+      await healAllMissingZonalHeads();
+    } catch (zhErr) {
+      console.warn('[EmployeeMaster] Warning during dynamic ZH refresh:', zhErr.message);
+    }
 
     const durationSeconds = ((Date.now() - startTime) / 1000).toFixed(1);
 

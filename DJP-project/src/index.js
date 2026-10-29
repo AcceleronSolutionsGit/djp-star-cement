@@ -11,7 +11,7 @@ import { syncCustomerCoordinatesFromApi } from './services/customerCoordinates.s
 import { runEmployeeMasterMigration } from './scripts/migrate-employee-master.js';
 import { syncEmployeeMasterFromApi } from './services/employeeMaster.service.js';
 import { runZonalHeadMigration } from './scripts/migrate-zonal-heads.js';
-import { healAllMissingZonalHeads } from './services/zonalHead.service.js';
+import { healAllMissingZonalHeads, refreshDynamicZonalHeadCache } from './services/zonalHead.service.js';
 import { runPlanEnhancementsMigration } from './scripts/migrate-plan-enhancements.js';
 
 dotenv.config();
@@ -349,6 +349,7 @@ async function runStartupMigrations() {
   try {
     // Migration 10: Ensure master_zone_zh_mapping exists and heal missing Zonal Heads
     await runZonalHeadMigration();
+    await refreshDynamicZonalHeadCache(true);
     healAllMissingZonalHeads().catch(e => console.warn("[ZonalHeadService] Startup healing warning:", e.message));
   } catch (err) {
     console.warn("[Migration] Warning during zonal head initialization:", err.message);

@@ -2,6 +2,7 @@ import XLSX from 'xlsx';
 import { dbRun, dbGet, dbAll } from '../config/database.js';
 import { normalizeCode, normalizeString, parseDOA } from '../engines/normalization.engine.js';
 import { fixSheetRef } from './sales-history.importer.js';
+import { resolveZonalHeadSync } from '../services/zonalHead.service.js';
 import path from 'path';
 import crypto from 'crypto';
 
@@ -386,8 +387,8 @@ export async function importSBG(filePath, batchCode = null) {
           asm_name: asmName || null,
           rsm_code: rsmCode || null,
           rsm_name: rsmName || null,
-          zh_code: zhCode || null,
-          zh_name: zhName || null,
+          zh_code: (()=>{ const r = resolveZonalHeadSync({ zone, region: zone, area: effectiveArea, branch: territoryName || sbgBlock }); return zhCode || r?.zh_code || null; })(),
+          zh_name: (()=>{ const r = resolveZonalHeadSync({ zone, region: zone, area: effectiveArea, branch: territoryName || sbgBlock }); return zhName || r?.zh_name || null; })(),
           doa: doa || null,
           batch_code: batchCode
         };

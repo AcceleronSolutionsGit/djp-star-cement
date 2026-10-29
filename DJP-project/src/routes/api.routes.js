@@ -53,7 +53,9 @@ import {
 import {
   listZonalHeads,
   resolveZonalHeadEndpoint,
-  healZonalHeadsEndpoint
+  healZonalHeadsEndpoint,
+  updateZonalHeadMapping,
+  syncZonalHeadsFromSfa
 } from '../controllers/zonalHead.controller.js';
 import {
   listEmployeesMaster,
@@ -395,6 +397,8 @@ router.get   ('/app/plans/:planId/route-map',                      getPlanRouteM
 router.get   ('/hierarchy/zonal-heads',                            listZonalHeads);
 router.get   ('/hierarchy/zonal-heads/resolve',                    resolveZonalHeadEndpoint);
 router.post  ('/hierarchy/zonal-heads/heal',                       healZonalHeadsEndpoint);
+router.put   ('/hierarchy/zonal-heads/:zoneCode',                  updateZonalHeadMapping);
+router.post  ('/hierarchy/zonal-heads/sync-from-sfa',              syncZonalHeadsFromSfa);
 router.get   ('/employees/master',                                 listEmployeesMaster);
 router.get   ('/employees/master/:empCode',                        getEmployeeMasterDetail);
 router.post  ('/sync/employee-master',                             syncEmployeeMasterEndpoint);

@@ -3,7 +3,7 @@ import { dbRun, dbAll, dbGet } from '../config/database.js';
 /**
  * Canonical zone normalization dictionary.
  */
-const ZONE_CANONICAL_ALIASES = {
+export const ZONE_CANONICAL_ALIASES = {
   'NE1': 'NE1',
   'NE-1': 'NE1',
   'NE 1': 'NE1',
@@ -81,6 +81,18 @@ export const BRANCH_ZONE_MAP = {
   'SANTIRBAZAR': 'NE2',
   'KHOWAI': 'NE2',
   'MOHANPUR': 'NE2',
+  'DUKLI': 'NE2',
+  'BAMUTIA': 'NE2',
+  'AMC (SADAR)': 'NE2',
+  'AMC': 'NE2',
+  'SADAR': 'NE2',
+  'MELAGHAR': 'NE2',
+  'SONAMURA': 'NE2',
+  'KAMALPUR': 'NE2',
+  'MANU': 'NE2',
+  'PANISAGAR': 'NE2',
+  'KANCHANPUR': 'NE2',
+  'KUMARGHAT': 'NE2',
 
   // --- Zone NE1 (Upper & Lower Assam, Meghalaya, Arunachal, Nagaland, Manipur) -> TARAK NATH GHOSH ---
   'AP - BANDERDEWA': 'NE1',
@@ -163,6 +175,9 @@ export const BRANCH_ZONE_MAP = {
   'KALIMPONG': 'NB1',
   'SIKKIM': 'NB1',
   'GANGTOK': 'NB1',
+  'MANGAN': 'NB1',
+  'KHARIBARI': 'NB1',
+  'PHANSIDEWA': 'NB1',
 
   // --- Zone NB2 (North Bengal 2 - Malda, Dinajpur) -> DIBYAJYOTI GUHA ---
   'MALDA': 'NB2',
@@ -172,6 +187,11 @@ export const BRANCH_ZONE_MAP = {
   'RAIGANJ': 'NB2',
   'ISLAMPUR': 'NB2',
   'CHANCHAL': 'NB2',
+  'CHANCHAL-I': 'NB2',
+  'CHANCHAL-II': 'NB2',
+  'GAZOLE': 'NB2',
+  'HARISCHANDRAPUR': 'NB2',
+  'SAMSI': 'NB2',
 
   // --- Zone BIHAR (Patna, Muzaffarpur, Bhagalpur, Purnia) -> RAJESH SRIVASTAVA ---
   'PATNA': 'BIHAR',
@@ -199,6 +219,31 @@ export const BRANCH_ZONE_MAP = {
   'BH2': 'BIHAR',
   'BH-1': 'BIHAR',
   'BH-2': 'BIHAR',
+  'KAHALGAON': 'BIHAR',
+  'PRANPUR': 'BIHAR',
+  'SAHEBPUR KAMAL': 'BIHAR',
+  'SHAHKUND': 'BIHAR',
+  'PURNIA EAST': 'BIHAR',
+  'KOCHADHAMAN': 'BIHAR',
+  'AMDABAD': 'BIHAR',
+  'AMARPUR': 'BIHAR',
+  'BAHADURGANJ': 'BIHAR',
+  'KASBA': 'BIHAR',
+  'NARPATGANJ': 'BIHAR',
+  'PATNA SADAR': 'BIHAR',
+  'DIDARGANJ': 'BIHAR',
+  'PATNA SADAR - DIDARGANJ': 'BIHAR',
+  'TANKUPPA': 'BIHAR',
+  'MANPUR': 'BIHAR',
+  'MAKHDUMPUR': 'BIHAR',
+  'JEHANABAD': 'BIHAR',
+  'FATEHPUR': 'BIHAR',
+  'IMAMGANJ': 'BIHAR',
+  'MANER': 'BIHAR',
+  'BIHTA': 'BIHAR',
+  'KURHANI': 'BIHAR',
+  'RUNNISAIDPUR': 'BIHAR',
+  'MUSHAHARI': 'BIHAR',
 
   // --- Zone SOUTH BENGAL -> ATANU BANERJEE ---
   'KOLKATA': 'SOUTH BENGAL',
@@ -328,6 +373,151 @@ export async function findZoneByArea(area, state = '') {
 }
 
 /**
+ * Dynamic In-Memory Cache for Zonal Head mappings.
+ * Automatically populated from master_zone_zh_mapping and employee_master database tables.
+ * Refreshes periodically or on-demand when mappings are updated.
+ */
+let dynamicZhMap = new Map();
+let lastCacheTime = 0;
+const CACHE_TTL_MS = 60 * 1000; // 1 minute auto-refresh or on demand
+
+/**
+ * Refresh the dynamic in-memory Zonal Head cache from master_zone_zh_mapping and employee_master.
+ * No hardcoded person names — entirely driven by database records.
+ *
+ * @param {boolean} [force=false]
+ * @returns {Promise<Map<string, Object>>}
+ */
+export async function refreshDynamicZonalHeadCache(force = false) {
+  if (!force && dynamicZhMap.size > 0 && (Date.now() - lastCacheTime < CACHE_TTL_MS)) {
+    return dynamicZhMap;
+  }
+
+  try {
+    const rows = await dbAll('SELECT zone_code, zone_name, zh_name, zh_code, emp_code, designation, level, state, area_keywords FROM master_zone_zh_mapping');
+    const newMap = new Map();
+    for (const r of rows) {
+      if (r.zone_code && r.zh_name) {
+        newMap.set(r.zone_code.trim().toUpperCase(), {
+          zone: r.zone_code,
+          zh_name: r.zh_name,
+          zh_code: r.zh_code,
+          emp_code: r.emp_code,
+          designation: r.designation,
+          level: r.level
+        });
+      }
+    }
+
+    // Enrich from employee_master for any zones or aliases not in master_zone_zh_mapping
+    const emRows = await dbAll(`
+      SELECT emp_code, dns_emp_code, emp_name, designation, level, zone, state
+      FROM employee_master
+      WHERE designation NOT IN ('MIS', 'ACCOUNTS', 'Branding verification', 'PROJECT LOTUS ADMIN', 'SFA TEAM')
+        AND emp_name NOT LIKE '%TEST%'
+        AND (
+          designation LIKE '%ZH%' OR designation LIKE '%ZONAL%' OR designation LIKE '%HEAD%'
+          OR designation IN ('General Manager', 'GM', 'GENERAL MANAGER', 'SR. GM', 'SR General Manager', 'Senior General Manager', 'AVP', 'VP')
+          OR level IN ('L5', 'L6', 'L7')
+        )
+      ORDER BY 
+        CASE WHEN acedns = 'Y' THEN 0 ELSE 1 END,
+        CASE 
+          WHEN designation LIKE '%ZH%' OR designation LIKE '%ZONAL HEAD%' THEN 1
+          WHEN designation IN ('General Manager', 'GM', 'GENERAL MANAGER') THEN 2
+          ELSE 3
+        END
+    `).catch(() => []);
+
+    for (const em of emRows) {
+      const zNorm = normalizeZone(em.zone || em.state);
+      if (zNorm && !newMap.has(zNorm)) {
+        newMap.set(zNorm, {
+          zone: zNorm,
+          zh_name: em.emp_name,
+          zh_code: em.dns_emp_code || em.emp_code,
+          emp_code: em.emp_code,
+          designation: em.designation,
+          level: em.level
+        });
+      }
+    }
+
+    if (newMap.size > 0) {
+      dynamicZhMap = newMap;
+      lastCacheTime = Date.now();
+    }
+  } catch (err) {
+    // Non-fatal if DB is initializing
+  }
+
+  return dynamicZhMap;
+}
+
+/**
+ * Synchronous resolver for Zonal Head — guarantees an immediate, dynamic answer
+ * using the database-driven dynamicZhMap cache.
+ * Completely dynamic: no hardcoded person names.
+ *
+ * @param {Object} params
+ * @param {string} [params.zone]
+ * @param {string} [params.region]
+ * @param {string} [params.area]
+ * @param {string} [params.dmArea]
+ * @param {string} [params.branch]
+ * @param {string} [params.state]
+ * @returns {{ zone: string, zh_name: string|null, zh_code: string|null, emp_code: string|null, designation: string|null, level: string|null, resolvedBy: string }}
+ */
+export function resolveZonalHeadSync({ zone, region, area, dmArea, branch, state } = {}) {
+  let resolvedZone = normalizeZone(zone || region);
+  let resolvedBy = 'NONE';
+
+  if (resolvedZone && dynamicZhMap.has(resolvedZone)) {
+    resolvedBy = 'EXPLICIT_ZONE';
+  } else {
+    // Check branch, dmArea, area against BRANCH_ZONE_MAP
+    const candidates = [branch, dmArea, area].filter(Boolean);
+    for (const c of candidates) {
+      const clean = String(c).trim().toUpperCase();
+      if (BRANCH_ZONE_MAP[clean]) {
+        resolvedZone = BRANCH_ZONE_MAP[clean];
+        resolvedBy = 'INFERRED_FROM_BRANCH_AREA';
+        break;
+      }
+      for (const [k, z] of Object.entries(BRANCH_ZONE_MAP)) {
+        if (clean === k || clean.includes(k) || k.includes(clean)) {
+          resolvedZone = z;
+          resolvedBy = 'PARTIAL_MATCH_BRANCH_AREA';
+          break;
+        }
+      }
+      if (resolvedZone) break;
+    }
+  }
+
+  // Fallback to NE1 (corporate HQ default zone) if still unresolved
+  if (!resolvedZone) {
+    resolvedZone = 'NE1';
+    resolvedBy = 'DEFAULT_FALLBACK';
+  }
+
+  const zh = dynamicZhMap.get(resolvedZone) || 
+             dynamicZhMap.get('NE1') || 
+             (dynamicZhMap.size > 0 ? dynamicZhMap.values().next().value : null) || 
+             { zone: resolvedZone, zh_name: null, zh_code: null, emp_code: null, designation: null, level: null };
+
+  return {
+    zone: resolvedZone,
+    zh_name: zh.zh_name || null,
+    zh_code: zh.zh_code || null,
+    emp_code: zh.emp_code || null,
+    designation: zh.designation || null,
+    level: zh.level || null,
+    resolvedBy
+  };
+}
+
+/**
  * Resolve Zonal Head (ZH) for a given set of geographic attributes.
  * Looks up in master_zone_zh_mapping first, then falls back to dynamic query on employee_master.
  *
@@ -435,6 +625,7 @@ export async function resolveZonalHead({ zone, region, area, dmArea, state, bran
 
 /**
  * Heal / backfill missing Zonal Heads across master_dealers, master_dealer_so_mapping, and dealer_visit_targets.
+ * Ensures zero dealers, mappings, or targets ever have a blank Zonal Head.
  *
  * @returns {Promise<{ dealersHealed: number, mappingsHealed: number, targetsHealed: number }>}
  */
@@ -444,12 +635,15 @@ export async function healAllMissingZonalHeads() {
   try {
     const unhealed = await dbGet(`
       SELECT 
-        (SELECT COUNT(*) FROM master_dealers WHERE zh_name IS NULL OR zh_name = '' OR zh_name = '-' OR zh_name LIKE 'Zonal Head%' OR zh_code = 'ZH001') as dealers,
-        (SELECT COUNT(*) FROM master_dealer_so_mapping WHERE zh_name IS NULL OR zh_name = '' OR zh_name = '-' OR zh_name LIKE 'Zonal Head%' OR zh_code = 'ZH001') as mappings
+        (SELECT COUNT(*) FROM master_dealers WHERE zh_name IS NULL OR zh_name = '' OR zh_name = '-' OR zh_name LIKE 'Zonal Head%' OR zh_code = 'ZH001' OR zone IS NULL OR zone = '' OR (UPPER(TRIM(branch)) IN ('AGARTALA', 'SILCHAR', 'TRIPURA') AND zone = 'NE1')) as dealers,
+        (SELECT COUNT(*) FROM master_dealer_so_mapping WHERE zh_name IS NULL OR zh_name = '' OR zh_name = '-' OR zh_name LIKE 'Zonal Head%' OR zh_code = 'ZH001' OR zone IS NULL OR zone = '' OR (UPPER(TRIM(branch)) IN ('AGARTALA', 'SILCHAR', 'TRIPURA') AND zone = 'NE1')) as mappings,
+        (SELECT COUNT(*) FROM dealer_visit_targets WHERE zh_name IS NULL OR zh_name = '' OR zh_name = '-' OR zh_name LIKE 'Zonal Head%' OR zh_code = 'ZH001' OR zone IS NULL OR zone = '' OR (UPPER(TRIM(branch)) IN ('AGARTALA', 'SILCHAR', 'TRIPURA') AND zone = 'NE1')) as targets
     `);
 
-    if ((!unhealed?.dealers || unhealed.dealers === 0) && (!unhealed?.mappings || unhealed.mappings === 0)) {
-      console.log('[ZonalHeadService] ✓ All dealers and mappings already have canonical Zonal Heads.');
+    if ((!unhealed?.dealers || unhealed.dealers === 0) &&
+        (!unhealed?.mappings || unhealed.mappings === 0) &&
+        (!unhealed?.targets || unhealed.targets === 0)) {
+      console.log('[ZonalHeadService] ✓ All dealers, mappings, and targets already have canonical Zonal Heads.');
       return { dealersHealed: 0, mappingsHealed: 0, targetsHealed: 0 };
     }
   } catch (checkErr) {
@@ -458,57 +652,60 @@ export async function healAllMissingZonalHeads() {
 
   console.log('[ZonalHeadService] Healing missing Zonal Heads across all tables...');
 
-  // 1. Populate zone on master_dealers from branch, area, region, or dm_area
+  // 1. Populate/Normalize zone on master_dealers
   await dbRun(`
     UPDATE master_dealers
     SET zone = CASE
-      -- Explicit known zones
-      WHEN UPPER(TRIM(region)) LIKE '%NE2%' OR UPPER(TRIM(region)) LIKE '%NE-2%' THEN 'NE2'
-      WHEN UPPER(TRIM(region)) LIKE '%NE1%' OR UPPER(TRIM(region)) LIKE '%NE-1%' THEN 'NE1'
-      WHEN UPPER(TRIM(region)) LIKE '%NB2%' OR UPPER(TRIM(region)) LIKE '%NB-2%' THEN 'NB2'
-      WHEN UPPER(TRIM(region)) LIKE '%NB1%' OR UPPER(TRIM(region)) LIKE '%NB-1%' OR UPPER(TRIM(region)) LIKE '%NORTH BENGAL%' THEN 'NB1'
-      WHEN UPPER(TRIM(region)) LIKE '%SOUTH BENGAL%' OR UPPER(TRIM(region)) = 'SB' THEN 'SOUTH BENGAL'
-      WHEN UPPER(TRIM(region)) LIKE '%BIHAR%' OR UPPER(TRIM(region)) LIKE '%BH-%' THEN 'BIHAR'
+      -- Direct Aliases & Zone Normalization
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('BH', 'BH1', 'BH2', 'BH-1', 'BH-2', 'PATNA', 'BIHAR') THEN 'BIHAR'
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('NE1', 'NE 1', 'NE-1', 'ZONE NE1', 'ASSAM') THEN 'NE1'
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('NE2', 'NE 2', 'NE-2', 'ZONE NE2', 'TRIPURA', 'SILCHAR') THEN 'NE2'
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('NB1', 'NB 1', 'NB-1', 'NORTH BENGAL', 'NORTH BENGAL 1', 'SILIGURI') THEN 'NB1'
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('NB2', 'NB 2', 'NB-2', 'NORTH BENGAL 2', 'MALDA') THEN 'NB2'
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('SOUTH BENGAL', 'SB', 'WB', 'WEST BENGAL', 'KOLKATA') THEN 'SOUTH BENGAL'
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('NT', 'NON TRADE', 'NON-TRADE') THEN 'NT'
+
+      -- Region normalization
+      WHEN UPPER(TRIM(COALESCE(region, ''))) IN ('BH', 'BH1', 'BH2', 'BH-1', 'BH-2', 'BIHAR') THEN 'BIHAR'
+      WHEN UPPER(TRIM(COALESCE(region, ''))) LIKE '%NE2%' OR UPPER(TRIM(COALESCE(region, ''))) LIKE '%NE-2%' THEN 'NE2'
+      WHEN UPPER(TRIM(COALESCE(region, ''))) LIKE '%NE1%' OR UPPER(TRIM(COALESCE(region, ''))) LIKE '%NE-1%' THEN 'NE1'
+      WHEN UPPER(TRIM(COALESCE(region, ''))) LIKE '%NB2%' OR UPPER(TRIM(COALESCE(region, ''))) LIKE '%NB-2%' THEN 'NB2'
+      WHEN UPPER(TRIM(COALESCE(region, ''))) LIKE '%NB1%' OR UPPER(TRIM(COALESCE(region, ''))) LIKE '%NB-1%' OR UPPER(TRIM(COALESCE(region, ''))) LIKE '%NORTH BENGAL%' THEN 'NB1'
+      WHEN UPPER(TRIM(COALESCE(region, ''))) LIKE '%SOUTH BENGAL%' OR UPPER(TRIM(COALESCE(region, ''))) IN ('SB', 'WB') THEN 'SOUTH BENGAL'
+      WHEN UPPER(TRIM(COALESCE(region, ''))) LIKE '%BIHAR%' THEN 'BIHAR'
 
       -- NE2 Branches / Areas (Tripura, Mizoram, Barak Valley)
       WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN (
         'AGARTALA', 'UDAIPUR', 'DHARMANAGAR', 'MIZORAM', 'SILCHAR - CACHAR', 
         'SILCHAR - HAILAKANDI', 'SILCHAR - KARIMGANJ', 'SILCHAR', 'CACHAR', 
         'HAILAKANDI', 'KARIMGANJ', 'TRIPURA', 'AIZAWL', 'KAILASHAHAR', 
-        'BELONIA', 'AMBASSA', 'TELIAMURA', 'BISHALGARH', 'SANTIRBAZAR', 'KHOWAI', 'MOHANPUR'
+        'BELONIA', 'AMBASSA', 'TELIAMURA', 'BISHALGARH', 'SANTIRBAZAR', 'KHOWAI', 'MOHANPUR',
+        'DUKLI', 'BAMUTIA', 'AMC (SADAR)', 'AMC', 'SADAR', 'MELAGHAR', 'SONAMURA', 'KAMALPUR',
+        'MANU', 'PANISAGAR', 'KANCHANPUR', 'KUMARGHAT'
       ) THEN 'NE2'
 
-      -- NE1 Branches / Areas (Assam, Meghalaya, Arunachal, Nagaland, Manipur)
-      WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN (
-        'AP - BANDERDEWA', 'AP - BHALUKPONG', 'AP - LIKABALI', 'AP - TINSUKIA',
-        'ARUNACHAL', 'ARUNACHAL PRADESH', 'ITANAGAR', 'NAHARLAGUN', 'PASIGHAT', 'ALONG', 'KHONSA', 'ZIRO',
-        'BISWANATH', 'DARANG', 'DARRANG', 'MANGALDOI', 'DHEMAJI', 'DIBRUGARH', 'GOLAGHAT',
-        'GUWAHATI', 'GUWAHATI RURAL', 'GUWAHATI URBAN', 'HOJAI', 'JAINTIA HILLS', 'JORHAT',
-        'KARBI ANGLONG', 'DIPHU', 'LAKHIMPUR', 'NORTH LAKHIMPUR',
-        'LOWER ASSAM 1', 'LOWER ASSAM 2', 'LOWER ASSAM 3', 'LOWER ASSAM',
-        'BONGAIGAON', 'BARPETA', 'NALBARI', 'KOKRAJHAR', 'DHUBRI', 'GOALPARA', 'BAKSA', 'CHIRANG',
-        'MANIPUR', 'IMPHAL', 'MORIGAON', 'N C HILLS', 'NORTH CACHAR HILLS', 'DIMA HASAO', 'HAFLONG',
-        'NAGALAND', 'KOHIMA', 'DIMAPUR', 'NAGAON', 'SHILLONG', 'MEGHALAYA', 'SIBSAGAR', 'SIVASAGAR',
-        'TEZPUR', 'SONITPUR', 'TINSUKIA', 'DOOMDOOMA', 'DIGBOI', 'TURA HILLS', 'TURA PLAIN', 'TURA',
-        'WEST GARO HILLS', 'EAST GARO HILLS'
-      ) THEN 'NE1'
-
-      -- NB1 Branches / Areas (North Bengal 1 - Siliguri, Jalpaiguri, Coochbehar, Sikkim)
+      -- NB1 Branches / Areas (Siliguri, Jalpaiguri, Sikkim)
       WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN (
         'SILIGURI', 'JALPAIGURI', 'COOCHBEHAR', 'COOCH BEHAR', 'ALIPURDUAR',
-        'DARJEELING HILLS', 'DARJEELING PLAINS', 'DARJEELING', 'KURSEONG', 'KALIMPONG', 'SIKKIM', 'GANGTOK'
+        'DARJEELING HILLS', 'DARJEELING PLAINS', 'DARJEELING', 'KURSEONG', 'KALIMPONG', 'SIKKIM', 'GANGTOK',
+        'MANGAN', 'KHARIBARI', 'PHANSIDEWA'
       ) THEN 'NB1'
 
-      -- NB2 Branches / Areas (North Bengal 2 - Malda, Dinajpur)
+      -- NB2 Branches / Areas (Malda, Dinajpur)
       WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN (
-        'MALDA', 'DAKSHIN DINAJPUR', 'UTTAR DINAJPUR', 'BALURGHAT', 'RAIGANJ', 'ISLAMPUR', 'CHANCHAL'
+        'MALDA', 'DAKSHIN DINAJPUR', 'UTTAR DINAJPUR', 'BALURGHAT', 'RAIGANJ', 'ISLAMPUR', 'CHANCHAL',
+        'CHANCHAL-I', 'CHANCHAL-II', 'GAZOLE', 'HARISCHANDRAPUR', 'SAMSI'
       ) THEN 'NB2'
 
       -- BIHAR Branches / Areas
       WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN (
         'PATNA', 'MUZAFFARPUR', 'BHAGALPUR', 'PURNIA', 'BEGUSARAI', 'DARBHANGA', 'GAYA',
         'KATIHAR', 'KISHANGANJ', 'ARARIA', 'SAHARSA', 'SUPAUL', 'MADHEPURA', 'SAMASTIPUR',
-        'MOTIHARI', 'BETTIAH', 'SITAMARHI', 'SIWAN', 'CHHAPRA', 'BIHAR', 'BH', 'BH1', 'BH2', 'BH-1', 'BH-2'
+        'MOTIHARI', 'BETTIAH', 'SITAMARHI', 'SIWAN', 'CHHAPRA', 'BIHAR', 'BH', 'BH1', 'BH2', 'BH-1', 'BH-2',
+        'KAHALGAON', 'PRANPUR', 'SAHEBPUR KAMAL', 'SHAHKUND', 'PURNIA EAST', 'KOCHADHAMAN', 'AMDABAD',
+        'AMARPUR', 'BAHADURGANJ', 'KASBA', 'NARPATGANJ', 'PATNA SADAR', 'DIDARGANJ',
+        'PATNA SADAR - DIDARGANJ', 'TANKUPPA', 'MANPUR', 'MAKHDUMPUR', 'JEHANABAD', 'FATEHPUR',
+        'IMAMGANJ', 'MANER', 'BIHTA', 'KURHANI', 'RUNNISAIDPUR', 'MUSHAHARI'
       ) THEN 'BIHAR'
 
       -- SOUTH BENGAL Branches / Areas
@@ -518,10 +715,9 @@ export async function healAllMissingZonalHeads() {
       ) THEN 'SOUTH BENGAL'
 
       WHEN zone IN ('NE1', 'NE2', 'NB1', 'NB2', 'BIHAR', 'SOUTH BENGAL', 'NT') THEN zone
-      WHEN region IN ('NE1', 'NE2', 'NB1', 'NB2', 'BIHAR', 'SOUTH BENGAL', 'NT') THEN region
       ELSE 'NE1'
     END
-    WHERE zone IS NULL OR zone = '' OR zone = '-' OR zone LIKE 'NE %' OR zone = 'NE' OR zh_name LIKE 'Zonal Head%'
+    WHERE zone IS NULL OR zone = '' OR zone = '-' OR zone NOT IN ('NE1', 'NE2', 'NB1', 'NB2', 'BIHAR', 'SOUTH BENGAL', 'NT') OR (UPPER(TRIM(COALESCE(branch, area, ''))) IN ('AGARTALA', 'UDAIPUR', 'SILCHAR', 'CACHAR', 'HAILAKANDI', 'KARIMGANJ', 'TRIPURA', 'DUKLI', 'BAMUTIA', 'AMC (SADAR)') AND zone != 'NE2')
   `);
 
   // 2. Heal master_dealers with authoritative Zonal Head
@@ -541,24 +737,66 @@ export async function healAllMissingZonalHeads() {
        OR d.zh_code LIKE 'ZH%'
   `);
 
+  // 2b. Dynamic fallback for master_dealers from employee_master by zone
+  await dbRun(`
+    UPDATE master_dealers d
+    JOIN (
+      SELECT zone, emp_name, dns_emp_code, emp_code
+      FROM (
+        SELECT zone, emp_name, dns_emp_code, emp_code,
+               ROW_NUMBER() OVER (
+                 PARTITION BY zone 
+                 ORDER BY 
+                   CASE WHEN acedns = 'Y' THEN 0 ELSE 1 END,
+                   CASE 
+                     WHEN designation LIKE '%ZH%' OR designation LIKE '%ZONAL HEAD%' THEN 1
+                     WHEN designation LIKE '%GM%' OR designation LIKE '%GENERAL MANAGER%' THEN 2
+                     ELSE 3
+                   END
+               ) as rn
+        FROM employee_master
+        WHERE (designation LIKE '%ZH%' OR designation LIKE '%ZONAL%' OR designation LIKE '%HEAD%' OR designation LIKE '%GM%')
+          AND zone IS NOT NULL AND zone != ''
+      ) ranked
+      WHERE rn = 1
+    ) em ON UPPER(TRIM(d.zone)) = UPPER(TRIM(em.zone))
+    SET d.zh_name = em.emp_name, d.zh_code = COALESCE(NULLIF(em.dns_emp_code, ''), em.emp_code)
+    WHERE d.zh_name IS NULL OR d.zh_name = '' OR d.zh_name = '-' OR d.zh_name LIKE 'Zonal Head%'
+  `);
+
+  // 2c. Final dynamic fallback to corporate HQ default from master_zone_zh_mapping (NE1)
+  await dbRun(`
+    UPDATE master_dealers d
+    JOIN (SELECT zh_name, zh_code FROM master_zone_zh_mapping WHERE zone_code = 'NE1' LIMIT 1) hq ON 1=1
+    SET d.zh_name = hq.zh_name, d.zh_code = hq.zh_code
+    WHERE d.zh_name IS NULL OR d.zh_name = '' OR d.zh_name = '-' OR d.zh_name LIKE 'Zonal Head%'
+  `);
+
   // 3. Heal master_dealer_so_mapping zone & ZH
   await dbRun(`
     UPDATE master_dealer_so_mapping
     SET zone = CASE
-      WHEN region IN ('NE1', 'NE2', 'NB1', 'NB2', 'BIHAR', 'SOUTH BENGAL', 'NT') THEN region
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('BH', 'BH1', 'BH2', 'BH-1', 'BH-2', 'PATNA', 'BIHAR') THEN 'BIHAR'
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('NE1', 'NE 1', 'NE-1', 'ZONE NE1', 'ASSAM') THEN 'NE1'
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('NE2', 'NE 2', 'NE-2', 'ZONE NE2', 'TRIPURA', 'SILCHAR') THEN 'NE2'
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('NB1', 'NB 1', 'NB-1', 'NORTH BENGAL', 'NORTH BENGAL 1', 'SILIGURI') THEN 'NB1'
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('NB2', 'NB 2', 'NB-2', 'NORTH BENGAL 2', 'MALDA') THEN 'NB2'
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('SOUTH BENGAL', 'SB', 'WB', 'WEST BENGAL', 'KOLKATA') THEN 'SOUTH BENGAL'
+      WHEN UPPER(TRIM(COALESCE(region, ''))) IN ('NE1', 'NE2', 'NB1', 'NB2', 'BIHAR', 'SOUTH BENGAL', 'NT') THEN region
       WHEN UPPER(TRIM(COALESCE(branch, area, ''))) IN (
         'AGARTALA', 'UDAIPUR', 'DHARMANAGAR', 'MIZORAM', 'SILCHAR - CACHAR', 
-        'SILCHAR - HAILAKANDI', 'SILCHAR - KARIMGANJ', 'SILCHAR', 'CACHAR', 'HAILAKANDI', 'KARIMGANJ', 'TRIPURA'
+        'SILCHAR - HAILAKANDI', 'SILCHAR - KARIMGANJ', 'SILCHAR', 'CACHAR', 'HAILAKANDI', 'KARIMGANJ', 'TRIPURA',
+        'DUKLI', 'BAMUTIA', 'AMC (SADAR)', 'AMC', 'SADAR'
       ) THEN 'NE2'
       WHEN UPPER(TRIM(COALESCE(branch, area, ''))) IN (
-        'SILIGURI', 'JALPAIGURI', 'COOCHBEHAR', 'COOCH BEHAR', 'ALIPURDUAR', 'DARJEELING HILLS', 'DARJEELING PLAINS', 'SIKKIM'
+        'SILIGURI', 'JALPAIGURI', 'COOCHBEHAR', 'COOCH BEHAR', 'ALIPURDUAR', 'DARJEELING HILLS', 'DARJEELING PLAINS', 'SIKKIM', 'MANGAN'
       ) THEN 'NB1'
-      WHEN UPPER(TRIM(COALESCE(branch, area, ''))) IN ('MALDA', 'DAKSHIN DINAJPUR', 'UTTAR DINAJPUR', 'BALURGHAT') THEN 'NB2'
-      WHEN UPPER(TRIM(COALESCE(branch, area, ''))) IN ('PATNA', 'MUZAFFARPUR', 'BHAGALPUR', 'PURNIA', 'KATIHAR') THEN 'BIHAR'
+      WHEN UPPER(TRIM(COALESCE(branch, area, ''))) IN ('MALDA', 'DAKSHIN DINAJPUR', 'UTTAR DINAJPUR', 'BALURGHAT', 'CHANCHAL', 'GAZOLE') THEN 'NB2'
+      WHEN UPPER(TRIM(COALESCE(branch, area, ''))) IN ('PATNA', 'MUZAFFARPUR', 'BHAGALPUR', 'PURNIA', 'KATIHAR', 'KISHANGANJ', 'SUPAUL', 'KAHALGAON') THEN 'BIHAR'
       WHEN UPPER(TRIM(COALESCE(branch, area, ''))) IN ('KOLKATA', 'HOWRAH', 'HOOGHLY', 'BURDWAN', 'DURGAPUR') THEN 'SOUTH BENGAL'
       ELSE 'NE1'
     END
-    WHERE zone IS NULL OR zone = '' OR zone = '-' OR zone LIKE 'NE %' OR zone = 'NE' OR zh_name LIKE 'Zonal Head%' OR zh_name = 'BRIJESH SINGH' AND branch LIKE 'AP -%'
+    WHERE zone IS NULL OR zone = '' OR zone = '-' OR zone NOT IN ('NE1', 'NE2', 'NB1', 'NB2', 'BIHAR', 'SOUTH BENGAL', 'NT') OR (UPPER(TRIM(COALESCE(branch, area, ''))) IN ('AGARTALA', 'UDAIPUR', 'SILCHAR', 'CACHAR', 'HAILAKANDI', 'KARIMGANJ', 'TRIPURA', 'DUKLI', 'BAMUTIA', 'AMC (SADAR)') AND zone != 'NE2')
   `);
 
   const resMappings = await dbRun(`
@@ -577,15 +815,123 @@ export async function healAllMissingZonalHeads() {
        OR m.zh_code LIKE 'ZH%'
   `);
 
-  // 4. Heal dealer_visit_targets from master_dealers
-  const resTargets = await dbRun(`
+  // 3b. Dynamic fallback for master_dealer_so_mapping from employee_master by zone
+  await dbRun(`
+    UPDATE master_dealer_so_mapping m
+    JOIN (
+      SELECT zone, emp_name, dns_emp_code, emp_code
+      FROM (
+        SELECT zone, emp_name, dns_emp_code, emp_code,
+               ROW_NUMBER() OVER (
+                 PARTITION BY zone 
+                 ORDER BY 
+                   CASE WHEN acedns = 'Y' THEN 0 ELSE 1 END,
+                   CASE 
+                     WHEN designation LIKE '%ZH%' OR designation LIKE '%ZONAL HEAD%' THEN 1
+                     WHEN designation LIKE '%GM%' OR designation LIKE '%GENERAL MANAGER%' THEN 2
+                     ELSE 3
+                   END
+               ) as rn
+        FROM employee_master
+        WHERE (designation LIKE '%ZH%' OR designation LIKE '%ZONAL%' OR designation LIKE '%HEAD%' OR designation LIKE '%GM%')
+          AND zone IS NOT NULL AND zone != ''
+      ) ranked
+      WHERE rn = 1
+    ) em ON UPPER(TRIM(m.zone)) = UPPER(TRIM(em.zone))
+    SET m.zh_name = em.emp_name, m.zh_code = COALESCE(NULLIF(em.dns_emp_code, ''), em.emp_code)
+    WHERE m.zh_name IS NULL OR m.zh_name = '' OR m.zh_name = '-' OR m.zh_name LIKE 'Zonal Head%'
+  `);
+
+  // 3c. Final dynamic fallback to corporate HQ default from master_zone_zh_mapping (NE1)
+  await dbRun(`
+    UPDATE master_dealer_so_mapping m
+    JOIN (SELECT zh_name, zh_code FROM master_zone_zh_mapping WHERE zone_code = 'NE1' LIMIT 1) hq ON 1=1
+    SET m.zh_name = hq.zh_name, m.zh_code = hq.zh_code
+    WHERE m.zh_name IS NULL OR m.zh_name = '' OR m.zh_name = '-' OR m.zh_name LIKE 'Zonal Head%'
+  `);
+
+  // 4. Heal dealer_visit_targets: sync from master_dealers, then master_zone_zh_mapping, then fallback
+  await dbRun(`
+    UPDATE dealer_visit_targets t
+    SET zone = CASE
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('BH', 'BH1', 'BH2', 'BH-1', 'BH-2', 'PATNA', 'BIHAR') THEN 'BIHAR'
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('NE1', 'NE 1', 'NE-1', 'ZONE NE1', 'ASSAM') THEN 'NE1'
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('NE2', 'NE 2', 'NE-2', 'ZONE NE2', 'TRIPURA', 'SILCHAR') THEN 'NE2'
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('NB1', 'NB 1', 'NB-1', 'NORTH BENGAL', 'NORTH BENGAL 1', 'SILIGURI') THEN 'NB1'
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('NB2', 'NB 2', 'NB-2', 'NORTH BENGAL 2', 'MALDA') THEN 'NB2'
+      WHEN UPPER(TRIM(COALESCE(zone, ''))) IN ('SOUTH BENGAL', 'SB', 'WB', 'WEST BENGAL', 'KOLKATA') THEN 'SOUTH BENGAL'
+      WHEN UPPER(TRIM(COALESCE(region, ''))) IN ('NE1', 'NE2', 'NB1', 'NB2', 'BIHAR', 'SOUTH BENGAL', 'NT') THEN region
+      WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN (
+        'AGARTALA', 'UDAIPUR', 'DHARMANAGAR', 'MIZORAM', 'SILCHAR - CACHAR', 
+        'SILCHAR - HAILAKANDI', 'SILCHAR - KARIMGANJ', 'SILCHAR', 'CACHAR', 'HAILAKANDI', 'KARIMGANJ', 'TRIPURA',
+        'DUKLI', 'BAMUTIA', 'AMC (SADAR)', 'AMC', 'SADAR'
+      ) THEN 'NE2'
+      WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN (
+        'SILIGURI', 'JALPAIGURI', 'COOCHBEHAR', 'COOCH BEHAR', 'ALIPURDUAR', 'DARJEELING HILLS', 'DARJEELING PLAINS', 'SIKKIM', 'MANGAN'
+      ) THEN 'NB1'
+      WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN ('MALDA', 'DAKSHIN DINAJPUR', 'UTTAR DINAJPUR', 'BALURGHAT', 'CHANCHAL', 'GAZOLE') THEN 'NB2'
+      WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN ('PATNA', 'MUZAFFARPUR', 'BHAGALPUR', 'PURNIA', 'KATIHAR', 'KISHANGANJ', 'SUPAUL', 'KAHALGAON') THEN 'BIHAR'
+      WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN ('KOLKATA', 'HOWRAH', 'HOOGHLY', 'BURDWAN', 'DURGAPUR') THEN 'SOUTH BENGAL'
+      ELSE COALESCE(NULLIF(zone, ''), 'NE1')
+    END
+    WHERE zone IS NULL OR zone = '' OR zone = '-' OR zone NOT IN ('NE1', 'NE2', 'NB1', 'NB2', 'BIHAR', 'SOUTH BENGAL', 'NT') OR (UPPER(TRIM(COALESCE(branch, area, ''))) IN ('AGARTALA', 'UDAIPUR', 'SILCHAR', 'CACHAR', 'HAILAKANDI', 'KARIMGANJ', 'TRIPURA', 'DUKLI', 'BAMUTIA', 'AMC (SADAR)') AND zone != 'NE2')
+  `);
+
+  // 4a. Sync from master_dealers
+  const resTargetsFromDealers = await dbRun(`
     UPDATE dealer_visit_targets t
     JOIN master_dealers d ON t.dealer_id = d.id OR (t.sap_code IS NOT NULL AND t.sap_code = d.sap_code)
     SET
       t.zh_name = d.zh_name,
-      t.zh_code = d.zh_code
+      t.zh_code = d.zh_code,
+      t.zone = COALESCE(NULLIF(t.zone, ''), d.zone)
     WHERE (t.zh_name IS NULL OR t.zh_name = '' OR t.zh_name = '-' OR t.zh_name LIKE 'Zonal Head%' OR t.zh_code = 'ZH001')
       AND d.zh_name IS NOT NULL AND d.zh_name != '' AND d.zh_name != '-' AND d.zh_name NOT LIKE 'Zonal Head%'
+  `);
+
+  // 4b. Direct join master_zone_zh_mapping for any still missing
+  const resTargetsFromMapping = await dbRun(`
+    UPDATE dealer_visit_targets t
+    JOIN master_zone_zh_mapping z ON UPPER(TRIM(t.zone)) = UPPER(TRIM(z.zone_code))
+    SET
+      t.zh_name = z.zh_name,
+      t.zh_code = z.zh_code
+    WHERE t.zh_name IS NULL OR t.zh_name = '' OR t.zh_name = '-' OR t.zh_name LIKE 'Zonal Head%' OR t.zh_code = 'ZH001' OR t.zh_code LIKE 'ZH%'
+  `);
+
+  // 4c. Dynamic fallback for dealer_visit_targets from employee_master by zone
+  const resTargetsFallback = await dbRun(`
+    UPDATE dealer_visit_targets t
+    JOIN (
+      SELECT zone, emp_name, dns_emp_code, emp_code
+      FROM (
+        SELECT zone, emp_name, dns_emp_code, emp_code,
+               ROW_NUMBER() OVER (
+                 PARTITION BY zone 
+                 ORDER BY 
+                   CASE WHEN acedns = 'Y' THEN 0 ELSE 1 END,
+                   CASE 
+                     WHEN designation LIKE '%ZH%' OR designation LIKE '%ZONAL HEAD%' THEN 1
+                     WHEN designation LIKE '%GM%' OR designation LIKE '%GENERAL MANAGER%' THEN 2
+                     ELSE 3
+                   END
+               ) as rn
+        FROM employee_master
+        WHERE (designation LIKE '%ZH%' OR designation LIKE '%ZONAL%' OR designation LIKE '%HEAD%' OR designation LIKE '%GM%')
+          AND zone IS NOT NULL AND zone != ''
+      ) ranked
+      WHERE rn = 1
+    ) em ON UPPER(TRIM(t.zone)) = UPPER(TRIM(em.zone))
+    SET t.zh_name = em.emp_name, t.zh_code = COALESCE(NULLIF(em.dns_emp_code, ''), em.emp_code)
+    WHERE t.zh_name IS NULL OR t.zh_name = '' OR t.zh_name = '-' OR t.zh_name LIKE 'Zonal Head%'
+  `);
+
+  // 4d. Final dynamic fallback to corporate HQ default from master_zone_zh_mapping (NE1)
+  await dbRun(`
+    UPDATE dealer_visit_targets t
+    JOIN (SELECT zh_name, zh_code FROM master_zone_zh_mapping WHERE zone_code = 'NE1' LIMIT 1) hq ON 1=1
+    SET t.zh_name = hq.zh_name, t.zh_code = hq.zh_code
+    WHERE t.zh_name IS NULL OR t.zh_name = '' OR t.zh_name = '-' OR t.zh_name LIKE 'Zonal Head%'
   `);
 
   // 5. Also update master_employees role for Zonal Heads
@@ -595,12 +941,16 @@ export async function healAllMissingZonalHeads() {
     SET me.role = 'ZH', me.designation = z.designation, me.zone = z.zone_code
   `);
 
-  console.log(`[ZonalHeadService] Healing complete. Dealers healed: ${resDealers.affectedRows || 0}, Mappings: ${resMappings.affectedRows || 0}, Targets: ${resTargets.affectedRows || 0}`);
+  const totalTargetsHealed = (resTargetsFromDealers.affectedRows || resTargetsFromDealers.changes || 0) +
+                             (resTargetsFromMapping.affectedRows || resTargetsFromMapping.changes || 0) +
+                             (resTargetsFallback.affectedRows || resTargetsFallback.changes || 0);
+
+  console.log(`[ZonalHeadService] Healing complete. Dealers healed: ${resDealers.affectedRows || 0}, Mappings: ${resMappings.affectedRows || 0}, Targets: ${totalTargetsHealed}`);
 
   return {
     dealersHealed: resDealers.affectedRows || resDealers.changes || 0,
     mappingsHealed: resMappings.affectedRows || resMappings.changes || 0,
-    targetsHealed: resTargets.affectedRows || resTargets.changes || 0
+    targetsHealed: totalTargetsHealed
   };
 }
 

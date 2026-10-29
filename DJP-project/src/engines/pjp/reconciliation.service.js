@@ -1,6 +1,7 @@
 import { dbAll, dbGet } from '../../config/database.js';
 import { normalizeCode, normalizeString } from '../normalization.engine.js';
 import { resolveProspectHierarchy } from '../../services/hierarchyResolution.service.js';
+import { resolveZonalHeadSync } from '../../services/zonalHead.service.js';
 
 /**
  * Multi-Source Reconciliation & Canonical Dealer Universe Builder
@@ -238,6 +239,20 @@ export async function reconcileUniverse(options = {}) {
       if (!zhName) { zhName = h.zh_name; zhCode = h.zh_code; }
       if (!rsmName) { rsmName = h.rsm_name; rsmCode = h.rsm_code; }
       if (!asmName) { asmName = h.asm_name; asmCode = h.asm_code; }
+    }
+
+    // Dynamic resolution for any missing Zonal Head across all dealers
+    if (!zhName || !zhCode || zhName === '-' || zhCode === 'ZH001' || zhName.startsWith('Zonal Head')) {
+      const resolvedZH = resolveZonalHeadSync({
+        zone: d.zone || m.zone,
+        region: d.region || m.region,
+        area: d.dm_area || d.area || m.area,
+        branch: d.branch || m.branch
+      });
+      if (resolvedZH?.zh_name) {
+        zhName = resolvedZH.zh_name;
+        zhCode = resolvedZH.zh_code;
+      }
     }
 
     // Check hierarchy completeness (including ASM for prospects)

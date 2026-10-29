@@ -36,7 +36,7 @@ export async function resolveProspectHierarchy({ soEmpCode, soName, area, zone, 
 
   const applyMapping = (m, mthd) => {
     if (!m) return;
-    if (!zh_name && cleanVal(m.zh_name)) { zh_name = cleanVal(m.zh_name); zh_code = cleanVal(m.zh_code); }
+    if (!zh_name && cleanVal(m.zh_name) && mthd !== 'AREA' && mthd !== 'MASTER_DEALERS_AREA') { zh_name = cleanVal(m.zh_name); zh_code = cleanVal(m.zh_code); }
     if (!rsm_name && cleanVal(m.rsm_name)) { rsm_name = cleanVal(m.rsm_name); rsm_code = cleanVal(m.rsm_code); }
     if (!asm_name && cleanVal(m.asm_name)) { asm_name = cleanVal(m.asm_name); asm_code = cleanVal(m.asm_code); }
     if (!res_so_name && cleanVal(m.so_name)) res_so_name = cleanVal(m.so_name);
@@ -196,15 +196,14 @@ export async function resolveProspectHierarchy({ soEmpCode, soName, area, zone, 
       if (rsm) { rsm_name = rsm.rsm_name; rsm_code = rsm.rsm_code; }
     } catch (e) {}
   }
-  if (!zh_name || !zh_code) {
-    try {
-      const zhRes = await resolveZonalHead({ zone: cleanZone, region, area: cleanArea });
-      if (zhRes?.zh_name) {
-        if (!zh_name) zh_name = zhRes.zh_name;
-        if (!zh_code) zh_code = zhRes.zh_code;
-      }
-    } catch (e) {}
-  }
+  // Authoritative dynamic Zonal Head resolution for zone / area
+  try {
+    const zhRes = await resolveZonalHead({ zone: cleanZone, region, area: cleanArea });
+    if (zhRes?.zh_name) {
+      zh_name = zhRes.zh_name;
+      zh_code = zhRes.zh_code;
+    }
+  } catch (e) {}
 
   // Resolve missing asm_code if asm_name is known
   if (asm_name && !asm_code) {
