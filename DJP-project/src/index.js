@@ -369,6 +369,14 @@ async function runStartupMigrations() {
   } catch (err) {
     console.warn('[Migration] Warning during active DJP preset enforcement:', err.message);
   }
+
+  try {
+    // Migration 13: Automatically restore Abhijit Dam (ASM) C1 plan if overridden
+    const { restoreAbhijitDamC1Plan } = await import('./services/restoreAbhijitDamPlan.service.js');
+    await restoreAbhijitDamC1Plan();
+  } catch (err) {
+    console.warn('[Migration] Warning during Abhijit Dam C1 plan restoration:', err.message);
+  }
 }
 
 const __filename = fileURLToPath(import.meta.url);
