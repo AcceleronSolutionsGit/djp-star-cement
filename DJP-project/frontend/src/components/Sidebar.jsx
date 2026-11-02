@@ -5,7 +5,6 @@ import {
   UploadCloud, 
   Users, 
   Database,
-  CalendarDays,
   CheckCircle2,
   ClipboardList,
   Layers,
@@ -37,7 +36,6 @@ export default function Sidebar({ activeTab, setActiveTab, collapsed }) {
     {
       group: 'Sales Planning',
       items: [
-        { id: 'plan-gen', label: 'Plan Generation', icon: CalendarDays, desc: 'Auto SO DJP Calendar' },
         { id: 'plan-appr', label: 'Plan Approvals', icon: CheckCircle2, desc: 'Manager Review & Actions' },
         { id: 'adherence-report', label: 'Zone Adherence (Excel)', icon: FileSpreadsheet, desc: '4 Roles Summary & Detailed' },
         { id: 'officer-plans', label: 'Officer Plans & Adherence', icon: ClipboardList, desc: 'All Roles + C1 Adherence' }

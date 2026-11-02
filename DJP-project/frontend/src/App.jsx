@@ -11,7 +11,6 @@ import FormulaSettingsView from './views/FormulaSettingsView';
 import MonthlyIngestionView from './views/MonthlyIngestionView';
 import MasterDataRepositoryView from './views/MasterDataRepositoryView';
 import TerritoryMappingView from './views/TerritoryMappingView';
-import PlanGenerationView from './views/PlanGenerationView';
 import PlanApprovalsView from './views/PlanApprovalsView';
 import OfficerPlansView from './views/OfficerPlansView';
 import AdherenceReportView from './views/AdherenceReportView';
@@ -26,7 +25,8 @@ import { useAuth } from './contexts/AuthContext';
 export default function App() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState(() => {
-    return localStorage.getItem('star_active_tab') || 'visits';
+    const saved = localStorage.getItem('star_active_tab') || 'visits';
+    return saved === 'plan-gen' ? 'officer-plans' : saved;
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [toasts, setToasts] = useState([]);
@@ -42,7 +42,7 @@ export default function App() {
   const handleSetActiveTab = (tab) => {
     setActiveTab(tab);
     localStorage.setItem('star_active_tab', tab);
-    if (tab === 'plan-gen' || tab === 'plan-appr') {
+    if (tab === 'plan-appr') {
       setSidebarCollapsed(true);
     } else {
       setSidebarCollapsed(false);
@@ -234,7 +234,6 @@ export default function App() {
       case 'upload': return 'Master Excel Ingestion';
       case 'master-data': return 'Master Data Hub';
       case 'mapping': return 'Territory Hierarchy';
-      case 'plan-gen': return 'Plan Generation';
       case 'plan-appr': return 'Plan Approvals';
       case 'adherence-report': return 'Zone Adherence Tracker (Excel View)';
       case 'officer-plans': return 'Officer Plans & Adherence';
@@ -324,13 +323,6 @@ export default function App() {
             {activeTab === 'mapping' && (
               <TerritoryMappingView
                 onShowToast={showToast}
-              />
-            )}
-
-            {activeTab === 'plan-gen' && (
-              <PlanGenerationView
-                onShowToast={showToast}
-                onPlanSubmitted={() => setReloadTrigger(prev => prev + 1)}
               />
             )}
 
