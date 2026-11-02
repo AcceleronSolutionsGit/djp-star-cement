@@ -51,7 +51,8 @@ export async function generatePlansForAllRoles(periodMonth, cycleCode, planOptio
        WHERE period_month = ? AND cycle_code = ?
          AND ${codeCol} IS NOT NULL 
          AND TRIM(${codeCol}) != ''
-         AND TRIM(${codeCol}) NOT IN ('-', 'NA', 'N/A', 'NONE', 'NULL')`,
+         AND TRIM(${codeCol}) NOT IN ('-', 'NA', 'N/A', 'NONE', 'NULL', 'VACANT')
+         AND UPPER(TRIM(${codeCol})) NOT LIKE 'VACANT%'`,
       [periodMonth, cycleCode]
     );
 

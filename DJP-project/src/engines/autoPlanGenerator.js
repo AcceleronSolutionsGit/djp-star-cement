@@ -144,6 +144,7 @@ export class AutoPlanGenerator {
         AND dvt.period_month = ?
         AND (dvt.cycle_code = ? OR dvt.cycle_code IS NULL OR dvt.cycle_code = '')
         AND dvt.${visitCol} > 0
+        AND (md.status IS NULL OR UPPER(TRIM(md.status)) NOT LIKE 'INACT%')
       ORDER BY md.block ASC, dvt.category ASC, dvt.dealer_name ASC
     `;
 
@@ -175,9 +176,29 @@ export class AutoPlanGenerator {
    * @param {Map}   [options.sfaAdherenceByEmployee] - adherence map from analyseC1Adherence() for C2 regen
    */
   async generatePlan(empCode, periodMonth, role = 'SO', cycleCode = 'C1', options = {}) {
-    if (!empCode || String(empCode).trim() === '' || ['-', 'NA', 'N/A', 'NONE', 'NULL'].includes(String(empCode).trim().toUpperCase())) {
+    const cleanCode = String(empCode || '').trim();
+    if (!cleanCode || ['-', 'NA', 'N/A', 'NONE', 'NULL', 'VACANT'].includes(cleanCode.toUpperCase())
+        || cleanCode.toUpperCase().startsWith('VACANT')
+        || /^(SO|ASM|RSM|ZH)[0-9]+$/i.test(cleanCode)) {
       console.warn(`[AutoPlanGen] Rejecting plan generation for invalid/dummy employee code: "${empCode}"`);
       return { planId: null, totalVisitsScheduled: 0 };
+    }
+
+    // Verify employee is active in employee_master (or configured ZH in master_zone_zh_mapping)
+    const emCheck = await dbGet(`
+      SELECT em.emp_code, em.emp_name, em.acedns, em.app_access, zh.id as is_zh
+      FROM employee_master em
+      LEFT JOIN master_zone_zh_mapping zh ON (em.emp_code = zh.emp_code OR em.dns_emp_code = zh.zh_code)
+      WHERE em.emp_code = ? OR em.dns_emp_code = ?
+      LIMIT 1
+    `, [cleanCode, cleanCode]);
+
+    if (emCheck) {
+      const isConfiguredZh = role === 'ZH' || emCheck.is_zh !== null;
+      if (emCheck.acedns === 'N' && !isConfiguredZh) {
+        console.warn(`[AutoPlanGen] Skipping plan generation for inactive employee: "${cleanCode}" (${emCheck.emp_name}) [acedns=N]`);
+        return { planId: null, totalVisitsScheduled: 0, skipped: true, reason: 'inactive' };
+      }
     }
 
     const rules = await this.loadRules();

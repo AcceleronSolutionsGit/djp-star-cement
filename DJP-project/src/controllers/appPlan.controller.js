@@ -104,7 +104,17 @@ async function planSummaryRows(where, params) {
        (SELECT MIN(d.visit_date)           FROM sales_plan_details d WHERE d.plan_id = sp.id) AS first_visit_date,
        (SELECT MAX(d.visit_date)           FROM sales_plan_details d WHERE d.plan_id = sp.id) AS last_visit_date
      FROM sales_plans sp
+     LEFT JOIN employee_master em ON (sp.emp_code = em.emp_code OR sp.emp_code = em.dns_emp_code)
+     LEFT JOIN master_zone_zh_mapping zh ON (sp.emp_code = zh.zh_code OR sp.emp_code = zh.emp_code)
      WHERE ${where}
+       AND (
+         (em.acedns = 'Y' OR (em.acedns IS NULL AND em.app_access = 'Y'))
+         OR (sp.emp_role = 'ZH' AND zh.id IS NOT NULL)
+       )
+       AND (em.acedns != 'N' OR (sp.emp_role = 'ZH' AND zh.id IS NOT NULL))
+       AND UPPER(TRIM(sp.emp_code)) NOT IN ('VACANT', 'NONE', 'NULL', 'NA', 'N/A', '-')
+       AND UPPER(TRIM(sp.emp_code)) NOT LIKE 'VACANT%'
+       AND sp.emp_code NOT REGEXP '^(SO|ASM|RSM|ZH)[0-9]+$'
      ORDER BY sp.period_month DESC, sp.cycle_code ASC, sp.id DESC`,
     params
   );

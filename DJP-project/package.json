@@ -16,6 +16,7 @@
     "reconcile:pjp": "node src/scripts/test-canonical-pjp.js",
     "verify:reference": "node src/scripts/verify-reference-exact.js",
     "verify:exports": "node src/scripts/test-api-exports.js",
+    "enforce:active": "node src/scripts/enforce-active-djp.js",
     "dev:frontend": "npm run dev --prefix frontend",
     "build:frontend": "npm run build --prefix frontend"
   },

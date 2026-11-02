@@ -361,6 +361,14 @@ async function runStartupMigrations() {
   } catch (err) {
     console.warn("[Migration] Warning during plan enhancements initialization:", err.message);
   }
+
+  try {
+    // Migration 12: Enforce active-only DJP data preset (prunes inactive/dummy plans and master records)
+    const { enforceActiveDjpPreset } = await import('./services/activeDjpEnforcer.service.js');
+    await enforceActiveDjpPreset();
+  } catch (err) {
+    console.warn('[Migration] Warning during active DJP preset enforcement:', err.message);
+  }
 }
 
 const __filename = fileURLToPath(import.meta.url);

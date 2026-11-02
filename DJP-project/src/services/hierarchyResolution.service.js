@@ -170,13 +170,18 @@ export async function resolveProspectHierarchy({ soEmpCode, soName, area, zone, 
     }
   }
 
-  // 7. Fallback from master_employees by designation (safe against missing columns)
-  if (!asm_name) {
+  // 7. Fallback from master_employees matching dealer zone and active employee status
+  if (!asm_name && cleanZone) {
     try {
       const asmEmp = await dbGet(
-        `SELECT emp_name as asm_name, emp_code as asm_code FROM master_employees 
-         WHERE designation IN ('ASM', 'AREA SALES MANAGER', 'AREA_SALES_MANAGER') 
-         LIMIT 1`
+        `SELECT me.emp_name as asm_name, me.emp_code as asm_code 
+         FROM master_employees me
+         JOIN employee_master em ON (me.emp_code = em.emp_code OR me.emp_code = em.dns_emp_code)
+         WHERE (me.zone = ? OR me.region = ? OR em.zone = ? OR em.region = ?)
+           AND me.designation IN ('ASM', 'AREA SALES MANAGER', 'AREA_SALES_MANAGER')
+           AND em.acedns = 'Y'
+         LIMIT 1`,
+        [cleanZone, cleanZone, cleanZone, cleanZone]
       );
       if (asmEmp) {
         asm_name = asmEmp.asm_name || null;
@@ -185,13 +190,18 @@ export async function resolveProspectHierarchy({ soEmpCode, soName, area, zone, 
     } catch (e) {}
   }
 
-  // RSM / ZH fallback from master_employees if still missing
-  if (!rsm_name) {
+  // RSM fallback from master_employees matching dealer zone and active employee status
+  if (!rsm_name && cleanZone) {
     try {
       const rsm = await dbGet(
-        `SELECT emp_name as rsm_name, emp_code as rsm_code FROM master_employees 
-         WHERE designation IN ('RSM', 'REGIONAL SALES MANAGER', 'REGIONAL_SALES_MANAGER') 
-         LIMIT 1`
+        `SELECT me.emp_name as rsm_name, me.emp_code as rsm_code 
+         FROM master_employees me
+         JOIN employee_master em ON (me.emp_code = em.emp_code OR me.emp_code = em.dns_emp_code)
+         WHERE (me.zone = ? OR me.region = ? OR em.zone = ? OR em.region = ?)
+           AND me.designation IN ('RSM', 'REGIONAL SALES MANAGER', 'REGIONAL_SALES_MANAGER')
+           AND em.acedns = 'Y'
+         LIMIT 1`,
+        [cleanZone, cleanZone, cleanZone, cleanZone]
       );
       if (rsm) { rsm_name = rsm.rsm_name; rsm_code = rsm.rsm_code; }
     } catch (e) {}

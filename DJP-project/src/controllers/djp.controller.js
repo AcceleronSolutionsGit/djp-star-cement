@@ -100,7 +100,7 @@ export async function generateAllRolePlans(req, res) {
     const autoGen = new AutoPlanGenerator();
     const djpOptions = { isDjpPipeline: true, status: 'PENDING_ROLLOUT' };
 
-    const sos = await dbAll('SELECT DISTINCT so_emp_code as emp_code FROM dealer_visit_targets WHERE period_month = ? AND cycle_code = ? AND so_emp_code IS NOT NULL AND TRIM(so_emp_code) != ""', [periodMonth, cycleCode]);
+    const sos = await dbAll('SELECT DISTINCT so_emp_code as emp_code FROM dealer_visit_targets WHERE period_month = ? AND cycle_code = ? AND so_emp_code IS NOT NULL AND TRIM(so_emp_code) != "" AND UPPER(TRIM(so_emp_code)) NOT LIKE "VACANT%"', [periodMonth, cycleCode]);
     for (const s of sos) await autoGen.generatePlan(s.emp_code, periodMonth, 'SO', cycleCode, djpOptions).catch(e => console.warn(`SO plan gen error [${s.emp_code}]:`, e.message));
 
     const asms = await dbAll('SELECT DISTINCT asm_code as emp_code FROM dealer_visit_targets WHERE period_month = ? AND cycle_code = ? AND asm_code IS NOT NULL AND TRIM(asm_code) != ""', [periodMonth, cycleCode]);

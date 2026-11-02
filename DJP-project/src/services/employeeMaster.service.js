@@ -215,9 +215,9 @@ export async function syncMasterEmployeesFromEmployeeMaster() {
         me.region = COALESCE(NULLIF(em.region, ''), me.region)
     `);
 
-    // 2. Insert active sales & field employees from employee_master into master_employees if not already present
+    // 2. Insert ONLY ACTIVE sales & field employees from employee_master into master_employees if not already present
     const res2 = await dbRun(`
-      INSERT INTO master_employees (emp_code, emp_name, designation, zone, region, role, created_at)
+      INSERT INTO master_employees (emp_code, emp_name, designation, zone, region, role, is_active, created_at)
       SELECT 
         COALESCE(NULLIF(em.dns_emp_code, ''), em.emp_code) as emp_code,
         em.emp_name,
@@ -231,17 +231,173 @@ export async function syncMasterEmployeesFromEmployeeMaster() {
           WHEN UPPER(em.designation) LIKE '%ZH%' OR UPPER(em.designation) LIKE '%ZONAL%' OR UPPER(em.designation) LIKE '%GM%' THEN 'ZH'
           ELSE 'SO'
         END as role,
+        1 as is_active,
         NOW() as created_at
       FROM employee_master em
       LEFT JOIN master_employees me 
         ON (COALESCE(NULLIF(em.dns_emp_code, ''), em.emp_code) = me.emp_code)
       WHERE me.id IS NULL
         AND em.emp_name IS NOT NULL AND em.emp_name != ''
-        AND (em.acedns = 'Y' OR em.acedns IS NULL OR em.app_access = 'Y')
+        AND em.acedns = 'Y'
+        AND (em.app_access = 'Y' OR em.app_access IS NULL)
+    `);
+
+    // 3. Purge inactive staff and dummy codes from master_employees
+    await dbRun(`
+      DELETE me FROM master_employees me
+      JOIN employee_master em ON (me.emp_code = em.emp_code OR me.emp_code = em.dns_emp_code)
+      WHERE em.acedns = 'N' OR em.app_access = 'N'
+    `);
+
+    await dbRun(`
+      DELETE FROM master_employees 
+      WHERE emp_code IN ('VACANT', 'NONE', 'NULL', 'NA', 'N/A', '-')
+         OR UPPER(emp_code) LIKE 'VACANT%'
+         OR emp_code REGEXP '^(SO|ASM|RSM|ZH)[0-9]+
+  } catch (err) {
+    console.warn('[EmployeeMaster] Warning during master_employees sync:', err.message);
+    return { affectedRows: 0 };
+  }
+}
+
+/**
+ * Get status and statistics of employee_master table.
+ */
+export async function getEmployeeMasterStatus() {
+  const totalRow = await dbGet('SELECT COUNT(*) as cnt FROM employee_master');
+  const activeRow = await dbGet("SELECT COUNT(*) as cnt FROM employee_master WHERE acedns = 'Y'");
+  const appAccessRow = await dbGet("SELECT COUNT(*) as cnt FROM employee_master WHERE app_access = 'Y'");
+  const desigRow = await dbGet('SELECT COUNT(DISTINCT designation) as cnt FROM employee_master WHERE designation IS NOT NULL AND designation != ""');
+  const zonesRow = await dbGet('SELECT COUNT(DISTINCT zone) as cnt FROM employee_master WHERE zone IS NOT NULL AND zone != ""');
+  const lastSyncRow = await dbGet('SELECT MAX(updated_at) as last_updated FROM employee_master');
+
+  const meCountRow = await dbGet('SELECT COUNT(*) as cnt FROM master_employees');
+
+  return {
+    totalEmployeesInMaster: totalRow?.cnt || 0,
+    activeInAcedns: activeRow?.cnt || 0,
+    activeAppAccess: appAccessRow?.cnt || 0,
+    distinctDesignations: desigRow?.cnt || 0,
+    distinctZones: zonesRow?.cnt || 0,
+    masterEmployeesEnrichedCount: meCountRow?.cnt || 0,
+    lastUpdated: lastSyncRow?.last_updated || null,
+    syncInProgress
+  };
+}
+
+/**
+ * Search and list employees from employee_master with pagination.
+ */
+export async function searchEmployeesFromMaster(filters = {}) {
+  const {
+    search = '',
+    empCode = '',
+    dnsEmpCode = '',
+    designation = '',
+    zone = '',
+    state = '',
+    acedns = '',
+    reportingTo = '',
+    limit = 50,
+    offset = 0
+  } = filters;
+
+  const conditions = [];
+  const params = [];
+
+  if (search && search.trim() !== '') {
+    const s = `%${search.trim()}%`;
+    conditions.push('(emp_name LIKE ? OR emp_code LIKE ? OR dns_emp_code LIKE ? OR email LIKE ? OR phone_no LIKE ?)');
+    params.push(s, s, s, s, s);
+  }
+
+  if (empCode && empCode.trim() !== '') {
+    conditions.push('emp_code = ?');
+    params.push(empCode.trim());
+  }
+
+  if (dnsEmpCode && dnsEmpCode.trim() !== '') {
+    conditions.push('dns_emp_code = ?');
+    params.push(dnsEmpCode.trim());
+  }
+
+  if (designation && designation.trim() !== '') {
+    conditions.push('designation LIKE ?');
+    params.push(`%${designation.trim()}%`);
+  }
+
+  if (zone && zone.trim() !== '') {
+    conditions.push('zone = ?');
+    params.push(zone.trim());
+  }
+
+  if (state && state.trim() !== '') {
+    conditions.push('state = ?');
+    params.push(state.trim());
+  }
+
+  if (acedns && acedns.trim() !== '') {
+    conditions.push('acedns = ?');
+    params.push(acedns.trim().toUpperCase());
+  }
+
+  if (reportingTo && reportingTo.trim() !== '') {
+    conditions.push('reporting_to LIKE ?');
+    params.push(`%${reportingTo.trim()}%`);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const countRow = await dbGet(`SELECT COUNT(*) as total FROM employee_master ${whereClause}`, params);
+  const total = countRow?.total || 0;
+
+  const parsedLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 1000));
+  const parsedOffset = Math.max(0, parseInt(offset, 10) || 0);
+
+  const rows = await dbAll(
+    `SELECT 
+       id, emp_code, dns_emp_code, emp_name, dob, acedns,
+       branch_code, doj, lower_leaves, reporting_to, vertical_value,
+       email, phone_no, hq, sale_access, designation,
+       district, state, zone, region, app_access,
+       functionality, functionality_rel_val, level,
+       acedns_changed_date, download_time, updated_at
+     FROM employee_master
+     ${whereClause}
+     ORDER BY emp_name ASC, emp_code ASC
+     LIMIT ? OFFSET ?`,
+    [...params, parsedLimit, parsedOffset]
+  );
+
+  return {
+    total,
+    limit: parsedLimit,
+    offset: parsedOffset,
+    count: rows.length,
+    employees: rows
+  };
+}
+
+/**
+ * Get single employee by code (checks both emp_code and dns_emp_code).
+ */
+export async function getEmployeeByCode(code) {
+  if (!code) return null;
+  const cleanCode = String(code).trim();
+  const row = await dbGet(
+    `SELECT * FROM employee_master 
+     WHERE emp_code = ? OR dns_emp_code = ? 
+     LIMIT 1`,
+    [cleanCode, cleanCode]
+  );
+  return row || null;
+}
+
+
     `);
 
     const affected = (res1.affectedRows || res1.changes || 0) + (res2.affectedRows || res2.changes || 0);
-    console.log(`[EmployeeMaster] Synced ${affected} records into master_employees.`);
+    console.log(`[EmployeeMaster] Synced ${affected} records into master_employees (inactive/dummy records pruned).`);
     return { affectedRows: affected };
   } catch (err) {
     console.warn('[EmployeeMaster] Warning during master_employees sync:', err.message);

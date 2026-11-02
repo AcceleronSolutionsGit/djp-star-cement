@@ -328,38 +328,70 @@ export async function getAllEmployees(req, res) {
 
     let empTable = [];
     try {
-      empTable = await dbAll("SELECT id, emp_code, emp_name, role, designation, zone, region FROM master_employees");
+      empTable = await dbAll(`
+        SELECT me.id, me.emp_code, me.emp_name, me.role, me.designation, me.zone, me.region 
+        FROM master_employees me
+        LEFT JOIN employee_master em ON (me.emp_code = em.emp_code OR me.emp_code = em.dns_emp_code)
+        WHERE (em.acedns = 'Y' OR (em.acedns IS NULL AND em.app_access = 'Y'))
+          AND (em.acedns != 'N' OR em.acedns IS NULL)
+          AND (me.is_active = 1 OR me.is_active IS NULL)
+          AND me.emp_code NOT IN ('VACANT', 'NONE', 'NULL', 'NA', 'N/A', '-')
+          AND UPPER(me.emp_code) NOT LIKE 'VACANT%'
+          AND me.emp_code NOT REGEXP '^(SO|ASM|RSM|ZH)[0-9]+$'
+      `);
     } catch (e) {
       console.warn('Could not query master_employees:', e.message);
     }
 
     const [soList, asmList, rsmList, zhList] = await Promise.all([
       dbAll(`SELECT DISTINCT 
-               COALESCE(NULLIF(TRIM(so_emp_code), ''), NULLIF(TRIM(so_name), '')) as emp_code,
-               so_name as emp_name, 'SO' as role, area, zone as region 
-             FROM dealer_visit_targets 
-             WHERE so_name IS NOT NULL AND TRIM(so_name) != ''`),
+               COALESCE(NULLIF(TRIM(t.so_emp_code), ''), NULLIF(TRIM(t.so_name), '')) as emp_code,
+               t.so_name as emp_name, 'SO' as role, t.area, t.zone as region 
+             FROM dealer_visit_targets t
+             JOIN employee_master em ON (t.so_emp_code = em.emp_code OR t.so_emp_code = em.dns_emp_code)
+             WHERE t.so_name IS NOT NULL AND TRIM(t.so_name) != ''
+               AND (em.acedns = 'Y' OR (em.acedns IS NULL AND em.app_access = 'Y'))
+               AND em.acedns != 'N'
+               AND UPPER(TRIM(t.so_emp_code)) NOT LIKE 'VACANT%'
+               AND t.so_emp_code NOT REGEXP '^SO[0-9]+$'`),
       dbAll(`SELECT DISTINCT 
-               COALESCE(NULLIF(TRIM(asm_code), ''), NULLIF(TRIM(asm_name), '')) as emp_code,
-               asm_name as emp_name, 'ASM' as role, area, zone as region 
-             FROM dealer_visit_targets 
-             WHERE asm_name IS NOT NULL AND TRIM(asm_name) != ''`),
+               COALESCE(NULLIF(TRIM(t.asm_code), ''), NULLIF(TRIM(t.asm_name), '')) as emp_code,
+               t.asm_name as emp_name, 'ASM' as role, t.area, t.zone as region 
+             FROM dealer_visit_targets t
+             JOIN employee_master em ON (t.asm_code = em.emp_code OR t.asm_code = em.dns_emp_code)
+             WHERE t.asm_name IS NOT NULL AND TRIM(t.asm_name) != ''
+               AND (em.acedns = 'Y' OR (em.acedns IS NULL AND em.app_access = 'Y'))
+               AND em.acedns != 'N'
+               AND UPPER(TRIM(t.asm_code)) NOT LIKE 'VACANT%'
+               AND t.asm_code NOT REGEXP '^ASM[0-9]+$'`),
       dbAll(`SELECT DISTINCT 
-               NULLIF(TRIM(rsm_name), '') as emp_code,
-               rsm_name as emp_name, 'RSM' as role, area, zone as region 
-             FROM dealer_visit_targets 
-             WHERE rsm_name IS NOT NULL AND TRIM(rsm_name) != ''`),
+               COALESCE(NULLIF(TRIM(t.rsm_code), ''), NULLIF(TRIM(t.rsm_name), '')) as emp_code,
+               t.rsm_name as emp_name, 'RSM' as role, t.area, t.zone as region 
+             FROM dealer_visit_targets t
+             JOIN employee_master em ON (t.rsm_code = em.emp_code OR t.rsm_code = em.dns_emp_code OR t.rsm_name = em.emp_name)
+             WHERE t.rsm_name IS NOT NULL AND TRIM(t.rsm_name) != ''
+               AND (em.acedns = 'Y' OR (em.acedns IS NULL AND em.app_access = 'Y'))
+               AND em.acedns != 'N'
+               AND UPPER(TRIM(t.rsm_name)) NOT LIKE 'VACANT%'
+               AND t.rsm_name NOT REGEXP '^RSM[0-9]+$'`),
       dbAll(`SELECT DISTINCT 
-               NULLIF(TRIM(zh_name), '') as emp_code,
-               zh_name as emp_name, 'ZH' as role, area, zone as region 
-             FROM dealer_visit_targets 
-             WHERE zh_name IS NOT NULL AND TRIM(zh_name) != ''`)
+               COALESCE(NULLIF(TRIM(zh.zh_code), ''), NULLIF(TRIM(zh.zh_name), '')) as emp_code,
+               zh.zh_name as emp_name, 'ZH' as role, zh.state as area, zh.zone_code as region 
+             FROM master_zone_zh_mapping zh
+             WHERE zh.zh_name IS NOT NULL AND TRIM(zh.zh_name) != ''`)
     ]);
 
     const combined = new Map();
 
+    const isDummy = (c, n) => {
+      const s = String(c || n || '').trim().toUpperCase();
+      return !s || ['VACANT', 'NONE', 'NULL', 'NA', 'N/A', '-'].includes(s)
+        || s.startsWith('VACANT')
+        || /^(SO|ASM|RSM|ZH)[0-9]+$/i.test(s);
+    };
+
     for (const e of empTable) {
-      if (e.emp_name) {
+      if (e.emp_name && !isDummy(e.emp_code, e.emp_name)) {
         const key = `${e.role || 'SO'}_${e.emp_code || e.emp_name}`;
         combined.set(key, {
           emp_code: e.emp_code || e.emp_name,
@@ -373,7 +405,7 @@ export async function getAllEmployees(req, res) {
 
     for (const list of [soList, asmList, rsmList, zhList]) {
       for (const e of list) {
-        if (!e.emp_name) continue;
+        if (!e.emp_name || isDummy(e.emp_code, e.emp_name)) continue;
         const key = `${e.role}_${e.emp_code || e.emp_name}`;
         if (!combined.has(key)) {
           combined.set(key, {
