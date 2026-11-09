@@ -24,12 +24,58 @@ const TABS = [
   { id: 'master-check', label: 'Master Verification', icon: ShieldCheck, desc: 'Employee Master Audit' }
 ];
 
+// Helper to compute the last date of a month (e.g. 2026-10 -> 2026-10-31)
+const getMonthEndDate = (period) => {
+  if (!period || !/^\d{4}-\d{2}$/.test(period)) return '2026-09-30';
+  const [y, m] = period.split('-').map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  return `${period}-${String(lastDay).padStart(2, '0')}`;
+};
+
 export default function NonTradeDjpView({ onShowToast }) {
-  const [periodMonth, setPeriodMonth] = useState('2026-09');
-  const [asOnDate, setAsOnDate] = useState('2026-09-30');
-  const [activeTab, setActiveTab] = useState('calendar');
+  // Read persisted period, as-on date, and active tab from localStorage so October stays October across refreshes
+  const [periodMonth, setPeriodMonth] = useState(() => {
+    return localStorage.getItem('star_nontrade_period') || '2026-09';
+  });
+  const [asOnDate, setAsOnDate] = useState(() => {
+    const savedPeriod = localStorage.getItem('star_nontrade_period') || '2026-09';
+    return localStorage.getItem('star_nontrade_as_on') || getMonthEndDate(savedPeriod);
+  });
+  const [activeTab, setActiveTab] = useState(() => {
+    return localStorage.getItem('star_nontrade_tab') || 'calendar';
+  });
   const [planViewMode, setPlanViewMode] = useState('table'); // 'table' | 'calendar'
   const [selectedEmpCodeForCalendar, setSelectedEmpCodeForCalendar] = useState('ALL');
+  const [isLiveSyncing, setIsLiveSyncing] = useState(false);
+  const [lastSyncedTime, setLastSyncedTime] = useState(new Date());
+
+  // Automatically persist state changes so refresh remembers October, date & tab
+  useEffect(() => {
+    if (periodMonth) {
+      localStorage.setItem('star_nontrade_period', periodMonth);
+      localStorage.setItem('star_selected_period', periodMonth);
+    }
+  }, [periodMonth]);
+
+  useEffect(() => {
+    if (asOnDate) {
+      localStorage.setItem('star_nontrade_as_on', asOnDate);
+    }
+  }, [asOnDate]);
+
+  useEffect(() => {
+    if (activeTab) {
+      localStorage.setItem('star_nontrade_tab', activeTab);
+    }
+  }, [activeTab]);
+
+  // Seamless period change helper: aligns As-On date to the end of that month & persists
+  const handlePeriodChange = (newPeriod) => {
+    if (!newPeriod) return;
+    setPeriodMonth(newPeriod);
+    const newAsOn = getMonthEndDate(newPeriod);
+    setAsOnDate(newAsOn);
+  };
 
   // Adherence Data
   const [adhData, setAdhData] = useState(null);
@@ -62,12 +108,12 @@ export default function NonTradeDjpView({ onShowToast }) {
   const [rolloutStatus, setRolloutStatus] = useState(null);
   const [rollingOut, setRollingOut] = useState(false);
 
-  const loadRolloutStatus = async () => {
+  const loadRolloutStatus = async (silent = false) => {
     try {
       const res = await api.getNonTradeRolloutStatus(periodMonth);
       setRolloutStatus(res);
     } catch (err) {
-      console.warn('Failed to fetch rollout status:', err.message);
+      if (!silent) console.warn('Failed to fetch rollout status:', err.message);
     }
   };
 
@@ -93,30 +139,34 @@ export default function NonTradeDjpView({ onShowToast }) {
     }
   };
 
-  // Load Adherence Summary
-  const loadAdherence = async () => {
-    setLoading(true);
+  // Load Adherence Summary (silent mode for live auto-update without screen flicker)
+  const loadAdherence = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await api.getNonTradeAdherence({ periodMonth, asOnDate });
       setAdhData(res);
+      setLastSyncedTime(new Date());
     } catch (err) {
-      console.error('[NonTradeDjpView] loadAdherence error:', err);
-      onShowToast?.(err.message || 'Failed to load Non-Trade adherence', 'error');
+      if (!silent) {
+        console.error('[NonTradeDjpView] loadAdherence error:', err);
+        onShowToast?.(err.message || 'Failed to load Non-Trade adherence', 'error');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   // Load Approval Matrix
-  const loadApprovalMatrix = async () => {
-    setMatrixLoading(true);
+  const loadApprovalMatrix = async (silent = false) => {
+    if (!silent) setMatrixLoading(true);
     try {
       const res = await api.getNonTradeApprovalMatrix(periodMonth);
       setApprovalMatrix(res);
+      setLastSyncedTime(new Date());
     } catch (err) {
-      console.warn('Failed to load Non-Trade approval matrix:', err.message);
+      if (!silent) console.warn('Failed to load Non-Trade approval matrix:', err.message);
     } finally {
-      setMatrixLoading(false);
+      if (!silent) setMatrixLoading(false);
     }
   };
 
@@ -125,11 +175,51 @@ export default function NonTradeDjpView({ onShowToast }) {
     loadApprovalMatrix();
   }, [periodMonth, asOnDate]);
 
+  // Live auto-update without manual page refresh (runs every 12s + instant sync on tab focus)
+  useEffect(() => {
+    const syncAllSilent = async () => {
+      try {
+        setIsLiveSyncing(true);
+        await Promise.allSettled([
+          loadAdherence(true),
+          loadApprovalMatrix(true),
+          loadRolloutStatus(true),
+          !['adherence', 'buckets', 'master-check', 'calendar', 'approval-matrix'].includes(activeTab)
+            ? loadActiveTabData(true)
+            : Promise.resolve()
+        ]);
+        setLastSyncedTime(new Date());
+      } finally {
+        setIsLiveSyncing(false);
+      }
+    };
+
+    const interval = setInterval(syncAllSilent, 12000);
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        syncAllSilent();
+      }
+    };
+    const onFocus = () => {
+      syncAllSilent();
+    };
+
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [periodMonth, asOnDate, activeTab, page, roleFilter, bucketFilter, empCodeFilter, searchQuery]);
+
   // Load paginated records when switching tabs or filters
-  const loadActiveTabData = async () => {
+  const loadActiveTabData = async (silent = false) => {
     if (['adherence', 'buckets', 'master-check', 'calendar', 'approval-matrix'].includes(activeTab)) return;
 
-    setTableLoading(true);
+    if (!silent) setTableLoading(true);
     try {
       let res;
       const params = {
@@ -172,10 +262,12 @@ export default function NonTradeDjpView({ onShowToast }) {
         setTotalRecords(res.total || 0);
       }
     } catch (err) {
-      console.error('[NonTradeDjpView] loadActiveTabData error:', err);
-      onShowToast?.(err.message || 'Failed to load tab data', 'error');
+      if (!silent) {
+        console.error('[NonTradeDjpView] loadActiveTabData error:', err);
+        onShowToast?.(err.message || 'Failed to load tab data', 'error');
+      }
     } finally {
-      setTableLoading(false);
+      if (!silent) setTableLoading(false);
     }
   };
 
@@ -277,7 +369,7 @@ export default function NonTradeDjpView({ onShowToast }) {
               <input
                 type="month"
                 value={periodMonth}
-                onChange={e => setPeriodMonth(e.target.value)}
+                onChange={e => handlePeriodChange(e.target.value)}
                 style={{
                   padding: '7px 12px',
                   borderRadius: '6px',
@@ -309,9 +401,39 @@ export default function NonTradeDjpView({ onShowToast }) {
               />
             </div>
 
+            {/* Live Auto-Sync Status Badge */}
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 12px',
+              background: '#F0FDF4',
+              border: '1px solid #BBF7D0',
+              borderRadius: '20px',
+              fontSize: '0.74rem',
+              fontWeight: 700,
+              color: '#15803D'
+            }} title="Continuous background reconciliation. Data updates automatically without refreshing.">
+              <span style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: isLiveSyncing ? '#EAB308' : '#16A34A',
+                boxShadow: isLiveSyncing ? '0 0 0 2px rgba(234, 179, 8, 0.3)' : '0 0 0 2px rgba(22, 163, 74, 0.25)',
+                transition: 'all 0.3s ease'
+              }} />
+              <span>{isLiveSyncing ? 'Syncing...' : 'Live Sync Active'}</span>
+            </div>
+
             <button
-              onClick={loadAdherence}
-              disabled={loading}
+              onClick={() => {
+                loadAdherence(false);
+                loadApprovalMatrix(false);
+                loadRolloutStatus(false);
+                loadActiveTabData(false);
+                onShowToast?.('Synchronized latest Non-Trade data', 'success');
+              }}
+              disabled={loading || isLiveSyncing}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -325,9 +447,10 @@ export default function NonTradeDjpView({ onShowToast }) {
                 color: '#334155',
                 cursor: 'pointer'
               }}
+              title="Immediately refresh all Non-Trade data"
             >
-              <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
-              <span>Refresh</span>
+              <RefreshCw size={15} className={(loading || isLiveSyncing) ? 'animate-spin' : ''} />
+              <span>Sync Now</span>
             </button>
 
             <button
@@ -601,7 +724,7 @@ export default function NonTradeDjpView({ onShowToast }) {
         {activeTab === 'calendar' && (
           <NonTradeRedCalendar
             periodMonth={periodMonth}
-            onPeriodChange={setPeriodMonth}
+            onPeriodChange={handlePeriodChange}
             initialRole="Officer"
             initialEmpCode={selectedEmpCodeForCalendar}
             onShowToast={onShowToast}
@@ -1276,7 +1399,7 @@ export default function NonTradeDjpView({ onShowToast }) {
             {planViewMode === 'calendar' ? (
               <NonTradeRedCalendar
                 periodMonth={periodMonth}
-                onPeriodChange={setPeriodMonth}
+                onPeriodChange={handlePeriodChange}
                 initialRole={activeTab === 'officer-plans' ? 'Officer' : activeTab === 'asm-plans' ? 'ASM' : 'HOS'}
                 onShowToast={onShowToast}
               />
@@ -1826,7 +1949,7 @@ export default function NonTradeDjpView({ onShowToast }) {
                 <input
                   type="month"
                   value={periodMonth}
-                  onChange={e => setPeriodMonth(e.target.value)}
+                  onChange={e => handlePeriodChange(e.target.value)}
                   style={{
                     width: '100%',
                     padding: '8px 12px',

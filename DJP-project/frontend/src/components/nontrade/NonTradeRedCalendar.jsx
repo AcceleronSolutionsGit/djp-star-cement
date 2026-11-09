@@ -46,20 +46,26 @@ function getInitials(name = '') {
 }
 
 export default function NonTradeRedCalendar({
-  periodMonth = '2026-09',
+  periodMonth,
   onPeriodChange,
   initialRole = 'Officer',
   initialEmpCode = 'ALL',
   onShowToast
 }) {
-  const [currentPeriod, setCurrentPeriod] = useState(periodMonth);
+  const [currentPeriod, setCurrentPeriod] = useState(() => {
+    return periodMonth || localStorage.getItem('star_nontrade_period') || '2026-09';
+  });
   const [roleFilter, setRoleFilter] = useState(initialRole);
-  const [empCodeFilter, setEmpCodeFilter] = useState(initialEmpCode);
+  const [empCodeFilter, setEmpCodeFilter] = useState(() => {
+    return initialEmpCode !== 'ALL' ? initialEmpCode : (localStorage.getItem('star_nontrade_emp_filter') || 'ALL');
+  });
   const [bucketFilter, setBucketFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
   // View mode: 'list' (Officer Directory) vs 'calendar' (Individual / Team Plan Calendar)
-  const [viewMode, setViewMode] = useState(initialEmpCode !== 'ALL' ? 'calendar' : 'list');
+  const [viewMode, setViewMode] = useState(() => {
+    return initialEmpCode !== 'ALL' ? 'calendar' : (localStorage.getItem('star_nontrade_cal_viewmode') || 'list');
+  });
   const [officerSearch, setOfficerSearch] = useState('');
 
   // Calendar data from backend
@@ -71,10 +77,25 @@ export default function NonTradeRedCalendar({
   const [modalSearch, setModalSearch] = useState('');
   const [modalBucketFilter, setModalBucketFilter] = useState('ALL');
 
+  // Persist view mode and emp filter
+  useEffect(() => {
+    if (empCodeFilter) {
+      localStorage.setItem('star_nontrade_emp_filter', empCodeFilter);
+    }
+  }, [empCodeFilter]);
+
+  useEffect(() => {
+    if (viewMode) {
+      localStorage.setItem('star_nontrade_cal_viewmode', viewMode);
+    }
+  }, [viewMode]);
+
   // Sync external periodMonth changes
   useEffect(() => {
     if (periodMonth && periodMonth !== currentPeriod) {
       setCurrentPeriod(periodMonth);
+      localStorage.setItem('star_nontrade_period', periodMonth);
+      localStorage.setItem('star_selected_period', periodMonth);
     }
   }, [periodMonth]);
 
@@ -95,9 +116,9 @@ export default function NonTradeRedCalendar({
     }
   }, [initialEmpCode]);
 
-  // Fetch calendar data from backend
-  const fetchCalendar = async () => {
-    setLoading(true);
+  // Fetch calendar data from backend (silent = true does not flicker UI)
+  const fetchCalendar = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await api.getNonTradeCalendar({
         periodMonth: currentPeriod,
@@ -108,15 +129,42 @@ export default function NonTradeRedCalendar({
       });
       setCalendarData(res);
     } catch (err) {
-      console.error('[NonTradeRedCalendar] fetch error:', err);
-      onShowToast?.(err.message || 'Failed to fetch Non-Trade calendar', 'error');
+      if (!silent) {
+        console.error('[NonTradeRedCalendar] fetch error:', err);
+        onShowToast?.(err.message || 'Failed to fetch Non-Trade calendar', 'error');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchCalendar();
+  }, [currentPeriod, roleFilter, empCodeFilter, bucketFilter, searchQuery]);
+
+  // Live Auto-Refresh: silent background sync every 12s + instant sync on window/tab focus
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchCalendar(true);
+    }, 12000);
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        fetchCalendar(true);
+      }
+    };
+    const onFocus = () => {
+      fetchCalendar(true);
+    };
+
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onFocus);
+    };
   }, [currentPeriod, roleFilter, empCodeFilter, bucketFilter, searchQuery]);
 
   // Period navigation helpers
@@ -130,6 +178,8 @@ export default function NonTradeRedCalendar({
     }
     const newPeriod = `${newY}-${String(newM).padStart(2, '0')}`;
     setCurrentPeriod(newPeriod);
+    localStorage.setItem('star_nontrade_period', newPeriod);
+    localStorage.setItem('star_selected_period', newPeriod);
     onPeriodChange?.(newPeriod);
   };
 
@@ -143,6 +193,8 @@ export default function NonTradeRedCalendar({
     }
     const newPeriod = `${newY}-${String(newM).padStart(2, '0')}`;
     setCurrentPeriod(newPeriod);
+    localStorage.setItem('star_nontrade_period', newPeriod);
+    localStorage.setItem('star_selected_period', newPeriod);
     onPeriodChange?.(newPeriod);
   };
 
@@ -150,6 +202,8 @@ export default function NonTradeRedCalendar({
     const val = e.target.value;
     if (val) {
       setCurrentPeriod(val);
+      localStorage.setItem('star_nontrade_period', val);
+      localStorage.setItem('star_selected_period', val);
       onPeriodChange?.(val);
     }
   };
