@@ -883,5 +883,10 @@ export const api = {
     });
     const res = await fetchWithAuth(`${API_BASE}/nontrade/calendar?${query.toString()}`);
     return readJson(res, "Failed to fetch Non-Trade calendar data");
+  },
+
+  getNonTradeApprovalMatrix: async (periodMonth = "2026-09") => {
+    const res = await fetchWithAuth(`${API_BASE}/nontrade/approval-matrix?periodMonth=${encodeURIComponent(periodMonth)}`);
+    return readJson(res, "Failed to fetch Non-Trade approval matrix");
   }
 };

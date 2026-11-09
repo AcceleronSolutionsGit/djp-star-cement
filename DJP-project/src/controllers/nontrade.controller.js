@@ -14,7 +14,8 @@ import {
   generateNonTradeExcelExport,
   rolloutNonTradePlans,
   getNonTradeRolloutStatus,
-  getNonTradeCalendarData
+  getNonTradeCalendarData,
+  getNonTradeApprovalMatrix
 } from '../services/nontrade.service.js';
 
 // Setup multer upload for Non-Trade Excel files
@@ -247,6 +248,22 @@ export async function getNonTradeCalendarHandler(req, res) {
     res.status(500).json({ error: err.message || 'Failed to fetch Non-Trade calendar data' });
   }
 }
+
+/**
+ * GET /api/nontrade/approval-matrix
+ * Returns Non-Trade approval matrix, rules, and team reporting hierarchy
+ */
+export async function getNonTradeApprovalMatrixHandler(req, res) {
+  try {
+    const periodMonth = req.query.periodMonth || '2026-09';
+    const result = await getNonTradeApprovalMatrix(periodMonth);
+    res.json(result);
+  } catch (err) {
+    console.error('[nontrade.controller] approval matrix error:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch Non-Trade approval matrix' });
+  }
+}
+
 
 
 

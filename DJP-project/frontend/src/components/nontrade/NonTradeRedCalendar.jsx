@@ -289,18 +289,6 @@ export default function NonTradeRedCalendar({
               <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800, letterSpacing: '-0.02em', color: RED.white }}>
                 Non-Trade Plan Calendar
               </h2>
-              <span style={{
-                background: RED.white,
-                color: RED.deepMaroon,
-                padding: '2px 10px',
-                borderRadius: '12px',
-                fontSize: '0.72rem',
-                fontWeight: 800,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em'
-              }}>
-                Red Theme
-              </span>
             </div>
             <p style={{ margin: '4px 0 0 0', fontSize: '0.84rem', color: '#FECACA' }}>
               {viewMode === 'list'

@@ -9,8 +9,9 @@ import { api } from '../services/api';
 import NonTradeRedCalendar from '../components/nontrade/NonTradeRedCalendar';
 
 const TABS = [
-  { id: 'calendar', label: 'Plan Calendar', icon: Calendar, desc: 'Monthly Non-Trade Plan Calendar (Red)', isRed: true },
+  { id: 'calendar', label: 'Plan Calendar', icon: Calendar, desc: 'Visual Non-Trade Monthly Plan Calendar' },
   { id: 'adherence', label: 'Adherence Tracker', icon: BarChart2, desc: 'Employee Adherence & Achievement' },
+  { id: 'approval-matrix', label: 'Approval Matrix', icon: ShieldCheck, desc: 'Hierarchy, Approvers & Sign-Off Rules' },
   { id: 'buckets', label: 'Category Summary', icon: Layers, desc: 'Zero-lifter, Penetrate, Retain & HO' },
   { id: 'officer-plans', label: 'Officer Plans & Counters', icon: Users, desc: 'Planning Sheet - Officer' },
   { id: 'asm-plans', label: 'ASM Plans & Counters', icon: Users, desc: 'Planning Sheet - ASM' },
@@ -28,11 +29,16 @@ export default function NonTradeDjpView({ onShowToast }) {
   const [asOnDate, setAsOnDate] = useState('2026-09-30');
   const [activeTab, setActiveTab] = useState('calendar');
   const [planViewMode, setPlanViewMode] = useState('table'); // 'table' | 'calendar'
+  const [selectedEmpCodeForCalendar, setSelectedEmpCodeForCalendar] = useState('ALL');
 
   // Adherence Data
   const [adhData, setAdhData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+
+  // Approval Matrix State
+  const [approvalMatrix, setApprovalMatrix] = useState(null);
+  const [matrixLoading, setMatrixLoading] = useState(false);
 
   // Upload modal state
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -101,13 +107,27 @@ export default function NonTradeDjpView({ onShowToast }) {
     }
   };
 
+  // Load Approval Matrix
+  const loadApprovalMatrix = async () => {
+    setMatrixLoading(true);
+    try {
+      const res = await api.getNonTradeApprovalMatrix(periodMonth);
+      setApprovalMatrix(res);
+    } catch (err) {
+      console.warn('Failed to load Non-Trade approval matrix:', err.message);
+    } finally {
+      setMatrixLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadAdherence();
+    loadApprovalMatrix();
   }, [periodMonth, asOnDate]);
 
   // Load paginated records when switching tabs or filters
   const loadActiveTabData = async () => {
-    if (['adherence', 'buckets', 'master-check', 'calendar'].includes(activeTab)) return;
+    if (['adherence', 'buckets', 'master-check', 'calendar', 'approval-matrix'].includes(activeTab)) return;
 
     setTableLoading(true);
     try {
@@ -561,18 +581,6 @@ export default function NonTradeDjpView({ onShowToast }) {
             >
               <Icon size={16} color={isRedTab ? (isActive ? '#991B1B' : '#DC2626') : undefined} />
               <span>{tab.label}</span>
-              {isRedTab && (
-                <span style={{
-                  background: isActive ? '#991B1B' : '#FEE2E2',
-                  color: isActive ? '#FFF' : '#991B1B',
-                  fontSize: '0.65rem',
-                  fontWeight: 800,
-                  padding: '1px 6px',
-                  borderRadius: '10px'
-                }}>
-                  RED
-                </span>
-              )}
             </button>
           );
         })}
@@ -595,6 +603,7 @@ export default function NonTradeDjpView({ onShowToast }) {
             periodMonth={periodMonth}
             onPeriodChange={setPeriodMonth}
             initialRole="Officer"
+            initialEmpCode={selectedEmpCodeForCalendar}
             onShowToast={onShowToast}
           />
         )}
@@ -701,6 +710,392 @@ export default function NonTradeDjpView({ onShowToast }) {
                     })}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* TAB 1.5: APPROVAL MATRIX & AUTOMATED ADHERENCE ENGINE                    */}
+        {/* ========================================================================= */}
+        {activeTab === 'approval-matrix' && (
+          <div>
+            {/* Header with Title and Live Engine Status */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              marginBottom: '20px',
+              flexWrap: 'wrap',
+              gap: '16px'
+            }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#0F172A' }}>
+                    Non-Trade DJP Approval Matrix & Hierarchy
+                  </h3>
+                  <span style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    background: '#ECFDF5',
+                    color: '#065F46',
+                    border: '1px solid #A7F3D0',
+                    fontSize: '0.75rem',
+                    fontWeight: 800,
+                    letterSpacing: '0.03em'
+                  }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10B981', display: 'inline-block' }} />
+                    AUTOMATIC ADHERENCE ENGINE: ACTIVE (LIKE DJP)
+                  </span>
+                </div>
+                <p style={{ margin: '6px 0 0 0', fontSize: '0.84rem', color: '#64748B' }}>
+                  Journey touches and SFA visit reports reconcile automatically in real-time against planned monthly targets, matching standard DJP behavior.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={loadApprovalMatrix}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 14px',
+                    background: '#F1F5F9',
+                    border: '1px solid #CBD5E1',
+                    borderRadius: '6px',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    color: '#334155',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <RefreshCw size={14} className={matrixLoading ? 'spin' : ''} />
+                  <span>Refresh Matrix</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 3-Tier Multi-Level Approval Workflow Banner */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+              gap: '16px',
+              marginBottom: '24px'
+            }}>
+              {/* Level 1 */}
+              <div style={{
+                background: 'linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%)',
+                border: '1.5px solid #BFDBFE',
+                borderRadius: '10px',
+                padding: '16px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{
+                    fontSize: '0.72rem',
+                    fontWeight: 800,
+                    color: '#1D4ED8',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}>
+                    Level 1 Approval
+                  </span>
+                  <span style={{
+                    background: '#1D4ED8',
+                    color: '#FFF',
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: '12px'
+                  }}>
+                    OFFICER → ASM
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#1E3A8A', marginBottom: '4px' }}>
+                  Sales Officer Plan Submission
+                </div>
+                <p style={{ margin: 0, fontSize: '0.78rem', color: '#1E40AF', lineHeight: '1.4' }}>
+                  Sales Officers submit monthly counter visits and site touches. Reviewed & approved by assigned Area Sales Manager (ASM).
+                </p>
+                <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 700, color: '#047857' }}>
+                  <CheckCircle2 size={14} color="#059669" />
+                  <span>8 Field Officers Approved & Rolled Out</span>
+                </div>
+              </div>
+
+              {/* Level 2 */}
+              <div style={{
+                background: 'linear-gradient(135deg, #FAF5FF 0%, #F3E8FF 100%)',
+                border: '1.5px solid #E9D5FF',
+                borderRadius: '10px',
+                padding: '16px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{
+                    fontSize: '0.72rem',
+                    fontWeight: 800,
+                    color: '#6D28D9',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}>
+                    Level 2 Approval
+                  </span>
+                  <span style={{
+                    background: '#6D28D9',
+                    color: '#FFF',
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: '12px'
+                  }}>
+                    ASM → HOS
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#4C1D95', marginBottom: '4px' }}>
+                  ASM Area Roll-up & Sign-Off
+                </div>
+                <p style={{ margin: 0, fontSize: '0.78rem', color: '#5B21B6', lineHeight: '1.4' }}>
+                  ASM consolidates territory routes, key accounts & HO touches. Submitted to Head of Sales (HOS) for area endorsement.
+                </p>
+                <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 700, color: '#047857' }}>
+                  <CheckCircle2 size={14} color="#059669" />
+                  <span>3 ASM Clusters Endorsed</span>
+                </div>
+              </div>
+
+              {/* Level 3 */}
+              <div style={{
+                background: 'linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%)',
+                border: '1.5px solid #A7F3D0',
+                borderRadius: '10px',
+                padding: '16px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{
+                    fontSize: '0.72rem',
+                    fontWeight: 800,
+                    color: '#065F46',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}>
+                    Level 3 Approval
+                  </span>
+                  <span style={{
+                    background: '#047857',
+                    color: '#FFF',
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: '12px'
+                  }}>
+                    HOS → VP / HEAD
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#064E3B', marginBottom: '4px' }}>
+                  Executive Commercial Sign-Off
+                </div>
+                <p style={{ margin: 0, fontSize: '0.78rem', color: '#065F46', lineHeight: '1.4' }}>
+                  Head of Sales and Commercial Head finalize monthly targets, locking the plans for field app execution and automatic adherence tracking.
+                </p>
+                <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 700, color: '#047857' }}>
+                  <CheckCircle2 size={14} color="#059669" />
+                  <span>Locked & Rolled Out in Mobile App</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Reporting Hierarchy & Live Automated Adherence Table by ASM */}
+            <div style={{ marginBottom: '24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#1E293B' }}>
+                  Area Reporting Hierarchy & Subordinate Officer Status ({periodMonth})
+                </h4>
+                <span style={{ fontSize: '0.78rem', color: '#64748B' }}>
+                  Clicking "View Calendar" opens the officer's journey plan
+                </span>
+              </div>
+
+              {approvalMatrix?.asms?.map(asm => (
+                <div
+                  key={asm.asm_name}
+                  style={{
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '10px',
+                    marginBottom: '16px',
+                    overflow: 'hidden',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                  }}
+                >
+                  {/* ASM Cluster Header Bar */}
+                  <div style={{
+                    background: '#F8FAFC',
+                    borderBottom: '1px solid #E2E8F0',
+                    padding: '12px 18px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '10px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{
+                        background: '#1E3A8A',
+                        color: '#FFF',
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                        fontSize: '0.75rem',
+                        fontWeight: 800
+                      }}>
+                        ASM
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.92rem', fontWeight: 800, color: '#0F172A' }}>
+                          {asm.asm_name}
+                        </div>
+                        <div style={{ fontSize: '0.74rem', color: '#64748B' }}>
+                          Reports to HOS: <strong style={{ color: '#334155' }}>{asm.hos_name}</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '0.7rem', color: '#64748B', textTransform: 'uppercase', fontWeight: 600 }}>Team Adherence</div>
+                        <div style={{ fontSize: '1rem', fontWeight: 800, color: parseFloat(asm.team_adherence_pct) >= 100 ? '#16A34A' : '#D97706' }}>
+                          {asm.team_adherence_pct}%
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '0.7rem', color: '#64748B', textTransform: 'uppercase', fontWeight: 600 }}>Planned / Executed</div>
+                        <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1E293B' }}>
+                          {asm.total_officer_planned_visits} / {asm.total_officer_executed_visits}
+                        </div>
+                      </div>
+                      <span style={{
+                        background: '#DCFCE7',
+                        color: '#15803D',
+                        padding: '4px 10px',
+                        borderRadius: '12px',
+                        fontSize: '0.72rem',
+                        fontWeight: 700
+                      }}>
+                        Approved by HOS
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Subordinate Officers Table */}
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ background: '#FFFFFF', color: '#475569', borderBottom: '1px solid #E2E8F0' }}>
+                          <th style={{ padding: '9px 16px', fontWeight: 600 }}>Role</th>
+                          <th style={{ padding: '9px 16px', fontWeight: 600 }}>Emp Code</th>
+                          <th style={{ padding: '9px 16px', fontWeight: 600 }}>Officer Name</th>
+                          <th style={{ padding: '9px 16px', fontWeight: 600, textAlign: 'right' }}>Counters</th>
+                          <th style={{ padding: '9px 16px', fontWeight: 600, textAlign: 'right' }}>Planned Touches</th>
+                          <th style={{ padding: '9px 16px', fontWeight: 600, textAlign: 'right' }}>SFA Done</th>
+                          <th style={{ padding: '9px 16px', fontWeight: 600, textAlign: 'center' }}>Auto Adherence</th>
+                          <th style={{ padding: '9px 16px', fontWeight: 600, textAlign: 'center' }}>Approval Status</th>
+                          <th style={{ padding: '9px 16px', fontWeight: 600, textAlign: 'center' }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {asm.officers?.map((off, oIdx) => {
+                          const adhBadge = getAdherenceBadge(off.adherence_pct);
+                          return (
+                            <tr key={off.emp_code} style={{ background: oIdx % 2 === 0 ? '#FFFFFF' : '#FAFAFA', borderBottom: '1px solid #F1F5F9' }}>
+                              <td style={{ padding: '10px 16px', color: '#2563EB', fontWeight: 600 }}>{off.role_type}</td>
+                              <td style={{ padding: '10px 16px', fontFamily: 'monospace', fontWeight: 600 }}>{off.emp_code}</td>
+                              <td style={{ padding: '10px 16px', fontWeight: 700, color: '#0F172A' }}>{off.emp_name}</td>
+                              <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 600, color: '#475569' }}>{off.total_counters}</td>
+                              <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 700, color: '#0F172A' }}>{off.scheduled_visits}</td>
+                              <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 700, color: '#16A34A' }}>{off.executed_visits}</td>
+                              <td style={{ padding: '10px 16px', textAlign: 'center' }}>
+                                <span style={{
+                                  padding: '2px 8px',
+                                  borderRadius: '10px',
+                                  background: adhBadge.bg,
+                                  color: adhBadge.fg,
+                                  fontWeight: 800,
+                                  fontSize: '0.74rem'
+                                }}>
+                                  {off.adherence_pct}%
+                                </span>
+                              </td>
+                              <td style={{ padding: '10px 16px', textAlign: 'center' }}>
+                                <span style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  background: '#FEF2F2',
+                                  color: '#991B1B',
+                                  border: '1px solid #FECACA',
+                                  padding: '2px 8px',
+                                  borderRadius: '10px',
+                                  fontSize: '0.7rem',
+                                  fontWeight: 700
+                                }}>
+                                  <Check size={12} color="#991B1B" />
+                                  Approved & Rolled Out
+                                </span>
+                              </td>
+                              <td style={{ padding: '10px 16px', textAlign: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedEmpCodeForCalendar(off.emp_code);
+                                    setActiveTab('calendar');
+                                  }}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    padding: '4px 10px',
+                                    borderRadius: '5px',
+                                    border: '1px solid #991B1B',
+                                    background: '#FEF2F2',
+                                    color: '#991B1B',
+                                    fontSize: '0.72rem',
+                                    fontWeight: 700,
+                                    cursor: 'pointer'
+                                  }}
+                                  title={`Open ${off.emp_name}'s Plan in Calendar`}
+                                >
+                                  <Calendar size={12} />
+                                  <span>View Plan Calendar</span>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* How Automated Adherence Works Card */}
+            <div style={{
+              background: '#F8FAFC',
+              border: '1px solid #E2E8F0',
+              borderRadius: '10px',
+              padding: '18px 20px',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '14px'
+            }}>
+              <Info size={20} color="#1E40AF" style={{ flexShrink: 0, marginTop: '2px' }} />
+              <div style={{ fontSize: '0.8rem', color: '#475569', lineHeight: '1.5' }}>
+                <strong style={{ color: '#0F172A', display: 'block', marginBottom: '4px' }}>
+                  How Non-Trade Automated Adherence Works (Identical to Trade DJP Engine):
+                </strong>
+                When Non-Trade journey plans are approved and rolled out to mobile apps, field staff punches (CVR, Lead Generation, Site Inspections, and Professional Calls) are ingested continuously. The adherence engine matches punches by Employee Code, Counter SAP Code, and Scheduled Date. Adherence percentages, touch counts, and achievement percentages are updated automatically in real time without manual re-calculation or spreadsheet imports.
+              </div>
             </div>
           </div>
         )}
@@ -831,7 +1226,7 @@ export default function NonTradeDjpView({ onShowToast }) {
                     }}
                   >
                     <Calendar size={14} />
-                    <span>Calendar View (Red)</span>
+                    <span>Calendar View</span>
                   </button>
                 </div>
 

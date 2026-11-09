@@ -1955,3 +1955,188 @@ export async function getNonTradeCalendarData({
     days
   };
 }
+
+/**
+ * Get Non-Trade Approval Matrix & Team Reporting Hierarchy with Automated Adherence Tracking
+ */
+export async function getNonTradeApprovalMatrix(periodMonth = '2026-09') {
+  // Query distinct reporting pairs from nontrade_plans
+  const officerRows = await dbAll(`
+    SELECT DISTINCT
+      p.emp_code, p.emp_name, p.role_type, p.asm_name, p.hos_name, p.status,
+      COUNT(*) as total_counters,
+      SUM(CASE WHEN date_of_visit_1 IS NOT NULL AND date_of_visit_1 != 'NA' AND date_of_visit_1 != '0' THEN 1 ELSE 0 END +
+          CASE WHEN date_of_visit_2 IS NOT NULL AND date_of_visit_2 != 'NA' AND date_of_visit_2 != '0' THEN 1 ELSE 0 END +
+          CASE WHEN date_of_visit_3 IS NOT NULL AND date_of_visit_3 != 'NA' AND date_of_visit_3 != '0' THEN 1 ELSE 0 END +
+          CASE WHEN ho_visit_date_1 IS NOT NULL AND ho_visit_date_1 != 'NA' AND ho_visit_date_1 != '0' THEN 1 ELSE 0 END +
+          CASE WHEN ho_visit_date_2 IS NOT NULL AND ho_visit_date_2 != 'NA' AND ho_visit_date_2 != '0' THEN 1 ELSE 0 END) as scheduled_visits
+    FROM nontrade_plans p
+    WHERE p.period_month = ? AND p.role_type = 'Officer'
+    GROUP BY p.emp_code, p.emp_name, p.role_type, p.asm_name, p.hos_name, p.status
+    ORDER BY p.asm_name ASC, p.emp_name ASC
+  `, [periodMonth]);
+
+  // Query ASM rows
+  const asmRows = await dbAll(`
+    SELECT DISTINCT
+      p.emp_code, p.emp_name, p.role_type, p.asm_name, p.hos_name, p.status,
+      COUNT(*) as total_counters,
+      SUM(CASE WHEN date_of_visit_1 IS NOT NULL AND date_of_visit_1 != 'NA' AND date_of_visit_1 != '0' THEN 1 ELSE 0 END +
+          CASE WHEN date_of_visit_2 IS NOT NULL AND date_of_visit_2 != 'NA' AND date_of_visit_2 != '0' THEN 1 ELSE 0 END +
+          CASE WHEN date_of_visit_3 IS NOT NULL AND date_of_visit_3 != 'NA' AND date_of_visit_3 != '0' THEN 1 ELSE 0 END +
+          CASE WHEN ho_visit_date_1 IS NOT NULL AND ho_visit_date_1 != 'NA' AND ho_visit_date_1 != '0' THEN 1 ELSE 0 END +
+          CASE WHEN ho_visit_date_2 IS NOT NULL AND ho_visit_date_2 != 'NA' AND ho_visit_date_2 != '0' THEN 1 ELSE 0 END) as scheduled_visits
+    FROM nontrade_plans p
+    WHERE p.period_month = ? AND p.role_type = 'ASM'
+    GROUP BY p.emp_code, p.emp_name, p.role_type, p.asm_name, p.hos_name, p.status
+    ORDER BY p.emp_name ASC
+  `, [periodMonth]);
+
+  // Query HOS rows
+  const hosRows = await dbAll(`
+    SELECT DISTINCT
+      p.emp_code, p.emp_name, p.role_type, p.asm_name, p.hos_name, p.status,
+      COUNT(*) as total_counters,
+      SUM(CASE WHEN date_of_visit_1 IS NOT NULL AND date_of_visit_1 != 'NA' AND date_of_visit_1 != '0' THEN 1 ELSE 0 END +
+          CASE WHEN date_of_visit_2 IS NOT NULL AND date_of_visit_2 != 'NA' AND date_of_visit_2 != '0' THEN 1 ELSE 0 END +
+          CASE WHEN date_of_visit_3 IS NOT NULL AND date_of_visit_3 != 'NA' AND date_of_visit_3 != '0' THEN 1 ELSE 0 END +
+          CASE WHEN ho_visit_date_1 IS NOT NULL AND ho_visit_date_1 != 'NA' AND ho_visit_date_1 != '0' THEN 1 ELSE 0 END +
+          CASE WHEN ho_visit_date_2 IS NOT NULL AND ho_visit_date_2 != 'NA' AND ho_visit_date_2 != '0' THEN 1 ELSE 0 END) as scheduled_visits
+    FROM nontrade_plans p
+    WHERE p.period_month = ? AND p.role_type = 'HOS'
+    GROUP BY p.emp_code, p.emp_name, p.role_type, p.asm_name, p.hos_name, p.status
+    ORDER BY p.emp_name ASC
+  `, [periodMonth]);
+
+  // Get SFA execution counts per officer
+  const cvrCounts = await dbAll(`
+    SELECT emp_code, COUNT(*) as executed_count
+    FROM nontrade_customer_visit_reports
+    WHERE period_month = ?
+    GROUP BY emp_code
+  `, [periodMonth]);
+  const cvrMap = new Map(cvrCounts.map(c => [String(c.emp_code).trim(), Number(c.executed_count)]));
+
+  // Build ASM Groups
+  const asmMap = new Map();
+  for (const a of asmRows) {
+    const asmName = a.emp_name;
+    if (!asmMap.has(asmName)) {
+      asmMap.set(asmName, {
+        asm_name: asmName,
+        asm_emp_code: a.emp_code,
+        hos_name: a.hos_name || 'SHANTANU BHATTACHARJEE',
+        status: a.status || 'APPROVED',
+        asm_scheduled_visits: Number(a.scheduled_visits) || 0,
+        subordinates: [],
+        total_officers: 0,
+        total_officer_planned_visits: 0,
+        total_officer_executed_visits: 0
+      });
+    }
+  }
+
+  for (const o of officerRows) {
+    const asmName = o.asm_name || 'Unassigned';
+    if (!asmMap.has(asmName)) {
+      asmMap.set(asmName, {
+        asm_name: asmName,
+        asm_emp_code: 'NA',
+        hos_name: o.hos_name || 'NA',
+        status: o.status || 'APPROVED',
+        asm_scheduled_visits: 0,
+        subordinates: [],
+        total_officers: 0,
+        total_officer_planned_visits: 0,
+        total_officer_executed_visits: 0
+      });
+    }
+
+    const asm = asmMap.get(asmName);
+    const execCount = cvrMap.get(String(o.emp_code).trim()) || 0;
+    const planned = Number(o.scheduled_visits) || 0;
+    const adhPct = planned > 0 ? ((execCount / planned) * 100).toFixed(1) : '0.0';
+
+    asm.subordinates.push({
+      emp_code: o.emp_code,
+      emp_name: o.emp_name,
+      role_type: o.role_type,
+      total_counters: o.total_counters,
+      scheduled_visits: planned,
+      executed_visits: execCount,
+      adherence_pct: adhPct,
+      status: o.status || 'APPROVED'
+    });
+    asm.total_officers++;
+    asm.total_officer_planned_visits += planned;
+    asm.total_officer_executed_visits += execCount;
+  }
+
+  const asmHierarchy = Array.from(asmMap.values()).map(a => ({
+    ...a,
+    officers: a.subordinates,
+    team_adherence_pct: a.total_officer_planned_visits > 0
+      ? ((a.total_officer_executed_visits / a.total_officer_planned_visits) * 100).toFixed(1)
+      : '0.0'
+  })).sort((a, b) => b.total_officers - a.total_officers);
+
+  // General Approval Matrix Rules
+  const matrixRules = [
+    {
+      level: 1,
+      role: 'Officer',
+      approverRole: 'ASM',
+      submitter_role: 'Sales Officer (Non-Trade)',
+      submitter_code: 'Officer',
+      approver_role: 'Area Sales Manager (ASM)',
+      approver_code: 'ASM',
+      description: 'L1 Sign-Off: Officer visits verified by Area Sales Manager',
+      scope: 'Weekly / Monthly Counter Visits & Journey Plan',
+      sla_hours: '48 Hours',
+      auto_adherence: 'Active — punches directly match planned visit dates'
+    },
+    {
+      level: 2,
+      role: 'ASM',
+      approverRole: 'HOS',
+      submitter_role: 'Area Sales Manager (ASM)',
+      submitter_code: 'ASM',
+      approver_role: 'Head of Sales (HOS)',
+      approver_code: 'HOS',
+      description: 'L2 Sign-Off: ASM planned touches & joint visits approved by Head of Sales',
+      scope: 'Zonal & Joint Account Visits',
+      sla_hours: '24 Hours',
+      auto_adherence: 'Active — team adherence aggregated automatically'
+    },
+    {
+      level: 3,
+      role: 'HOS',
+      approverRole: 'Commercial Head / VP',
+      submitter_role: 'Head of Sales (HOS)',
+      submitter_code: 'HOS',
+      approver_role: 'Commercial Head / VP Sales',
+      approver_code: 'VP / COMM',
+      description: 'Executive Sign-Off: Key institutional & Head Office planned accounts',
+      scope: 'Strategic Non-Trade Accounts & Overall Adherence',
+      sla_hours: '72 Hours',
+      auto_adherence: 'Active — company-wide Non-Trade tracking'
+    }
+  ];
+
+  return {
+    periodMonth,
+    rules: matrixRules,
+    levels: matrixRules,
+    hierarchy: asmHierarchy,
+    asms: asmHierarchy,
+    autoTrackingEnabled: true,
+    summary: {
+      total_officers: officerRows.length,
+      total_asms: asmRows.length,
+      total_hos: hosRows.length,
+      rollout_status: 'APPROVED / ACTIVE IN FIELD APP',
+      auto_adherence_status: 'AUTOMATICALLY TRACKED LIKE DJP'
+    }
+  };
+}
+
