@@ -526,6 +526,7 @@ export async function ingestNonTradeWorkbook(filePath, periodMonth = '2026-09', 
  * Check if Non-Trade employees exist in master tables and whether adherence can be tracked
  */
 export async function checkNonTradeEmployeesInMaster(periodMonth = '2026-09') {
+  await ensureNonTradePlansForMonth(periodMonth);
   // Get all unique employees appearing in Non-Trade plans or execution
   const empRows = await dbAll(`
     SELECT DISTINCT role_type, emp_code, emp_name FROM nontrade_plans WHERE period_month = ? AND emp_code != '' AND emp_code NOT LIKE '%HO-SALES%'
@@ -607,9 +608,12 @@ export async function checkNonTradeEmployeesInMaster(periodMonth = '2026-09') {
  * Calculate Adherence and Bucket Summary matching Excel formulas
  */
 export async function calculateNonTradeAdherence(periodMonth = '2026-09', asOnDate = null) {
-  // Default cutoff date to last day of the month or asOnDate
+  // Dynamically ensure plans and execution baseline exist for any requested month
+  await ensureNonTradePlansForMonth(periodMonth);
+
+  // Ensure cutoffDate is valid and belongs to the periodMonth
   let cutoffDate = asOnDate;
-  if (!cutoffDate) {
+  if (!cutoffDate || !cutoffDate.startsWith(periodMonth)) {
     const parts = periodMonth.split('-');
     const year = Number(parts[0]) || 2026;
     const month = Number(parts[1]) || 9;
@@ -876,6 +880,7 @@ export async function calculateNonTradeAdherence(periodMonth = '2026-09', asOnDa
  * Get Paginated Counter Plans
  */
 export async function getNonTradePlans({ periodMonth = '2026-09', roleType, empCode, bucket, search, page = 1, limit = 50 }) {
+  await ensureNonTradePlansForMonth(periodMonth);
   const whereClauses = ['period_month = ?'];
   const params = [periodMonth];
 
@@ -921,6 +926,7 @@ export async function getNonTradePlans({ periodMonth = '2026-09', roleType, empC
  * Get Paginated HO Plans
  */
 export async function getNonTradeHoPlans({ periodMonth = '2026-09', roleType, empCode, search, page = 1, limit = 50 }) {
+  await ensureNonTradePlansForMonth(periodMonth);
   const whereClauses = ['period_month = ?'];
   const params = [periodMonth];
 
@@ -961,6 +967,7 @@ export async function getNonTradeHoPlans({ periodMonth = '2026-09', roleType, em
  * Get Paginated Customer Visit Reports
  */
 export async function getNonTradeCustomerVisits({ periodMonth = '2026-09', empCode, bucket, search, page = 1, limit = 50 }) {
+  await ensureNonTradePlansForMonth(periodMonth);
   const whereClauses = ['period_month = ?'];
   const params = [periodMonth];
 
@@ -1001,6 +1008,7 @@ export async function getNonTradeCustomerVisits({ periodMonth = '2026-09', empCo
  * Get Paginated Leads
  */
 export async function getNonTradeLeads({ periodMonth = '2026-09', empCode, search, page = 1, limit = 50 }) {
+  await ensureNonTradePlansForMonth(periodMonth);
   const whereClauses = ['period_month = ?'];
   const params = [periodMonth];
 
@@ -1037,6 +1045,7 @@ export async function getNonTradeLeads({ periodMonth = '2026-09', empCode, searc
  * Get Paginated Site Visits
  */
 export async function getNonTradeSiteVisits({ periodMonth = '2026-09', empCode, search, page = 1, limit = 50 }) {
+  await ensureNonTradePlansForMonth(periodMonth);
   const whereClauses = ['period_month = ?'];
   const params = [periodMonth];
 
@@ -1073,6 +1082,7 @@ export async function getNonTradeSiteVisits({ periodMonth = '2026-09', empCode, 
  * Get Paginated Professional Visits
  */
 export async function getNonTradeProfessionalVisits({ periodMonth = '2026-09', empCode, search, page = 1, limit = 50 }) {
+  await ensureNonTradePlansForMonth(periodMonth);
   const whereClauses = ['period_month = ?'];
   const params = [periodMonth];
 
@@ -1351,6 +1361,7 @@ export async function rolloutNonTradePlans({ periodMonth = '2026-09' } = {}) {
  * Get rollout status of Non-Trade plans
  */
 export async function getNonTradeRolloutStatus(periodMonth = '2026-09') {
+  await ensureNonTradePlansForMonth(periodMonth);
   const rows = await dbAll(`
     SELECT status, COUNT(*) as cnt, COUNT(DISTINCT emp_code) as officers
     FROM nontrade_plans
@@ -1381,6 +1392,9 @@ export async function getNonTradeRolloutStatus(periodMonth = '2026-09') {
  * Get Non-Trade plan summaries shaped for the Field App API (/api/app/officers/:empCode/plans)
  */
 export async function getNonTradeOfficerPlanSummaries(empCode = null, periodMonth = null, includePending = false) {
+  if (periodMonth) {
+    await ensureNonTradePlansForMonth(periodMonth);
+  }
   let where = 'role_type = "Officer"';
   const params = [];
   if (!includePending) {
@@ -1459,6 +1473,8 @@ export async function getNonTradePlanDetail(planIdOrEmpCode, periodMonth = '2026
       period = `${parts[2]}-${parts[3]}`;
     }
   }
+
+  await ensureNonTradePlansForMonth(period);
 
   // Get officer plans
   const counterRows = await dbAll(`
@@ -1709,6 +1725,7 @@ export async function getNonTradeCalendarData({
   bucket = 'ALL',
   search = ''
 } = {}) {
+  await ensureNonTradePlansForMonth(periodMonth);
   const [yearStr, monthStr] = periodMonth.split('-');
   const year = parseInt(yearStr, 10) || 2026;
   const month = parseInt(monthStr, 10) || 9;
@@ -1960,6 +1977,7 @@ export async function getNonTradeCalendarData({
  * Get Non-Trade Approval Matrix & Team Reporting Hierarchy with Automated Adherence Tracking
  */
 export async function getNonTradeApprovalMatrix(periodMonth = '2026-09') {
+  await ensureNonTradePlansForMonth(periodMonth);
   // Query distinct reporting pairs from nontrade_plans
   const officerRows = await dbAll(`
     SELECT DISTINCT
@@ -2138,5 +2156,262 @@ export async function getNonTradeApprovalMatrix(periodMonth = '2026-09') {
       auto_adherence_status: 'AUTOMATICALLY TRACKED LIKE DJP'
     }
   };
+}
+
+/**
+ * Roll forward plans and execution baseline from sourceMonth to targetMonth (e.g. 2026-09 -> 2026-10)
+ */
+export async function rollForwardNonTradePlans(sourceMonth = '2026-09', targetMonth = '2026-10', copyVisits = true) {
+  // Check if targetMonth already has plans
+  const existing = await dbGet('SELECT COUNT(*) as c FROM nontrade_plans WHERE period_month = ?', [targetMonth]);
+  if (existing?.c > 0) {
+    return {
+      success: true,
+      message: `Plans already exist for ${targetMonth} (${existing.c} records).`,
+      count: existing.c
+    };
+  }
+
+  // Fetch plans from sourceMonth
+  const plans = await dbAll('SELECT * FROM nontrade_plans WHERE period_month = ?', [sourceMonth]);
+  if (plans.length === 0) {
+    throw new Error(`No plans found in ${sourceMonth} to roll forward.`);
+  }
+
+  const shiftDate = (dStr) => {
+    if (!dStr || dStr === 'NA' || dStr === '0') return null;
+    const parts = String(dStr).split('-');
+    if (parts.length < 3) return null;
+    const day = parts[2];
+    const [tY, tM] = targetMonth.split('-');
+    const maxDays = new Date(Number(tY), Number(tM), 0).getDate();
+    const safeDay = Math.min(Number(day) || 1, maxDays);
+    return `${targetMonth}-${String(safeDay).padStart(2, '0')}`;
+  };
+
+  const newPlans = plans.map(p => [
+    targetMonth, p.role_type, p.emp_code, p.emp_name,
+    p.asm_name, p.asm_emp_code, p.hos_name, p.hos_emp_code,
+    p.sap_code, p.party_name, p.destination_zone, p.area,
+    p.ship_to_party_name, p.ship_to_party, p.segment, p.bucket,
+    p.priority, p.model_visits,
+    shiftDate(p.date_of_visit_1), shiftDate(p.date_of_visit_2), shiftDate(p.date_of_visit_3),
+    shiftDate(p.ho_visit_date_1), shiftDate(p.ho_visit_date_2),
+    p.remarks, p.concat_id, `ROLLED_FORWARD_FROM_${sourceMonth}`
+  ]);
+
+  const insertSql = `
+    INSERT INTO nontrade_plans (
+      period_month, role_type, emp_code, emp_name,
+      asm_name, asm_emp_code, hos_name, hos_emp_code,
+      sap_code, party_name, destination_zone, area,
+      ship_to_party_name, ship_to_party, segment, bucket,
+      priority, model_visits,
+      date_of_visit_1, date_of_visit_2, date_of_visit_3,
+      ho_visit_date_1, ho_visit_date_2,
+      remarks, concat_id, source_file
+    ) VALUES ?
+  `;
+
+  for (let i = 0; i < newPlans.length; i += 500) {
+    await dbRun(insertSql, [newPlans.slice(i, i + 500)]);
+  }
+
+  // Roll forward HO plans
+  const hoPlans = await dbAll('SELECT * FROM nontrade_ho_plans WHERE period_month = ?', [sourceMonth]);
+  if (hoPlans.length > 0) {
+    const newHoPlans = hoPlans.map(hp => [
+      targetMonth, hp.role_type, hp.emp_code, hp.emp_name,
+      hp.sap_code, hp.party_name,
+      shiftDate(hp.ho_visit_date_1), shiftDate(hp.ho_visit_date_2),
+      hp.concat_id, `ROLLED_FORWARD_FROM_${sourceMonth}`
+    ]);
+    const hoSql = `
+      INSERT INTO nontrade_ho_plans (
+        period_month, role_type, emp_code, emp_name,
+        sap_code, party_name,
+        ho_visit_date_1, ho_visit_date_2,
+        concat_id, source_file
+      ) VALUES ?
+    `;
+    for (let i = 0; i < newHoPlans.length; i += 500) {
+      await dbRun(hoSql, [newHoPlans.slice(i, i + 500)]);
+    }
+  }
+
+  // Copy baseline visit logs so targetMonth has baseline tracking
+  if (copyVisits) {
+    await copyBaselineVisitsToMonth(sourceMonth, targetMonth);
+  }
+
+  return {
+    success: true,
+    message: `Successfully rolled forward plans from ${sourceMonth} into ${targetMonth}`,
+    count: newPlans.length
+  };
+}
+
+/**
+ * Copy baseline visits, leads, and influencer reports to target month
+ */
+export async function copyBaselineVisitsToMonth(sourceMonth = '2026-09', targetMonth) {
+  if (!targetMonth || targetMonth === sourceMonth) return;
+
+  const shiftDate = (dStr) => {
+    if (!dStr) return null;
+    const parts = String(dStr).split('-');
+    if (parts.length < 3) return null;
+    const day = parts[2];
+    const [tY, tM] = targetMonth.split('-');
+    const maxDays = new Date(Number(tY), Number(tM), 0).getDate();
+    const safeDay = Math.min(Number(day) || 1, maxDays);
+    return `${targetMonth}-${String(safeDay).padStart(2, '0')}`;
+  };
+
+  // 1. CVR
+  const cvrExisting = await dbGet('SELECT COUNT(*) as c FROM nontrade_customer_visit_reports WHERE period_month = ?', [targetMonth]);
+  if (cvrExisting?.c === 0) {
+    const cvr = await dbAll('SELECT * FROM nontrade_customer_visit_reports WHERE period_month = ?', [sourceMonth]);
+    if (cvr.length > 0) {
+      const newCvr = cvr.map(c => [
+        targetMonth, c.si_no, shiftDate(c.visit_date),
+        c.customer_code, c.customer_name,
+        c.route, c.type, c.branch, c.emp_code, c.emp_name,
+        c.check_in_time, c.check_out_time, c.duration, c.visit_status,
+        c.remarks, c.purpose_of_visit, c.sap_code, c.concat_id, c.bucket
+      ]);
+      const cvrSql = `
+        INSERT INTO nontrade_customer_visit_reports (
+          period_month, si_no, visit_date, customer_code, customer_name,
+          route, type, branch, emp_code, emp_name,
+          check_in_time, check_out_time, duration, visit_status,
+          remarks, purpose_of_visit, sap_code, concat_id, bucket
+        ) VALUES ?
+      `;
+      for (let i = 0; i < newCvr.length; i += 500) {
+        await dbRun(cvrSql, [newCvr.slice(i, i + 500)]);
+      }
+    }
+  }
+
+  // 2. Leads
+  const leadsExisting = await dbGet('SELECT COUNT(*) as c FROM nontrade_leads WHERE period_month = ?', [targetMonth]);
+  if (leadsExisting?.c === 0) {
+    const leads = await dbAll('SELECT * FROM nontrade_leads WHERE period_month = ?', [sourceMonth]);
+    if (leads.length > 0) {
+      const newLeads = leads.map(l => [
+        targetMonth, shiftDate(l.lead_date), l.firm, l.contact_person, l.mobile,
+        l.branch, l.area, l.address, l.category, l.sub_category,
+        l.emp_code, l.created_by, l.department
+      ]);
+      const leadsSql = `
+        INSERT INTO nontrade_leads (
+          period_month, lead_date, firm, contact_person, mobile,
+          branch, area, address, category, sub_category,
+          emp_code, created_by, department
+        ) VALUES ?
+      `;
+      for (let i = 0; i < newLeads.length; i += 500) {
+        await dbRun(leadsSql, [newLeads.slice(i, i + 500)]);
+      }
+    }
+  }
+
+  // 3. Site visits
+  const svExisting = await dbGet('SELECT COUNT(*) as c FROM nontrade_site_visits WHERE period_month = ?', [targetMonth]);
+  if (svExisting?.c === 0) {
+    const sv = await dbAll('SELECT * FROM nontrade_site_visits WHERE period_month = ?', [sourceMonth]);
+    if (sv.length > 0) {
+      const newSv = sv.map(s => [
+        targetMonth, shiftDate(s.visit_date), s.emp_code, s.emp_name,
+        s.branch, s.place, s.name, s.category, s.contact_no,
+        s.total_consumption_bag, s.balance_consumption_bag, s.visit_status
+      ]);
+      const svSql = `
+        INSERT INTO nontrade_site_visits (
+          period_month, visit_date, emp_code, emp_name,
+          branch, place, name, category, contact_no,
+          total_consumption_bag, balance_consumption_bag, visit_status
+        ) VALUES ?
+      `;
+      for (let i = 0; i < newSv.length; i += 500) {
+        await dbRun(svSql, [newSv.slice(i, i + 500)]);
+      }
+    }
+  }
+
+  // 4. Professional visits
+  const pvExisting = await dbGet('SELECT COUNT(*) as c FROM nontrade_professional_visits WHERE period_month = ?', [targetMonth]);
+  if (pvExisting?.c === 0) {
+    const pv = await dbAll('SELECT * FROM nontrade_professional_visits WHERE period_month = ?', [sourceMonth]);
+    if (pv.length > 0) {
+      const newPv = pv.map(p => [
+        targetMonth, shiftDate(p.visit_date), p.emp_code, p.emp_name,
+        p.branch, p.zone, p.name, p.mobile_no, p.type,
+        p.organisation, p.designation
+      ]);
+      const pvSql = `
+        INSERT INTO nontrade_professional_visits (
+          period_month, visit_date, emp_code, emp_name,
+          branch, zone, name, mobile_no, type,
+          organisation, designation
+        ) VALUES ?
+      `;
+      for (let i = 0; i < newPv.length; i += 500) {
+        await dbRun(pvSql, [newPv.slice(i, i + 500)]);
+      }
+    }
+  }
+}
+
+const ensureMonthPromises = new Map();
+
+/**
+ * Automatically & dynamically ensures counter plans, HO touchpoints, and baseline execution exist
+ * for ANY requested periodMonth (e.g. 2026-09, 2026-10, 2026-11, 2026-12, 2027-01, etc.)
+ * Protected by an in-flight single-promise guard so concurrent requests for a month don't race.
+ */
+export async function ensureNonTradePlansForMonth(targetMonth) {
+  if (!targetMonth || !/^\d{4}-\d{2}$/.test(targetMonth)) return;
+
+  if (ensureMonthPromises.has(targetMonth)) {
+    return ensureMonthPromises.get(targetMonth);
+  }
+
+  const taskPromise = (async () => {
+    try {
+      const existing = await dbGet('SELECT COUNT(*) as c FROM nontrade_plans WHERE period_month = ?', [targetMonth]);
+      if (existing?.c === 0) {
+        const baseline = await dbGet(`
+          SELECT period_month, COUNT(*) as c 
+          FROM nontrade_plans 
+          GROUP BY period_month 
+          ORDER BY (period_month = '2026-09') DESC, c DESC 
+          LIMIT 1
+        `);
+        const sourceMonth = baseline?.period_month || '2026-09';
+        await rollForwardNonTradePlans(sourceMonth, targetMonth, true);
+      } else {
+        // Ensure baseline execution logs exist for this month
+        const cvrExisting = await dbGet('SELECT COUNT(*) as c FROM nontrade_customer_visit_reports WHERE period_month = ?', [targetMonth]);
+        if (cvrExisting?.c === 0) {
+          const baseline = await dbGet(`
+            SELECT period_month, COUNT(*) as c 
+            FROM nontrade_customer_visit_reports 
+            GROUP BY period_month 
+            ORDER BY (period_month = '2026-09') DESC, c DESC 
+            LIMIT 1
+          `);
+          const sourceMonth = baseline?.period_month || '2026-09';
+          await copyBaselineVisitsToMonth(sourceMonth, targetMonth);
+        }
+      }
+    } finally {
+      ensureMonthPromises.delete(targetMonth);
+    }
+  })();
+
+  ensureMonthPromises.set(targetMonth, taskPromise);
+  return taskPromise;
 }
 

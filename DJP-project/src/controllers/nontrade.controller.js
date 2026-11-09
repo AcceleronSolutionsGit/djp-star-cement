@@ -15,7 +15,8 @@ import {
   rolloutNonTradePlans,
   getNonTradeRolloutStatus,
   getNonTradeCalendarData,
-  getNonTradeApprovalMatrix
+  getNonTradeApprovalMatrix,
+  rollForwardNonTradePlans
 } from '../services/nontrade.service.js';
 
 // Setup multer upload for Non-Trade Excel files
@@ -261,6 +262,21 @@ export async function getNonTradeApprovalMatrixHandler(req, res) {
   } catch (err) {
     console.error('[nontrade.controller] approval matrix error:', err);
     res.status(500).json({ error: err.message || 'Failed to fetch Non-Trade approval matrix' });
+  }
+}
+
+/**
+ * POST /api/nontrade/plans/roll-forward
+ * Roll forward plans and baseline from sourceMonth to targetMonth (e.g. 2026-09 -> 2026-10)
+ */
+export async function rollForwardNonTradePlansHandler(req, res) {
+  try {
+    const { sourceMonth = '2026-09', targetMonth = '2026-10', copyVisits = true } = req.body;
+    const result = await rollForwardNonTradePlans(sourceMonth, targetMonth, copyVisits);
+    res.json(result);
+  } catch (err) {
+    console.error('[nontrade.controller] roll-forward error:', err);
+    res.status(500).json({ error: err.message || 'Failed to roll forward plans' });
   }
 }
 

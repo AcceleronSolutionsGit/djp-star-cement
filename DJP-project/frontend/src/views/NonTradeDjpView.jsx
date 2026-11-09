@@ -17,8 +17,8 @@ const TABS = [
   { id: 'asm-plans', label: 'ASM Plans & Counters', icon: Users, desc: 'Planning Sheet - ASM' },
   { id: 'hos-plans', label: 'HOS Plans & Counters', icon: Building, desc: 'Planning Sheet - HOS' },
   { id: 'ho-plans', label: 'HO Visits', icon: Building, desc: 'Head Office Planned Visits' },
-  { id: 'cvr', label: 'Customer Visit Report', icon: FileSpreadsheet, desc: 'Raw Visit Logs (610 Records)' },
-  { id: 'leads', label: 'New Lead & KYC', icon: CheckCircle2, desc: 'New Leads (138 Records)' },
+  { id: 'cvr', label: 'Customer Visit Report', icon: FileSpreadsheet, desc: 'Raw SFA Visit Logs' },
+  { id: 'leads', label: 'New Lead & KYC', icon: CheckCircle2, desc: 'New Leads & Registrations' },
   { id: 'site-visits', label: 'Site Visits', icon: MapPin, desc: 'Site Consumption Visits' },
   { id: 'prof-visits', label: 'Professional Visits', icon: Briefcase, desc: 'Govt & Influencer Visits' },
   { id: 'master-check', label: 'Master Verification', icon: ShieldCheck, desc: 'Employee Master Audit' }
@@ -636,7 +636,7 @@ export default function NonTradeDjpView({ onShowToast }) {
               {adhData.overall.totalVisitsDone}
             </div>
             <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px' }}>
-              610 CVR + 138 Leads + Sites
+              {(adhData.overall.totalCvr || 0)} CVR + {(adhData.overall.totalLeads || 0)} Leads + {((adhData.overall.totalSiteVisits || 0) + (adhData.overall.totalProfVisits || 0))} Sites
             </div>
           </div>
 
