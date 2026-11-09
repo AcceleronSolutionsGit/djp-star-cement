@@ -764,5 +764,124 @@ export const api = {
     a.click();
     a.remove();
     window.URL.revokeObjectURL(url);
+  },
+
+  // ==========================================
+  // Non-Trade DJP API Endpoints
+  // ==========================================
+  getNonTradeAdherence: async (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.periodMonth) query.append("periodMonth", params.periodMonth);
+    if (params.asOnDate) query.append("asOnDate", params.asOnDate);
+    const res = await fetchWithAuth(`${API_BASE}/nontrade/adherence?${query.toString()}`);
+    return readJson(res, "Failed to fetch Non-Trade adherence");
+  },
+
+  getNonTradePlans: async (params = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") query.append(k, v);
+    });
+    const res = await fetchWithAuth(`${API_BASE}/nontrade/plans?${query.toString()}`);
+    return readJson(res, "Failed to fetch Non-Trade plans");
+  },
+
+  getNonTradeHoPlans: async (params = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") query.append(k, v);
+    });
+    const res = await fetchWithAuth(`${API_BASE}/nontrade/ho-plans?${query.toString()}`);
+    return readJson(res, "Failed to fetch Non-Trade HO plans");
+  },
+
+  getNonTradeCustomerVisits: async (params = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") query.append(k, v);
+    });
+    const res = await fetchWithAuth(`${API_BASE}/nontrade/customer-visits?${query.toString()}`);
+    return readJson(res, "Failed to fetch customer visit reports");
+  },
+
+  getNonTradeLeads: async (params = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") query.append(k, v);
+    });
+    const res = await fetchWithAuth(`${API_BASE}/nontrade/leads?${query.toString()}`);
+    return readJson(res, "Failed to fetch Non-Trade leads");
+  },
+
+  getNonTradeSiteVisits: async (params = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") query.append(k, v);
+    });
+    const res = await fetchWithAuth(`${API_BASE}/nontrade/site-visits?${query.toString()}`);
+    return readJson(res, "Failed to fetch site visits");
+  },
+
+  getNonTradeProfessionalVisits: async (params = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") query.append(k, v);
+    });
+    const res = await fetchWithAuth(`${API_BASE}/nontrade/professional-visits?${query.toString()}`);
+    return readJson(res, "Failed to fetch professional visits");
+  },
+
+  getNonTradeEmployeeMasterCheck: async (periodMonth = "2026-09") => {
+    const res = await fetchWithAuth(`${API_BASE}/nontrade/employee-master-check?periodMonth=${encodeURIComponent(periodMonth)}`);
+    return readJson(res, "Failed to check Non-Trade employees");
+  },
+
+  uploadNonTradeExcel: async (formData) => {
+    const res = await fetchWithAuth(`${API_BASE}/nontrade/upload`, {
+      method: "POST",
+      body: formData
+    });
+    return readJson(res, "Failed to upload Non-Trade Excel file");
+  },
+
+  exportNonTradeExcel: async (periodMonth = "2026-09", asOnDate = null) => {
+    const query = new URLSearchParams();
+    if (periodMonth) query.append("periodMonth", periodMonth);
+    if (asOnDate) query.append("asOnDate", asOnDate);
+
+    const res = await fetchWithAuth(`${API_BASE}/nontrade/export?${query.toString()}`);
+    if (!res.ok) throw new Error("Failed to export Non-Trade Excel workbook");
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `NonTrade_DJP_Adherence_${periodMonth}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
+
+  rolloutNonTradePlans: async (periodMonth = "2026-09") => {
+    const res = await fetchWithAuth(`${API_BASE}/nontrade/plans/rollout`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ periodMonth })
+    });
+    return readJson(res, "Failed to roll out Non-Trade plans");
+  },
+
+  getNonTradeRolloutStatus: async (periodMonth = "2026-09") => {
+    const res = await fetchWithAuth(`${API_BASE}/nontrade/plans/rollout-status?periodMonth=${encodeURIComponent(periodMonth)}`);
+    return readJson(res, "Failed to fetch Non-Trade rollout status");
+  },
+
+  getNonTradeCalendar: async (params = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") query.append(k, v);
+    });
+    const res = await fetchWithAuth(`${API_BASE}/nontrade/calendar?${query.toString()}`);
+    return readJson(res, "Failed to fetch Non-Trade calendar data");
   }
 };

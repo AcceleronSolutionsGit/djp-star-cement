@@ -17,6 +17,7 @@ import AdherenceReportView from './views/AdherenceReportView';
 import MasterSheetView from './views/MasterSheetView';
 import LoginView from './views/LoginView';
 import ArchiveView from './views/ArchiveView';
+import NonTradeDjpView from './views/NonTradeDjpView';
 import ErrorBoundary from './components/ErrorBoundary';
 
 import { api, API_BASE } from './services/api';
@@ -238,6 +239,7 @@ export default function App() {
       case 'adherence-report': return 'Zone Adherence Tracker (Excel View)';
       case 'officer-plans': return 'Officer Plans & Adherence';
       case 'archives': return 'Data Archives';
+      case 'nontrade-djp': return 'Non-Trade DJP • Counter Plans & Adherence';
       default: return 'Star Cement | DJP';
     }
   };
@@ -352,6 +354,12 @@ export default function App() {
               <ArchiveView
                 onShowToast={showToast}
                 selectedPeriod={selectedPeriod}
+              />
+            )}
+
+            {activeTab === 'nontrade-djp' && (
+              <NonTradeDjpView
+                onShowToast={showToast}
               />
             )}
           </ErrorBoundary>

@@ -533,5 +533,9 @@ router.get('/sfa/execution-report/export-excel', async (req, res) => {
   }
 });
 
+// Non-Trade DJP Engine & Adherence Section
+import nontradeRoutes from './nontrade.routes.js';
+router.use('/nontrade', nontradeRoutes);
+
 export default router;
 

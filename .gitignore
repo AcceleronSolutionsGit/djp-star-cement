@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Environment files
+.env
+.env.*
+
+# Logs
+*.log
+
+# Excel and upload files (user uploads directly via UI)
+NON-TRADE DJP/
+upload-files/
+*.xlsx
+*.xls
+
+# OS files
+.DS_Store
+Thumbs.db

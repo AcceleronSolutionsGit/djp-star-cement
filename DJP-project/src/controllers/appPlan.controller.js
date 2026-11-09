@@ -30,6 +30,13 @@ import {
 import { getUnplannedVisits } from '../services/unplannedVisits.service.js';
 import { haversineDistanceKm, optimizeDayRoute } from '../engines/heuristicRouting.engine.js';
 import { getCoordinatesForDealers, syncCustomerCoordinatesFromApi, getCustomerCoordinateStatus } from '../services/customerCoordinates.service.js';
+import {
+  getNonTradeOfficerPlanSummaries,
+  getNonTradePlanDetail,
+  recordNonTradeVisitPunch,
+  calculateNonTradeAdherence,
+  NONTRADE_HIERARCHY_MAP
+} from '../services/nontrade.service.js';
 
 const HARD_DAILY_CAP = 8;
 
@@ -227,15 +234,28 @@ export async function listMyPlans(req, res) {
       }
     }
 
-    const resolvedRole = rows[0]?.emp_role || (await resolveEmployeeRole(empCode));
-    const resolvedName = rows[0]?.emp_name || (await resolveEmployeeName(empCode, resolvedRole))?.name || null;
+    let resolvedRole = rows[0]?.emp_role || (await resolveEmployeeRole(empCode));
+    let resolvedName = rows[0]?.emp_name || (await resolveEmployeeName(empCode, resolvedRole))?.name || null;
+
+    // Check for Non-Trade plans
+    const ntPlans = await getNonTradeOfficerPlanSummaries(empCode, month).catch(() => []);
+    let allPlans = rows.map(p => shapeSummary(p, true));
+    if (ntPlans && ntPlans.length > 0) {
+      allPlans = allPlans.concat(ntPlans);
+      if (!resolvedName && ntPlans[0]?.employee?.emp_name) {
+        resolvedName = ntPlans[0].employee.emp_name;
+      }
+      if (!resolvedRole || resolvedRole === 'SO') {
+        resolvedRole = ntPlans[0]?.employee?.role || resolvedRole || 'Officer';
+      }
+    }
 
     res.json({
       emp_code: empCode,
       emp_name: resolvedName,
       role: resolvedRole,
-      count: rows.length,
-      plans: rows.map(p => shapeSummary(p, true))
+      count: allPlans.length,
+      plans: allPlans
     });
   } catch (err) {
     console.error('[listMyPlans]', err);
@@ -267,17 +287,39 @@ export async function getMySummary(req, res) {
     if (month) { inboxWhere += ' AND period_month = ?'; inboxParams.push(month); }
     const inbox = await dbGet(`SELECT COUNT(*) AS n FROM sales_plans WHERE ${inboxWhere}`, inboxParams);
 
+    const myPlansObj = Object.fromEntries(byStatus.map(r => [r.status, Number(r.n)]));
+    const ntPlans = await getNonTradeOfficerPlanSummaries(empCode, month).catch(() => []);
+    if (ntPlans && ntPlans.length > 0) {
+      for (const np of ntPlans) {
+        const st = np.status || 'APPROVED';
+        myPlansObj[st] = (myPlansObj[st] || 0) + 1;
+      }
+    }
+
+    const ntEmp = await dbGet('SELECT emp_name, role_type FROM nontrade_plans WHERE emp_code = ? LIMIT 1', [empCode]).catch(() => null);
+    const finalName = nameRes?.name || ntEmp?.emp_name || null;
+    const finalRole = role || ntEmp?.role_type || 'Officer';
+
+    let awaitingCount = Number(inbox?.n || 0);
+    const ntSubCount = await dbGet(
+      `SELECT COUNT(DISTINCT emp_code) as n FROM nontrade_plans WHERE (asm_emp_code = ? OR hos_emp_code = ?) AND period_month = ?`,
+      [empCode, empCode, month || '2026-09']
+    ).catch(() => null);
+    if (ntSubCount?.n) {
+      awaitingCount += Number(ntSubCount.n);
+    }
+
     res.json({
       emp_code: empCode,
-      emp_name: nameRes?.name || null,
-      role,
+      emp_name: finalName,
+      role: finalRole,
       month: month || 'ALL',
-      my_plans: Object.fromEntries(byStatus.map(r => [r.status, Number(r.n)])),
-      awaiting_my_approval: Number(inbox?.n || 0),
+      my_plans: myPlansObj,
+      awaiting_my_approval: awaitingCount,
       action_required: Number(
-        (byStatus.find(r => r.status === 'DRAFT')?.n || 0)
+        (myPlansObj['DRAFT'] || 0)
       ) + Number(
-        (byStatus.find(r => r.status === 'RECTIFY')?.n || 0)
+        (myPlansObj['RECTIFY'] || 0)
       )
     });
   } catch (err) {
@@ -569,8 +611,20 @@ async function buildDetail(plan, viewerIsOwner) {
 export async function getMyPlanDetail(req, res) {
   try {
     const empCode = norm(req.params.empCode);
+    const planIdStr = String(req.params.planId || '');
+    if (planIdStr.startsWith('NT-')) {
+      const ntDetail = await getNonTradePlanDetail(planIdStr, empCode);
+      if (!ntDetail) return res.status(404).json({ error: 'Non-Trade Plan not found.' });
+      return res.json({ plan: ntDetail });
+    }
+
     const plan = await dbGet('SELECT * FROM sales_plans WHERE id = ?', [req.params.planId]);
-    if (!plan) return res.status(404).json({ error: 'Plan not found.' });
+    if (!plan) {
+      // Check if maybe it's a Non-Trade plan without the NT- prefix
+      const ntDetail = await getNonTradePlanDetail(req.params.planId, empCode);
+      if (ntDetail) return res.json({ plan: ntDetail });
+      return res.status(404).json({ error: 'Plan not found.' });
+    }
     if (!same(plan.emp_code, empCode)) {
       return res.status(403).json({ error: `Plan ${plan.id} does not belong to ${empCode}.` });
     }
@@ -584,8 +638,19 @@ export async function getMyPlanDetail(req, res) {
 export async function getPlanForApproval(req, res) {
   try {
     const empCode = norm(req.params.empCode);
+    const planIdStr = String(req.params.planId || '');
+    if (planIdStr.startsWith('NT-')) {
+      const ntDetail = await getNonTradePlanDetail(planIdStr);
+      if (!ntDetail) return res.status(404).json({ error: 'Non-Trade Plan not found.' });
+      return res.json({ plan: ntDetail, approving_as: 'ASM', via: 'DIRECT' });
+    }
+
     const plan = await dbGet('SELECT * FROM sales_plans WHERE id = ?', [req.params.planId]);
-    if (!plan) return res.status(404).json({ error: 'Plan not found.' });
+    if (!plan) {
+      const ntDetail = await getNonTradePlanDetail(req.params.planId);
+      if (ntDetail) return res.json({ plan: ntDetail, approving_as: 'ASM', via: 'DIRECT' });
+      return res.status(404).json({ error: 'Plan not found.' });
+    }
 
     const check = await canApprove(plan, empCode);
     if (!check.ok) return res.status(403).json({ error: check.reason });
@@ -1392,15 +1457,54 @@ export async function getApprovalInbox(req, res) {
       }
     }
 
+    let inboxPlans = rows.map(p => shapeSummary(p, false));
+
+    // Check for Non-Trade plans for this manager
+    const ntSubPlans = await dbAll(
+      `SELECT period_month, emp_code, emp_name, asm_emp_code, asm_name, hos_emp_code, hos_name,
+              COUNT(*) as total_counters,
+              SUM((CASE WHEN date_of_visit_1 IS NOT NULL AND date_of_visit_1 != 'NA' AND date_of_visit_1 != '0' THEN 1 ELSE 0 END) +
+                  (CASE WHEN date_of_visit_2 IS NOT NULL AND date_of_visit_2 != 'NA' AND date_of_visit_2 != '0' THEN 1 ELSE 0 END) +
+                  (CASE WHEN date_of_visit_3 IS NOT NULL AND date_of_visit_3 != 'NA' AND date_of_visit_3 != '0' THEN 1 ELSE 0 END)) as total_visits,
+              status
+       FROM nontrade_plans
+       WHERE role_type = 'Officer' AND (asm_emp_code = ? OR hos_emp_code = ?)
+       GROUP BY period_month, emp_code, emp_name, asm_emp_code, asm_name, hos_emp_code, hos_name, status`,
+      [empCode, empCode]
+    ).catch(() => []);
+
+    if (ntSubPlans.length > 0) {
+      const ntFormatted = ntSubPlans.map(r => ({
+        plan_id: `NT-${r.emp_code}-${r.period_month}`,
+        period_month: r.period_month,
+        cycle_code: 'MONTHLY',
+        status: r.status === 'ROLLED_OUT' ? 'APPROVED' : (r.status || 'DRAFT'),
+        channel: 'NON_TRADE',
+        employee: { emp_code: r.emp_code, emp_name: r.emp_name, role: 'Officer' },
+        approver: { emp_code: r.asm_emp_code || r.hos_emp_code, name: r.asm_name || r.hos_name, role: 'ASM' },
+        counts: { visits: Number(r.total_visits || 0), dealers: Number(r.total_counters || 0), working_days: 25 },
+        date_range: { from: `${r.period_month}-01`, to: `${r.period_month}-30` },
+        rectification: { count: 0, remaining: 0 },
+        timestamps: { created_at: '2026-09-01 00:00:00', approved_at: '2026-09-01 00:00:00' },
+        actions: { can_edit: false, can_submit: false, can_approve: false, can_rectify: false }
+      }));
+      inboxPlans = inboxPlans.concat(ntFormatted);
+    }
+
+    let approverName = (await resolveEmployeeName(empCode, role))?.name || null;
+    if (!approverName) {
+      approverName = (await dbGet('SELECT emp_name FROM nontrade_plans WHERE emp_code = ? LIMIT 1', [empCode]))?.emp_name || null;
+    }
+
     res.json({
       approver: {
         emp_code: empCode,
-        name: (await resolveEmployeeName(empCode, role))?.name || null,
+        name: approverName,
         role
       },
       filter: { status, month: month || 'ALL' },
-      count: rows.length,
-      plans: rows.map(p => shapeSummary(p, false))
+      count: inboxPlans.length,
+      plans: inboxPlans
     });
   } catch (err) {
     console.error('[getApprovalInbox]', err);
@@ -1567,6 +1671,49 @@ export async function listPlanPeriods(req, res) {
       if (entry) entry.officers = Number(r.officers || 0);
     }
 
+    // Merge Non-Trade periods
+    const ntRows = await dbAll(
+      `SELECT period_month, status, COUNT(*) AS counters, COUNT(DISTINCT emp_code) AS officers,
+              SUM((CASE WHEN date_of_visit_1 IS NOT NULL AND date_of_visit_1 != 'NA' AND date_of_visit_1 != '0' THEN 1 ELSE 0 END) +
+                  (CASE WHEN date_of_visit_2 IS NOT NULL AND date_of_visit_2 != 'NA' AND date_of_visit_2 != '0' THEN 1 ELSE 0 END) +
+                  (CASE WHEN date_of_visit_3 IS NOT NULL AND date_of_visit_3 != 'NA' AND date_of_visit_3 != '0' THEN 1 ELSE 0 END)) AS visits
+       FROM nontrade_plans
+       WHERE role_type = 'Officer'
+       GROUP BY period_month, status`
+    ).catch(() => []);
+
+    for (const nr of ntRows) {
+      const m = nr.period_month;
+      if (!byMonth.has(m)) {
+        byMonth.set(m, {
+          month: m,
+          plans: 0,
+          officers: 0,
+          cycles: {},
+          by_status: {}
+        });
+      }
+      const entry = byMonth.get(m);
+      const st = nr.status === 'ROLLED_OUT' ? 'APPROVED' : (nr.status || 'DRAFT');
+      entry.plans += Number(nr.officers || 0);
+      entry.officers = Math.max(entry.officers, Number(nr.officers || 0));
+      entry.by_status[st] = (entry.by_status[st] || 0) + Number(nr.officers || 0);
+
+      if (!entry.cycles['MONTHLY']) {
+        entry.cycles['MONTHLY'] = { plans: 0, visits: 0, by_status: {} };
+      }
+      entry.cycles['MONTHLY'].plans += Number(nr.officers || 0);
+      entry.cycles['MONTHLY'].visits += Number(nr.visits || 0);
+      entry.cycles['MONTHLY'].by_status[st] = (entry.cycles['MONTHLY'].by_status[st] || 0) + Number(nr.officers || 0);
+
+      if (!entry.cycles['C1']) {
+        entry.cycles['C1'] = { plans: Number(nr.officers || 0), visits: Number(nr.visits || 0), by_status: { [st]: Number(nr.officers || 0) } };
+      }
+      if (!entry.cycles['C2']) {
+        entry.cycles['C2'] = { plans: Number(nr.officers || 0), visits: Number(nr.visits || 0), by_status: { [st]: Number(nr.officers || 0) } };
+      }
+    }
+
     const periods = [...byMonth.values()];
     res.json({
       count: periods.length,
@@ -1645,13 +1792,25 @@ export async function listAllPlans(req, res) {
       return acc;
     }, { plans: 0, visits: 0, by_status: {}, by_role: {}, unrouted: 0, empty: 0 });
 
+    let combinedPlans = page.map(p => shapeSummary(p, false));
+
+    // Include Non-Trade plans if viewing month with Non-Trade or no specific month or channel=NON_TRADE
+    if (!month || month === '2026-09') {
+      const ntAll = await getNonTradeOfficerPlanSummaries(null, month || '2026-09', true).catch(() => []);
+      if (ntAll && ntAll.length > 0) {
+        combinedPlans = combinedPlans.concat(ntAll);
+        totals.plans += ntAll.length;
+        totals.visits += ntAll.reduce((s, p) => s + (p.counts?.visits || 0), 0);
+      }
+    }
+
     res.json({
       filter: { month: month || 'ALL', cycle: cycle || 'ALL', status: status || 'ALL', role: role || 'ALL' },
       cycleCounts,
       totals,
-      count: rows.length,
-      returned: page.length,
-      plans: page.map(p => shapeSummary(p, false))
+      count: combinedPlans.length,
+      returned: combinedPlans.length,
+      plans: combinedPlans
     });
   } catch (err) {
     console.error('[listAllPlans]', err);
@@ -1664,8 +1823,19 @@ export async function listAllPlans(req, res) {
  */
 export async function getPlanDetailAdmin(req, res) {
   try {
+    const planIdStr = String(req.params.planId || '');
+    if (planIdStr.startsWith('NT-')) {
+      const ntDetail = await getNonTradePlanDetail(planIdStr);
+      if (!ntDetail) return res.status(404).json({ error: 'Non-Trade Plan not found.' });
+      return res.json({ plan: ntDetail });
+    }
+
     const plan = await dbGet('SELECT * FROM sales_plans WHERE id = ?', [req.params.planId]);
-    if (!plan) return res.status(404).json({ error: 'Plan not found.' });
+    if (!plan) {
+      const ntDetail = await getNonTradePlanDetail(req.params.planId);
+      if (ntDetail) return res.json({ plan: ntDetail });
+      return res.status(404).json({ error: 'Plan not found.' });
+    }
     res.json({ plan: await buildDetail(plan, false) });
   } catch (err) {
     console.error('[getPlanDetailAdmin]', err);
@@ -1793,6 +1963,31 @@ export async function punchVisit(req, res) {
     }
 
     if (!planned && !target) {
+      // Check if this is a Non-Trade plan or counter
+      const ntPlan = await dbGet(
+        `SELECT * FROM nontrade_plans
+         WHERE (UPPER(TRIM(emp_code)) = UPPER(TRIM(?)) OR ? IS NULL)
+           AND (UPPER(TRIM(ship_to_party)) = UPPER(TRIM(?)) OR UPPER(TRIM(sap_code)) = UPPER(TRIM(?)))
+         LIMIT 1`,
+        [empCode, empCode, dealerCode, dealerCode]
+      ).catch(() => null);
+
+      if (ntPlan) {
+        const checkIn = normalisePunchTime(req.body.checkInTime) || '10:05:00';
+        const checkOut = normalisePunchTime(req.body.checkOutTime) || '10:39:00';
+        const result = await recordNonTradeVisitPunch({
+          empCode,
+          visitDate,
+          dealerCode,
+          checkInTime: checkIn,
+          checkOutTime: checkOut,
+          visitStatus: req.body.visitStatus || 'Productive',
+          purposeOfVisit: req.body.purposeOfVisit || `Non-Trade Visit (${ntPlan.bucket || 'General'})`,
+          remarks: req.body.remarks || null
+        });
+        return res.status(201).json(result);
+      }
+
       return res.status(404).json({
         error: `${dealerCode} is not on ${empCode}'s plan for ${visitDate}, and is not a ` +
                `counter in master or target records for ${month}. Check the code.`
@@ -1967,6 +2162,46 @@ export async function getMyAdherence(req, res) {
     const { month, cycle, a } = r;
 
     const mine = a.byEmployee.find(e => same(e.emp_code, empCode));
+
+    if (!mine) {
+      const ntAdh = await calculateNonTradeAdherence(month || '2026-09', req.query.asOn || null).catch(() => null);
+      if (ntAdh && ntAdh.employees) {
+        const ntEmp = ntAdh.employees.find(e => same(e.empCode, empCode));
+        if (ntEmp) {
+          return res.json({
+            emp_code: empCode,
+            emp_name: ntEmp.empName,
+            role: ntEmp.role || 'Officer',
+            month: month || '2026-09',
+            cycle: cycle || 'MONTHLY',
+            as_on_date: ntAdh.asOnDate || req.query.asOn || '2026-09-30',
+            elapsed_fraction: 1,
+            has_plan: true,
+            channel: 'NON_TRADE',
+            totals: {
+              dealers_on_plan: ntEmp.plannedSites || ntEmp.totalPlanned || 0,
+              dealers_visited: ntEmp.plannedDoneSites || ntEmp.plannedDone || 0,
+              dealers_missed: Math.max(0, (ntEmp.totalPlanned || 0) - (ntEmp.plannedDone || 0)),
+              planned_visits: ntEmp.totalPlanned || ntEmp.plannedSites || 0,
+              mtd_due: ntEmp.totalProrated || ntEmp.proratedSites || 0,
+              adhered: ntEmp.plannedDone || ntEmp.plannedDoneSites || 0,
+              adhered_capped: Math.min(ntEmp.plannedDone || 0, ntEmp.totalPlanned || 0),
+              pending: Math.max(0, (ntEmp.totalProrated || 0) - (ntEmp.plannedDone || 0))
+            },
+            adherence: {
+              capped_pct: parseFloat(ntEmp.adherencePct || 0),
+              raw_pct: parseFloat(ntEmp.adherencePct || 0),
+              over_visited: false
+            },
+            unplanned_count: ntEmp.unplannedDone || 0,
+            unplanned_visits: [],
+            dealers: [],
+            method: 'Non-Trade Adherence Tracker: Planned vs Done from Customer Visit Report'
+          });
+        }
+      }
+    }
+
     const dealers = a.byDealer
       .filter(d => same(d.emp_code, empCode))
       .map(d => ({
@@ -2083,6 +2318,55 @@ export async function getTeamAdherence(req, res) {
     const team = await dbAll(
       `SELECT DISTINCT emp_code, emp_name, emp_role FROM sales_plans WHERE ${where}`, params
     ).catch(() => []);
+
+    if (team.length === 0) {
+      const ntSubordinates = await dbAll(
+        `SELECT DISTINCT emp_code, emp_name, role_type
+         FROM nontrade_plans
+         WHERE period_month = ? AND (asm_emp_code = ? OR hos_emp_code = ?)`,
+        [month || '2026-09', empCode, empCode]
+      ).catch(() => []);
+
+      if (ntSubordinates.length > 0) {
+        const ntAdh = await calculateNonTradeAdherence(month || '2026-09', req.query.asOn || null).catch(() => null);
+        const ntRows = ntSubordinates.map(sub => {
+          const empStats = ntAdh?.employees?.find(e => same(e.empCode, sub.emp_code));
+          return {
+            emp_code: sub.emp_code,
+            emp_name: sub.emp_name,
+            role: sub.role_type || 'Officer',
+            has_plan: true,
+            dealers_on_plan: empStats?.plannedSites || empStats?.totalPlanned || 0,
+            dealers_visited: empStats?.plannedDoneSites || empStats?.plannedDone || 0,
+            dealers_missed: Math.max(0, (empStats?.totalPlanned || 0) - (empStats?.plannedDone || 0)),
+            planned_visits: empStats?.totalPlanned || empStats?.plannedSites || 0,
+            mtd_due: empStats?.totalProrated || empStats?.proratedSites || 0,
+            adhered: empStats?.plannedDone || empStats?.plannedDoneSites || 0,
+            pending: Math.max(0, (empStats?.totalProrated || 0) - (empStats?.plannedDone || 0)),
+            capped_pct: parseFloat(empStats?.adherencePct || 0)
+          };
+        });
+
+        const approverName = (await dbGet('SELECT emp_name FROM nontrade_plans WHERE emp_code = ? LIMIT 1', [empCode]))?.emp_name || empCode;
+
+        return res.json({
+          approver: { emp_code: empCode, name: approverName, role: 'ASM' },
+          month: month || '2026-09',
+          cycle: cycle || 'MONTHLY',
+          as_on_date: ntAdh?.asOnDate || '2026-09-30',
+          elapsed_fraction: 1,
+          count: ntRows.length,
+          totals: {
+            planned_visits: ntRows.reduce((s, r) => s + r.planned_visits, 0),
+            mtd_due: ntRows.reduce((s, r) => s + r.mtd_due, 0),
+            adhered: ntRows.reduce((s, r) => s + r.adhered, 0),
+            pending: ntRows.reduce((s, r) => s + r.pending, 0),
+            adherence_pct: ntRows.length > 0 ? (ntRows.reduce((s, r) => s + r.capped_pct, 0) / ntRows.length).toFixed(1) : 0
+          },
+          team: ntRows
+        });
+      }
+    }
 
     const rows = team.map(t => {
       const e = a.byEmployee.find(x => same(x.emp_code, t.emp_code));

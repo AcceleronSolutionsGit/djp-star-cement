@@ -377,6 +377,14 @@ async function runStartupMigrations() {
   } catch (err) {
     console.warn('[Migration] Warning during Abhijit Dam C1 plan restoration:', err.message);
   }
+
+  try {
+    // Migration 14: Non-Trade DJP tables
+    const { runNonTradeMigration } = await import('./scripts/migrate-nontrade-tables.js');
+    await runNonTradeMigration();
+  } catch (err) {
+    console.warn('[Migration] Warning during Non-Trade DJP tables initialization:', err.message);
+  }
 }
 
 const __filename = fileURLToPath(import.meta.url);

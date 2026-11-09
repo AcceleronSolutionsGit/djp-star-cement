@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const basePath = env.VITE_BASE_PATH || process.env.VITE_BASE_PATH || process.env.BASE_PATH || './';
+  const backendPort = env.VITE_BACKEND_PORT || env.BACKEND_PORT || process.env.PORT || '3001';
 
   return {
     base: basePath,
@@ -13,7 +14,7 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       proxy: {
         '/api': {
-          target: 'http://localhost:3000',
+          target: `http://localhost:${backendPort}`,
           changeOrigin: true,
           // `timeout` bounds the INCOMING request; `proxyTimeout` bounds how long we
           // wait on the API. Only the first was set, so a long generation was cut off

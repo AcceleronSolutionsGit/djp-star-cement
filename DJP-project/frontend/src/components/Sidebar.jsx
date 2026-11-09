@@ -40,6 +40,12 @@ export default function Sidebar({ activeTab, setActiveTab, collapsed }) {
         { id: 'adherence-report', label: 'Zone Adherence (Excel)', icon: FileSpreadsheet, desc: '4 Roles Summary & Detailed' },
         { id: 'officer-plans', label: 'Officer Plans & Adherence', icon: ClipboardList, desc: 'All Roles + C1 Adherence' }
       ]
+    },
+    {
+      group: 'Non-Trade DJP Section',
+      items: [
+        { id: 'nontrade-djp', label: 'Non-Trade DJP', icon: FileSpreadsheet, desc: 'Plans, Counters & Adherence' }
+      ]
     }
   ];
 

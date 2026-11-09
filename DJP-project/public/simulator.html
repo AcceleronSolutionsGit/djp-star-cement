@@ -657,7 +657,7 @@ async function renderOfficerPlans() {
   }
 
   el.innerHTML = `<div class="stack">` + state.officerPlans.map(p => `
-    <div class="card click" onclick="openPlan(${p.plan_id})">
+    <div class="card click" onclick="openPlan('${esc(p.plan_id)}')">
       <div class="row">
         <div>
           <div style="font-weight:650">${esc(p.period_month)} · ${esc(p.cycle_code)}</div>
@@ -1892,7 +1892,7 @@ async function renderApprover(planSummary) {
   el.innerHTML = `<div class="small muted" style="margin-bottom:9px">
       ${state.inbox.length} plan${state.inbox.length===1?'':'s'} awaiting your decision</div>
     <div class="stack">` + state.inbox.map(p => `
-    <div class="card click" onclick="openForApproval(${p.plan_id})">
+    <div class="card click" onclick="openForApproval('${esc(p.plan_id)}')">
       <div class="row">
         <div>
           <div style="font-weight:650">${esc(p.employee.emp_name)}</div>
