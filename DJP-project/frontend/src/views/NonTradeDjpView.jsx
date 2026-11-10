@@ -35,10 +35,10 @@ const getMonthEndDate = (period) => {
 export default function NonTradeDjpView({ onShowToast }) {
   // Read persisted period, as-on date, and active tab from localStorage so October stays October across refreshes
   const [periodMonth, setPeriodMonth] = useState(() => {
-    return localStorage.getItem('star_nontrade_period') || '2026-09';
+    return localStorage.getItem('star_nontrade_period') || localStorage.getItem('star_selected_period') || '2026-10';
   });
   const [asOnDate, setAsOnDate] = useState(() => {
-    const savedPeriod = localStorage.getItem('star_nontrade_period') || '2026-09';
+    const savedPeriod = localStorage.getItem('star_nontrade_period') || localStorage.getItem('star_selected_period') || '2026-10';
     return localStorage.getItem('star_nontrade_as_on') || getMonthEndDate(savedPeriod);
   });
   const [activeTab, setActiveTab] = useState(() => {
@@ -426,12 +426,20 @@ export default function NonTradeDjpView({ onShowToast }) {
             </div>
 
             <button
-              onClick={() => {
-                loadAdherence(false);
-                loadApprovalMatrix(false);
-                loadRolloutStatus(false);
-                loadActiveTabData(false);
-                onShowToast?.('Synchronized latest Non-Trade data', 'success');
+              onClick={async () => {
+                setIsLiveSyncing(true);
+                try {
+                  await api.syncNonTradeSfa(periodMonth);
+                  await loadAdherence(false);
+                  await loadApprovalMatrix(false);
+                  await loadRolloutStatus(false);
+                  await loadActiveTabData(false);
+                  onShowToast?.('Synchronized live SFA punches and latest Non-Trade data', 'success');
+                } catch (err) {
+                  onShowToast?.(err.message || 'Sync failed', 'error');
+                } finally {
+                  setIsLiveSyncing(false);
+                }
               }}
               disabled={loading || isLiveSyncing}
               style={{
@@ -447,7 +455,7 @@ export default function NonTradeDjpView({ onShowToast }) {
                 color: '#334155',
                 cursor: 'pointer'
               }}
-              title="Immediately refresh all Non-Trade data"
+              title="Immediately sync live SFA visits and refresh Non-Trade adherence"
             >
               <RefreshCw size={15} className={(loading || isLiveSyncing) ? 'animate-spin' : ''} />
               <span>Sync Now</span>

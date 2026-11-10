@@ -176,6 +176,22 @@ export async function runNonTradeMigration() {
   }
 
   console.log('[Non-Trade Migration] Tables created successfully.');
+
+  // Automatically seed baseline execution and sync live SFA visits
+  try {
+    const { seedNonTradeBaselineExecution, syncNonTradeVisitsFromSfa, ensureNonTradePlansForMonth } = await import('../services/nontrade.service.js');
+    console.log('[Non-Trade Migration] Ensuring baseline plans and live SFA execution for September and October...');
+    await ensureNonTradePlansForMonth('2026-09');
+    await seedNonTradeBaselineExecution('2026-09');
+    await syncNonTradeVisitsFromSfa('2026-09');
+
+    await ensureNonTradePlansForMonth('2026-10');
+    await seedNonTradeBaselineExecution('2026-10');
+    await syncNonTradeVisitsFromSfa('2026-10');
+    console.log('[Non-Trade Migration] Baseline execution & SFA sync complete.');
+  } catch (seedErr) {
+    console.warn('[Non-Trade Migration] Seeding warning:', seedErr.message);
+  }
 }
 
 if (process.argv[1]?.endsWith('migrate-nontrade-tables.js')) {

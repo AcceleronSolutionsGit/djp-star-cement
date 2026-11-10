@@ -2,7 +2,10 @@ import xlsx from 'xlsx';
 import ExcelJS from 'exceljs';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { dbAll, dbRun, dbGet } from '../config/database.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Non-Trade DJP Service
@@ -2364,6 +2367,271 @@ export async function copyBaselineVisitsToMonth(sourceMonth = '2026-09', targetM
   }
 }
 
+/**
+ * Seed baseline execution reports (610 CVR, 138 Leads, 25 Site Visits, 57 Professional Visits)
+ * from the bundled JSON snapshot if database is empty for the requested targetMonth.
+ */
+export async function seedNonTradeBaselineExecution(targetMonth = '2026-09') {
+  try {
+    const jsonPath = path.resolve(__dirname, '../data/nontradeBaselineExecution.json');
+    if (!fs.existsSync(jsonPath)) {
+      console.warn('[seedNonTradeBaselineExecution] Baseline JSON not found at:', jsonPath);
+      return;
+    }
+    const raw = fs.readFileSync(jsonPath, 'utf8');
+    const data = JSON.parse(raw);
+
+    const shiftDate = (dStr) => {
+      if (!dStr) return null;
+      if (targetMonth === '2026-09') return dStr;
+      const parts = String(dStr).split('-');
+      if (parts.length < 3) return null;
+      const day = parts[2];
+      const [tY, tM] = targetMonth.split('-');
+      const maxDays = new Date(Number(tY), Number(tM), 0).getDate();
+      const safeDay = Math.min(Number(day) || 1, maxDays);
+      return `${targetMonth}-${String(safeDay).padStart(2, '0')}`;
+    };
+
+    // 1. CVR
+    const cvrExisting = await dbGet('SELECT COUNT(*) as c FROM nontrade_customer_visit_reports WHERE period_month = ?', [targetMonth]);
+    if (cvrExisting?.c === 0 && data.cvr && data.cvr.length > 0) {
+      const cvrRows = data.cvr.map(c => [
+        targetMonth, c.si_no, shiftDate(c.visit_date),
+        c.customer_code, c.customer_name,
+        c.route, c.type, c.branch, c.emp_code, c.emp_name,
+        c.check_in_time, c.check_out_time, c.duration, c.visit_status,
+        c.remarks, c.purpose_of_visit, c.sap_code, c.concat_id, c.bucket
+      ]);
+      const cvrSql = `
+        INSERT INTO nontrade_customer_visit_reports (
+          period_month, si_no, visit_date, customer_code, customer_name,
+          route, type, branch, emp_code, emp_name,
+          check_in_time, check_out_time, duration, visit_status,
+          remarks, purpose_of_visit, sap_code, concat_id, bucket
+        ) VALUES ?
+      `;
+      for (let i = 0; i < cvrRows.length; i += 500) {
+        await dbRun(cvrSql, [cvrRows.slice(i, i + 500)]);
+      }
+      console.log(`[seedNonTradeBaselineExecution] Seeded ${cvrRows.length} baseline CVR visits for ${targetMonth}`);
+    }
+
+    // 2. Leads
+    const leadsExisting = await dbGet('SELECT COUNT(*) as c FROM nontrade_leads WHERE period_month = ?', [targetMonth]);
+    if (leadsExisting?.c === 0 && data.leads && data.leads.length > 0) {
+      const leadRows = data.leads.map(l => [
+        targetMonth, shiftDate(l.lead_date), l.firm, l.contact_person, l.mobile,
+        l.branch, l.area, l.address, l.category, l.sub_category,
+        l.emp_code, l.created_by, l.department
+      ]);
+      const leadsSql = `
+        INSERT INTO nontrade_leads (
+          period_month, lead_date, firm, contact_person, mobile,
+          branch, area, address, category, sub_category,
+          emp_code, created_by, department
+        ) VALUES ?
+      `;
+      for (let i = 0; i < leadRows.length; i += 500) {
+        await dbRun(leadsSql, [leadRows.slice(i, i + 500)]);
+      }
+    }
+
+    // 3. Site visits
+    const svExisting = await dbGet('SELECT COUNT(*) as c FROM nontrade_site_visits WHERE period_month = ?', [targetMonth]);
+    if (svExisting?.c === 0 && data.sv && data.sv.length > 0) {
+      const svRows = data.sv.map(s => [
+        targetMonth, shiftDate(s.visit_date), s.emp_code, s.emp_name,
+        s.branch, s.place, s.name, s.category, s.contact_no,
+        s.total_consumption_bag, s.balance_consumption_bag, s.visit_status
+      ]);
+      const svSql = `
+        INSERT INTO nontrade_site_visits (
+          period_month, visit_date, emp_code, emp_name,
+          branch, place, name, category, contact_no,
+          total_consumption_bag, balance_consumption_bag, visit_status
+        ) VALUES ?
+      `;
+      for (let i = 0; i < svRows.length; i += 500) {
+        await dbRun(svSql, [svRows.slice(i, i + 500)]);
+      }
+    }
+
+    // 4. Professional visits
+    const pvExisting = await dbGet('SELECT COUNT(*) as c FROM nontrade_professional_visits WHERE period_month = ?', [targetMonth]);
+    if (pvExisting?.c === 0 && data.pv && data.pv.length > 0) {
+      const pvRows = data.pv.map(p => [
+        targetMonth, shiftDate(p.visit_date), p.emp_code, p.emp_name,
+        p.branch, p.zone, p.name, p.mobile_no, p.type,
+        p.organisation, p.designation
+      ]);
+      const pvSql = `
+        INSERT INTO nontrade_professional_visits (
+          period_month, visit_date, emp_code, emp_name,
+          branch, zone, name, mobile_no, type,
+          organisation, designation
+        ) VALUES ?
+      `;
+      for (let i = 0; i < pvRows.length; i += 500) {
+        await dbRun(pvSql, [pvRows.slice(i, i + 500)]);
+      }
+    }
+  } catch (err) {
+    console.warn('[seedNonTradeBaselineExecution] Error:', err.message);
+  }
+}
+
+/**
+ * Automatically sync live SFA visits from visit_execution_logs into nontrade_customer_visit_reports
+ * Matches Non-Trade officers by DNS emp_code and SFA emp_code, mapping to planned counter concat_id
+ */
+export async function syncNonTradeVisitsFromSfa(periodMonth = '2026-09') {
+  try {
+    const [y, m] = periodMonth.split('-').map(Number);
+    const maxDays = new Date(y, m, 0).getDate();
+    const startDate = `${periodMonth}-01`;
+    const endDate = `${periodMonth}-${String(maxDays).padStart(2, '0')}`;
+
+    // 1. Get Non-Trade officers
+    let officers = await dbAll(
+      `SELECT DISTINCT emp_code, emp_name FROM nontrade_plans WHERE period_month = ? AND role_type = 'Officer'`,
+      [periodMonth]
+    );
+    if (!officers.length) {
+      officers = await dbAll(
+        `SELECT DISTINCT emp_code, emp_name FROM nontrade_plans WHERE role_type = 'Officer'`
+      );
+    }
+    if (!officers.length) return { synced: 0 };
+
+    // 2. Resolve DNS <-> SFA codes via employee_master
+    const empMasterRows = await dbAll(`SELECT emp_code, dns_emp_code, emp_name FROM employee_master`).catch(() => []);
+    const dnsToSfa = new Map();
+    const sfaToDns = new Map();
+    for (const r of empMasterRows) {
+      const sfa = String(r.emp_code || '').trim();
+      const dns = String(r.dns_emp_code || '').trim();
+      if (dns) {
+        dnsToSfa.set(dns, sfa);
+        sfaToDns.set(sfa, dns);
+      }
+    }
+
+    const officerLookup = new Map();
+    const queryCodes = [];
+    for (const off of officers) {
+      const dns = String(off.emp_code).trim();
+      const sfa = dnsToSfa.get(dns) || dns;
+      queryCodes.push(dns);
+      if (sfa && sfa !== dns) queryCodes.push(sfa);
+      officerLookup.set(dns, { dnsCode: dns, empName: off.emp_name });
+      officerLookup.set(sfa, { dnsCode: dns, empName: off.emp_name });
+    }
+
+    // 3. Query planned counters to map customer_code -> concat_id and bucket
+    const planRows = await dbAll(
+      `SELECT emp_code, sap_code, ship_to_party, party_name, ship_to_party_name, destination_zone, bucket, concat_id
+       FROM nontrade_plans
+       WHERE period_month = ?`,
+      [periodMonth]
+    );
+    const counterMap = new Map();
+    for (const p of planRows) {
+      const dns = String(p.emp_code).trim();
+      const ship = String(p.ship_to_party || '').trim();
+      const sap = String(p.sap_code || '').trim();
+      if (ship) counterMap.set(`${dns}#${ship}`, p);
+      if (sap) counterMap.set(`${dns}#${sap}`, p);
+    }
+
+    // 4. Query visit_execution_logs
+    const placeholders = queryCodes.map(() => '?').join(',');
+    const sfaLogs = await dbAll(
+      `SELECT id, visit_date, customer_code, customer_name, customer_type, route, branch,
+              employee_code, employee_name, check_in_time, check_out_time, duration,
+              visit_status, purpose_of_visit, remarks
+       FROM visit_execution_logs
+       WHERE employee_code IN (${placeholders})
+         AND visit_date >= ? AND visit_date <= ?`,
+      [...queryCodes, startDate, endDate]
+    ).catch(() => []);
+
+    if (!sfaLogs.length) return { synced: 0 };
+
+    // 5. Existing CVR check
+    const existingCvr = await dbAll(
+      `SELECT visit_date, emp_code, customer_code FROM nontrade_customer_visit_reports WHERE period_month = ?`,
+      [periodMonth]
+    );
+    const existingSet = new Set(
+      existingCvr.map(c => `${String(c.visit_date).slice(0, 10)}#${String(c.emp_code).trim()}#${String(c.customer_code).trim()}`)
+    );
+
+    const newRows = [];
+    for (const log of sfaLogs) {
+      const empInfo = officerLookup.get(String(log.employee_code).trim()) || {
+        dnsCode: log.employee_code,
+        empName: log.employee_name
+      };
+      const vDate = String(log.visit_date || '').slice(0, 10);
+      const custCode = String(log.customer_code || '').trim();
+      const dedupKey = `${vDate}#${empInfo.dnsCode}#${custCode}`;
+
+      if (existingSet.has(dedupKey)) continue;
+      existingSet.add(dedupKey);
+
+      const matchedCounter = counterMap.get(`${empInfo.dnsCode}#${custCode}`);
+      const sapCode = matchedCounter?.sap_code || (custCode.startsWith('11') ? custCode : null);
+      const shipCode = matchedCounter?.ship_to_party || custCode;
+      const concatId = matchedCounter?.concat_id || (custCode.startsWith('14') ? `${empInfo.dnsCode}-${custCode}` : `${empInfo.dnsCode}-${sapCode || custCode}`);
+      const bucket = matchedCounter?.bucket || 'Non-Trade Live SFA';
+      const branch = matchedCounter?.destination_zone || log.branch || 'NT';
+
+      newRows.push([
+        periodMonth,
+        log.id || 0,
+        vDate,
+        custCode,
+        matchedCounter?.ship_to_party_name || matchedCounter?.party_name || log.customer_name || 'Customer',
+        log.route || branch,
+        log.customer_type || 'Non-Trade',
+        branch,
+        empInfo.dnsCode,
+        empInfo.empName,
+        log.check_in_time || '10:00:00',
+        log.check_out_time || '10:30:00',
+        log.duration || '30 Minute(s)',
+        log.visit_status || 'Productive',
+        log.remarks || null,
+        log.purpose_of_visit || 'SFA Mobile Punch',
+        sapCode,
+        concatId,
+        bucket
+      ]);
+    }
+
+    if (newRows.length > 0) {
+      const sql = `
+        INSERT INTO nontrade_customer_visit_reports (
+          period_month, si_no, visit_date, customer_code, customer_name,
+          route, type, branch, emp_code, emp_name,
+          check_in_time, check_out_time, duration, visit_status,
+          remarks, purpose_of_visit, sap_code, concat_id, bucket
+        ) VALUES ?
+      `;
+      for (let i = 0; i < newRows.length; i += 500) {
+        await dbRun(sql, [newRows.slice(i, i + 500)]);
+      }
+      console.log(`[syncNonTradeVisitsFromSfa] Synced ${newRows.length} live SFA visits into nontrade_customer_visit_reports for ${periodMonth}`);
+    }
+
+    return { synced: newRows.length };
+  } catch (err) {
+    console.warn('[syncNonTradeVisitsFromSfa] Warning:', err.message);
+    return { synced: 0, error: err.message };
+  }
+}
+
 const ensureMonthPromises = new Map();
 
 /**
@@ -2390,22 +2658,20 @@ export async function ensureNonTradePlansForMonth(targetMonth) {
           LIMIT 1
         `);
         const sourceMonth = baseline?.period_month || '2026-09';
-        await rollForwardNonTradePlans(sourceMonth, targetMonth, true);
-      } else {
-        // Ensure baseline execution logs exist for this month
+        // Roll forward planned counters only (do not copy visits across months)
+        await rollForwardNonTradePlans(sourceMonth, targetMonth, false);
+      }
+
+      // If September 2026 CVR is empty (e.g. fresh database setup), seed baseline from the provided September workbook snapshot
+      if (targetMonth === '2026-09') {
         const cvrExisting = await dbGet('SELECT COUNT(*) as c FROM nontrade_customer_visit_reports WHERE period_month = ?', [targetMonth]);
         if (cvrExisting?.c === 0) {
-          const baseline = await dbGet(`
-            SELECT period_month, COUNT(*) as c 
-            FROM nontrade_customer_visit_reports 
-            GROUP BY period_month 
-            ORDER BY (period_month = '2026-09') DESC, c DESC 
-            LIMIT 1
-          `);
-          const sourceMonth = baseline?.period_month || '2026-09';
-          await copyBaselineVisitsToMonth(sourceMonth, targetMonth);
+          await seedNonTradeBaselineExecution('2026-09');
         }
       }
+
+      // Dynamically fetch and sync real SFA visits from visit_execution_logs for this specific planned month
+      await syncNonTradeVisitsFromSfa(targetMonth);
     } finally {
       ensureMonthPromises.delete(targetMonth);
     }

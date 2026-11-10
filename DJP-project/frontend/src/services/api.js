@@ -888,5 +888,14 @@ export const api = {
   getNonTradeApprovalMatrix: async (periodMonth = "2026-09") => {
     const res = await fetchWithAuth(`${API_BASE}/nontrade/approval-matrix?periodMonth=${encodeURIComponent(periodMonth)}`);
     return readJson(res, "Failed to fetch Non-Trade approval matrix");
+  },
+
+  syncNonTradeSfa: async (periodMonth = "2026-09") => {
+    const res = await fetchWithAuth(`${API_BASE}/nontrade/sync-sfa`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ periodMonth })
+    });
+    return readJson(res, "Failed to sync SFA visits for Non-Trade");
   }
 };

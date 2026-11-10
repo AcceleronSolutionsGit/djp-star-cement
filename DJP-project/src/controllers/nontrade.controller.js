@@ -16,7 +16,8 @@ import {
   getNonTradeRolloutStatus,
   getNonTradeCalendarData,
   getNonTradeApprovalMatrix,
-  rollForwardNonTradePlans
+  rollForwardNonTradePlans,
+  syncNonTradeVisitsFromSfa
 } from '../services/nontrade.service.js';
 
 // Setup multer upload for Non-Trade Excel files
@@ -277,6 +278,25 @@ export async function rollForwardNonTradePlansHandler(req, res) {
   } catch (err) {
     console.error('[nontrade.controller] roll-forward error:', err);
     res.status(500).json({ error: err.message || 'Failed to roll forward plans' });
+  }
+}
+
+/**
+ * POST /api/nontrade/sync-sfa
+ * Synchronize live SFA mobile punches from visit_execution_logs into nontrade_customer_visit_reports
+ */
+export async function syncNonTradeSfaHandler(req, res) {
+  try {
+    const { periodMonth = '2026-09' } = req.body;
+    const result = await syncNonTradeVisitsFromSfa(periodMonth);
+    res.json({
+      success: true,
+      message: `Successfully synchronized live SFA visits for ${periodMonth}`,
+      ...result
+    });
+  } catch (err) {
+    console.error('[nontrade.controller] sync-sfa error:', err);
+    res.status(500).json({ error: err.message || 'Failed to sync SFA visits' });
   }
 }
 

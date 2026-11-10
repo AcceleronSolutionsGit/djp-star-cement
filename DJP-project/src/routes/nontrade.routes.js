@@ -15,6 +15,7 @@ import {
   getNonTradeCalendarHandler,
   getNonTradeApprovalMatrixHandler,
   rollForwardNonTradePlansHandler,
+  syncNonTradeSfaHandler,
   nontradeUploadMiddleware
 } from '../controllers/nontrade.controller.js';
 
@@ -23,6 +24,7 @@ const router = express.Router();
 router.get('/calendar', getNonTradeCalendarHandler);
 router.get('/approval-matrix', getNonTradeApprovalMatrixHandler);
 router.post('/plans/roll-forward', rollForwardNonTradePlansHandler);
+router.post('/sync-sfa', syncNonTradeSfaHandler);
 router.get('/adherence', getNonTradeAdherenceHandler);
 router.get('/plans', getNonTradePlansHandler);
 router.put('/plans/rollout', rolloutNonTradePlansHandler);
