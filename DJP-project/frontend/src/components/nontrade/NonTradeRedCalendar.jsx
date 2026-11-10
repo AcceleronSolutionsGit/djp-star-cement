@@ -53,7 +53,7 @@ export default function NonTradeRedCalendar({
   onShowToast
 }) {
   const [currentPeriod, setCurrentPeriod] = useState(() => {
-    return periodMonth || localStorage.getItem('star_nontrade_period') || '2026-09';
+    return periodMonth || localStorage.getItem('star_selected_period') || localStorage.getItem('star_nontrade_period') || '2026-10';
   });
   const [roleFilter, setRoleFilter] = useState(initialRole);
   const [empCodeFilter, setEmpCodeFilter] = useState(() => {

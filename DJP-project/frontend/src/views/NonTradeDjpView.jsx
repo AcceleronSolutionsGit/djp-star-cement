@@ -32,14 +32,16 @@ const getMonthEndDate = (period) => {
   return `${period}-${String(lastDay).padStart(2, '0')}`;
 };
 
-export default function NonTradeDjpView({ onShowToast }) {
-  // Read persisted period, as-on date, and active tab from localStorage so October stays October across refreshes
+export default function NonTradeDjpView({ onShowToast, selectedPeriod, onPeriodChange }) {
+  // Read persisted period, prioritizing selectedPeriod passed from Header, then localStorage, defaulting to 2026-10
   const [periodMonth, setPeriodMonth] = useState(() => {
-    return localStorage.getItem('star_nontrade_period') || localStorage.getItem('star_selected_period') || '2026-10';
+    return selectedPeriod || localStorage.getItem('star_selected_period') || localStorage.getItem('star_nontrade_period') || '2026-10';
   });
   const [asOnDate, setAsOnDate] = useState(() => {
-    const savedPeriod = localStorage.getItem('star_nontrade_period') || localStorage.getItem('star_selected_period') || '2026-10';
-    return localStorage.getItem('star_nontrade_as_on') || getMonthEndDate(savedPeriod);
+    const savedPeriod = selectedPeriod || localStorage.getItem('star_selected_period') || localStorage.getItem('star_nontrade_period') || '2026-10';
+    const savedAsOn = localStorage.getItem('star_nontrade_as_on');
+    if (savedAsOn && savedAsOn.startsWith(savedPeriod)) return savedAsOn;
+    return getMonthEndDate(savedPeriod);
   });
   const [activeTab, setActiveTab] = useState(() => {
     return localStorage.getItem('star_nontrade_tab') || 'calendar';
@@ -49,11 +51,22 @@ export default function NonTradeDjpView({ onShowToast }) {
   const [isLiveSyncing, setIsLiveSyncing] = useState(false);
   const [lastSyncedTime, setLastSyncedTime] = useState(new Date());
 
+  // Keep periodMonth in sync when user changes month in the top Header dropdown
+  useEffect(() => {
+    if (selectedPeriod && selectedPeriod !== periodMonth) {
+      setPeriodMonth(selectedPeriod);
+      setAsOnDate(getMonthEndDate(selectedPeriod));
+    }
+  }, [selectedPeriod]);
+
   // Automatically persist state changes so refresh remembers October, date & tab
   useEffect(() => {
     if (periodMonth) {
       localStorage.setItem('star_nontrade_period', periodMonth);
       localStorage.setItem('star_selected_period', periodMonth);
+      if (onPeriodChange && periodMonth !== selectedPeriod) {
+        onPeriodChange(periodMonth);
+      }
     }
   }, [periodMonth]);
 
@@ -75,6 +88,7 @@ export default function NonTradeDjpView({ onShowToast }) {
     setPeriodMonth(newPeriod);
     const newAsOn = getMonthEndDate(newPeriod);
     setAsOnDate(newAsOn);
+    if (onPeriodChange) onPeriodChange(newPeriod);
   };
 
   // Adherence Data

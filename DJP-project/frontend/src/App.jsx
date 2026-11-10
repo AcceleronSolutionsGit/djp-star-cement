@@ -360,6 +360,8 @@ export default function App() {
             {activeTab === 'nontrade-djp' && (
               <NonTradeDjpView
                 onShowToast={showToast}
+                selectedPeriod={selectedPeriod}
+                onPeriodChange={setSelectedPeriod}
               />
             )}
           </ErrorBoundary>
