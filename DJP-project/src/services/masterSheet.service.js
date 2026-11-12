@@ -146,13 +146,32 @@ const s  = v => (v === null || v === undefined || v === '') ? '' : String(v).tri
  * so the sheet reads the way the client's does.
  */
 export function custType(t) {
+  if (!t) return 'DEALER';
   const raw  = s(t.cust_type).toUpperCase();
-  if (raw === 'RSAR' || raw === 'DEALER' || raw === 'NON STAR') return raw;
+  const type = s(t.dealer_type || t.customer_type || t.coord_cust_type).toUpperCase();
+  const cat  = s(t.dealer_status || t.category || t.finalCategory).toUpperCase();
+  const doa  = s(t.doa).toUpperCase();
+  const sfa  = s(t.sfa_code).toUpperCase();
+  const sap  = s(t.sap_code || t.customer_code).toUpperCase();
+  const name = s(t.dealer_name).toUpperCase();
+  const linked = s(t.linked_dealer_code);
 
-  const type = s(t.dealer_type).toUpperCase();
-  if (type === 'PROSPECTIVE' || type === 'PROSPECT' || raw === 'PROSPECTIVE') return 'NON STAR';
-  if (type === 'RSAR' || type === 'SUB-DEALER' || type === 'RSSD')            return 'RSAR';
-  if (raw === 'NON-STAR' || raw === 'NONSTAR')                                return 'NON STAR';
+  // 1. NON STAR: Prospects / Non-Star Retail Entities (verified against M.xlsx)
+  if (raw === 'NON STAR' || raw === 'NON_STAR' || raw === 'NON-STAR' || raw === 'NONSTAR' ||
+      type === 'NON STAR' || type === 'NON_STAR' || type === 'NON-STAR' || type === 'PROSPECTIVE' || type === 'PROSPECT' ||
+      cat === 'PROSPECTIVE' || doa === 'NEW' || sfa.startsWith('NSRE') || sfa.startsWith('WBS')) {
+    return 'NON STAR';
+  }
+
+  // 2. RSAR: Sub-dealers / RSSD (verified against M.xlsx)
+  if (raw === 'RSAR' || raw.includes('SUB') ||
+      type === 'RSAR' || type === 'SUB DEALER' || type === 'SUB-DEALER' || type.includes('SUB') || type === 'RSSD' ||
+      sap.startsWith('150') || name.includes('(RSD') || name.includes('(RSAR') ||
+      (linked && linked !== '-' && linked !== 'NA') || t.rssd_code) {
+    return 'RSAR';
+  }
+
+  if (raw === 'DEALER' || type === 'DEALER') return 'DEALER';
   return 'DEALER';
 }
 

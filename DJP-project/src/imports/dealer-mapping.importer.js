@@ -311,8 +311,8 @@ export async function importDealerMapping(filePath, batchCode = null) {
     let dType = 'DEALER';
     if (upperCust.includes('RSAR') || upperCust.includes('SUB') || (rawLinkedCode && rawLinkedCode !== '-')) {
       dType = 'RSAR';
-    } else if (upperCust.includes('NON_STAR') || upperCust.includes('NON-STAR') || upperCust.includes('PROSPECT')) {
-      dType = 'NON_STAR';
+    } else if (upperCust.includes('NON_STAR') || upperCust.includes('NON-STAR') || upperCust.includes('NON STAR') || upperCust.includes('PROSPECT')) {
+      dType = 'NON STAR';
     } else {
       dType = 'DEALER';
     }

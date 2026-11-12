@@ -171,10 +171,11 @@ export async function matchAndUpsertCanonicalDealer({
     }
     
     const dealerId = crypto.randomUUID();
-    const counterStrategy = dType === 'PROSPECTIVE' ? 'PROSPECT' : null;
+    const isProspectType = dType === 'PROSPECTIVE' || dType === 'NON_STAR' || dType === 'NON STAR';
+    const counterStrategy = isProspectType ? 'PROSPECT' : null;
     const finalAsmName = asmName || null;
     const finalAsmCode = cleanAsmCode || null;
-    const prospectStatus = dType === 'PROSPECTIVE' ? 'PROSPECT_MATCHED' : 'PROSPECT_NOT_FOUND';
+    const prospectStatus = isProspectType ? 'PROSPECT_MATCHED' : 'PROSPECT_NOT_FOUND';
     const res = await dbRun(
       `INSERT INTO master_dealers 
       (dealer_id, dealer_type, sap_code, sfa_code, linked_dealer_code, dealer_name, normalized_dealer_name, 
@@ -208,12 +209,17 @@ export async function matchAndUpsertCanonicalDealer({
   // MATCHED -> Update
   if (matchStatus === 'MATCHED') {
     if (sourceType !== 'SALES_HISTORY') {
-      const isProspect = dType === 'PROSPECTIVE' || matchedDealer.dealer_type === 'PROSPECTIVE';
+      const isProspect = dType === 'PROSPECTIVE' || dType === 'NON_STAR' || dType === 'NON STAR' || matchedDealer.dealer_type === 'PROSPECTIVE' || matchedDealer.dealer_type === 'NON STAR';
       await dbRun(
         `UPDATE master_dealers SET 
         sap_code = COALESCE(?, sap_code),
         sfa_code = COALESCE(?, sfa_code),
         linked_dealer_code = COALESCE(?, linked_dealer_code),
+        dealer_type = CASE 
+          WHEN ? IN ('RSAR', 'NON STAR', 'NON_STAR') THEN ?
+          WHEN dealer_type IS NULL OR dealer_type = 'STAR' THEN ?
+          ELSE dealer_type
+        END,
         dealer_name = ?,
         normalized_dealer_name = ?,
         area = COALESCE(?, area),
@@ -236,6 +242,7 @@ export async function matchAndUpsertCanonicalDealer({
         WHERE id = ?`,
         [
           sapCode || null, sfaCode || null, linkedDealerCode || null,
+          dType, dType === 'NON_STAR' ? 'NON STAR' : dType, dType === 'NON_STAR' ? 'NON STAR' : dType,
           rawDealerName, dealerName,
           effectiveArea || null, rawBranch || effectiveArea || null, area,
           rawBlock || null, block || null,

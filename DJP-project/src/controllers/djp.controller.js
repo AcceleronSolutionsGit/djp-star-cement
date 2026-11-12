@@ -541,8 +541,8 @@ export async function exportMasterExcel(req, res) {
     // Always fetch for the entire month across all cycles (whole month)
     let targets = await dbAll(
       `SELECT * FROM dealer_visit_targets
-        WHERE period_month = ?
-        ORDER BY sap_code ASC, id ASC`, [targetPeriod]);
+       WHERE period_month = ?
+       ORDER BY id ASC`, [targetPeriod]);
 
     if (!targets || targets.length === 0) {
       const latest = await dbGet(
@@ -551,7 +551,9 @@ export async function exportMasterExcel(req, res) {
       if (latest) {
         targetPeriod = latest.period_month;
         targets = await dbAll(
-          `SELECT * FROM dealer_visit_targets WHERE period_month = ? ORDER BY sap_code ASC, id ASC`,
+          `SELECT * FROM dealer_visit_targets
+           WHERE period_month = ?
+           ORDER BY id ASC`,
           [targetPeriod]);
       }
     }

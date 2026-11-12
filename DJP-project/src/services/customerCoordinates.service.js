@@ -187,6 +187,7 @@ export async function updateMasterDealersFromCoordinates() {
         END,
         d.dealer_type = CASE
           WHEN c.customer_type = 'Sub Dealer' OR c.customer_type LIKE '%Sub%' THEN 'RSAR'
+          WHEN c.customer_type = 'Non Star' OR c.customer_type LIKE '%Non%Star%' THEN 'NON STAR'
           WHEN c.customer_type IN ('Dealer', 'Exclusive Dealer') AND (d.dealer_type = 'STAR' OR d.dealer_type IS NULL) THEN 'DEALER'
           ELSE d.dealer_type
         END
@@ -210,6 +211,7 @@ export async function updateMasterDealersFromCoordinates() {
         END,
         d.dealer_type = CASE
           WHEN c.customer_type = 'Sub Dealer' OR c.customer_type LIKE '%Sub%' THEN 'RSAR'
+          WHEN c.customer_type = 'Non Star' OR c.customer_type LIKE '%Non%Star%' THEN 'NON STAR'
           WHEN c.customer_type IN ('Dealer', 'Exclusive Dealer') AND (d.dealer_type = 'STAR' OR d.dealer_type IS NULL) THEN 'DEALER'
           ELSE d.dealer_type
         END
@@ -233,6 +235,7 @@ export async function updateMasterDealersFromCoordinates() {
         END,
         d.dealer_type = CASE
           WHEN c.customer_type = 'Sub Dealer' OR c.customer_type LIKE '%Sub%' THEN 'RSAR'
+          WHEN c.customer_type = 'Non Star' OR c.customer_type LIKE '%Non%Star%' THEN 'NON STAR'
           WHEN c.customer_type IN ('Dealer', 'Exclusive Dealer') AND (d.dealer_type = 'STAR' OR d.dealer_type IS NULL) THEN 'DEALER'
           ELSE d.dealer_type
         END
