@@ -2,9 +2,7 @@ import XLSX from 'xlsx';
 import { dbRun, dbGet, dbAll } from '../config/database.js';
 import { normalizeCode, normalizeString, parseDOA } from '../engines/normalization.engine.js';
 import { fixSheetRef } from './sales-history.importer.js';
-import { resolveZonalHeadSync } from '../services/zonalHead.service.js';
 import path from 'path';
-import crypto from 'crypto';
 
 /**
  * SBG Importer — Authoritative Source for:
@@ -14,7 +12,7 @@ import crypto from 'crypto';
  *
  * RULES:
  *   1. SBG updates existing master_dealers records when matched.
- *   2. SBG INSERTS new dealers when no match is found in Dealer Mapping.
+ *   2. SBG does NOT insert new dealers — Dealer Mapping is the exclusive authority for master dealers. Unmatched SBG records are skipped.
  *   3. SBG potential -> sbg_potential  (not counter_potential)
  *   4. SBG block     -> sbg_block      (not block, not area)
  *   5. SBG must NOT write to: dm_area, counter_potential, or any Dealer Mapping-authoritative column
@@ -228,15 +226,11 @@ export async function importSBG(filePath, batchCode = null) {
 
   // Data structures for batch operations
   const updatesById = new Map();     // id -> update payload
-  const newDealersBySap = new Map(); // sapCode -> dealer object
-  const newDealersBySfa = new Map(); // sfaCode -> dealer object
-  const newDealersByName = new Map();// lowerName -> dealer object
-  const allNewDealers = [];          // list of new dealers to insert
   const auditEntries = [];
 
   let rowsRead = 0;
   let matchedRows = 0;
-  let insertedRows = 0;
+  let unmatchedRows = 0;
   let duplicateRows = 0;
   let invalidRows = 0;
   const errors = [];
@@ -327,96 +321,25 @@ export async function importSBG(filePath, batchCode = null) {
         ]);
       }
     } else {
-      // ─── CHECK IF ALREADY SEEN AS NEW DEALER IN THIS FILE ───
-      const normName = rawDealerName ? rawDealerName.toLowerCase().trim() : null;
-      let existingNewDealer = null;
+      // ─── UNMATCHED DEALER: Do NOT add new dealers from SBG (Dealer Mapping is exclusive master authority) ───
+      unmatchedRows++;
 
-      if (rawSapCode && newDealersBySap.has(rawSapCode)) {
-        existingNewDealer = newDealersBySap.get(rawSapCode);
-      } else if (rawSfaCode && newDealersBySfa.has(rawSfaCode)) {
-        existingNewDealer = newDealersBySfa.get(rawSfaCode);
-      } else if (normName && newDealersByName.has(normName)) {
-        existingNewDealer = newDealersByName.get(normName);
-      }
-
-      if (existingNewDealer) {
-        // Subsequent row for the same newly created dealer — enrich missing fields
-        if (sbgPotential !== null && existingNewDealer.sbg_potential === null) existingNewDealer.sbg_potential = sbgPotential;
-        if (sbgBlock && !existingNewDealer.sbg_block) {
-          existingNewDealer.sbg_block = sbgBlock;
-          existingNewDealer.block = sbgBlock;
-          existingNewDealer.normalized_block = normalizeString(sbgBlock);
-        }
-        if (zone && !existingNewDealer.zone) existingNewDealer.zone = zone;
-        if (territoryCode && !existingNewDealer.territory_code) existingNewDealer.territory_code = territoryCode;
-        if (territoryName && !existingNewDealer.territory_name) existingNewDealer.territory_name = territoryName;
-        if (soEmpCode && !existingNewDealer.so_emp_code) existingNewDealer.so_emp_code = soEmpCode;
-        if (soName && !existingNewDealer.so_name) existingNewDealer.so_name = soName;
-        if (doa && !existingNewDealer.doa) existingNewDealer.doa = doa;
-
-        duplicateRows++;
-      } else {
-        // ─── NEW DEALER: Register for insertion into master_dealers ───
-        const dealerId = crypto.randomUUID();
-        const effectiveName = rawDealerName || `SBG-${rawSapCode || rawSfaCode || 'UNKNOWN'}`;
-        const rawStatus = (status || '').toUpperCase().trim();
-        const normStatus = (rawStatus.includes('INACT') || rawStatus === 'DELETED') ? 'INACTIVE' : 'ACTIVE';
-        const effectiveArea = territoryName || sbgBlock || zone || 'UNASSIGNED';
-
-        const newDealer = {
-          dealer_id: dealerId,
-          sap_code: rawSapCode || null,
-          sfa_code: rawSfaCode || null,
-          dealer_name: effectiveName,
-          normalized_dealer_name: normalizeString(effectiveName),
-          dealer_type: 'STAR',
-          status: normStatus,
-          sbg_potential: sbgPotential ?? null,
-          sbg_block: sbgBlock || null,
-          block: sbgBlock || null,
-          normalized_block: sbgBlock ? normalizeString(sbgBlock) : null,
-          area: effectiveArea,
-          dm_area: effectiveArea,
-          sbg_status: 'SBG_MATCHED',
-          zone: zone || null,
-          territory_code: territoryCode || null,
-          territory_name: territoryName || null,
-          so_emp_code: soEmpCode || null,
-          so_name: soName || null,
-          asm_code: asmCode || null,
-          asm_name: asmName || null,
-          rsm_code: rsmCode || null,
-          rsm_name: rsmName || null,
-          zh_code: (()=>{ const r = resolveZonalHeadSync({ zone, region: zone, area: effectiveArea, branch: territoryName || sbgBlock }); return zhCode || r?.zh_code || null; })(),
-          zh_name: (()=>{ const r = resolveZonalHeadSync({ zone, region: zone, area: effectiveArea, branch: territoryName || sbgBlock }); return zhName || r?.zh_name || null; })(),
-          doa: doa || null,
-          batch_code: batchCode
-        };
-
-        allNewDealers.push(newDealer);
-        if (rawSapCode) newDealersBySap.set(rawSapCode, newDealer);
-        if (rawSfaCode) newDealersBySfa.set(rawSfaCode, newDealer);
-        if (normName) newDealersByName.set(normName, newDealer);
-
-        insertedRows++;
-
-        if (auditEntries.length < 500) {
-          auditEntries.push([
-            batchCode,
-            sourceFileName,
-            selectedSheetName,
-            i + 1,
-            'SBG',
-            dealerId,
-            rawSapCode,
-            rawSfaCode,
-            rawDealerName,
-            'SBG_NEW',
-            0,
-            'SBG_INSERTED',
-            'New dealer created from SBG data'
-          ]);
-        }
+      if (auditEntries.length < 500) {
+        auditEntries.push([
+          batchCode,
+          sourceFileName,
+          selectedSheetName,
+          i + 1,
+          'SBG',
+          null,
+          rawSapCode,
+          rawSfaCode,
+          rawDealerName,
+          'NONE',
+          0,
+          'SBG_UNMATCHED_SKIPPED',
+          'Dealer not found in Dealer Mapping master — skipped (SBG does not insert new dealers)'
+        ]);
       }
     }
   }
@@ -449,84 +372,7 @@ export async function importSBG(filePath, batchCode = null) {
     );
   }
 
-  // ─── 2. BATCH INSERT NEW DEALERS (BULK MULTI-ROW SQL) ───
-  console.log(`[SBG] Inserting ${allNewDealers.length} new dealers into master_dealers...`);
-  const INSERT_BATCH_SIZE = 200;
-
-  for (let c = 0; c < allNewDealers.length; c += INSERT_BATCH_SIZE) {
-    const chunk = allNewDealers.slice(c, c + INSERT_BATCH_SIZE);
-    const placeholders = chunk.map(() =>
-      '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).join(', ');
-    const params = chunk.map(d => [
-      d.dealer_id,
-      d.sap_code,
-      d.sfa_code,
-      d.dealer_name,
-      d.normalized_dealer_name,
-      d.dealer_type,
-      d.status,
-      d.sbg_potential,
-      d.sbg_block,
-      d.block,
-      d.normalized_block,
-      d.area,
-      d.dm_area,
-      d.sbg_status,
-      d.zone,
-      d.territory_code,
-      d.territory_name,
-      d.so_emp_code,
-      d.so_name,
-      d.asm_code,
-      d.asm_name,
-      d.rsm_code,
-      d.rsm_name,
-      d.zh_code,
-      d.zh_name,
-      d.doa,
-      d.batch_code
-    ]).flat();
-
-    try {
-      await dbRun(
-        `INSERT INTO master_dealers
-          (dealer_id, sap_code, sfa_code, dealer_name, normalized_dealer_name, dealer_type, status,
-           sbg_potential, sbg_block, block, normalized_block, area, dm_area, sbg_status,
-           zone, territory_code, territory_name,
-           so_emp_code, so_name, asm_code, asm_name, rsm_code, rsm_name, zh_code, zh_name,
-           doa, batch_code)
-        VALUES ${placeholders}`,
-        params
-      );
-    } catch (batchErr) {
-      console.warn(`[SBG] Batch insert failed (${batchErr.message}), falling back to individual inserts...`);
-      for (const d of chunk) {
-        try {
-          await dbRun(
-            `INSERT INTO master_dealers
-              (dealer_id, sap_code, sfa_code, dealer_name, normalized_dealer_name, dealer_type, status,
-               sbg_potential, sbg_block, block, normalized_block, area, dm_area, sbg_status,
-               zone, territory_code, territory_name,
-               so_emp_code, so_name, asm_code, asm_name, rsm_code, rsm_name, zh_code, zh_name,
-               doa, batch_code)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              d.dealer_id, d.sap_code, d.sfa_code, d.dealer_name, d.normalized_dealer_name,
-              d.dealer_type, d.status, d.sbg_potential, d.sbg_block, d.block, d.normalized_block,
-              d.area, d.dm_area, d.sbg_status, d.zone, d.territory_code, d.territory_name,
-              d.so_emp_code, d.so_name, d.asm_code, d.asm_name, d.rsm_code, d.rsm_name,
-              d.zh_code, d.zh_name, d.doa, d.batch_code
-            ]
-          );
-        } catch (singleErr) {
-          console.warn(`[SBG] Single insert skipped (${singleErr.message}) for dealer ${d.sap_code || d.dealer_name}`);
-        }
-      }
-    }
-  }
-
-  // ─── 3. AUDIT LOGGING (BULK INSERT) ───
+  // ─── 2. AUDIT LOGGING (BULK INSERT) ───
   if (auditEntries.length > 0) {
     const AUDIT_BATCH_SIZE = 200;
     for (let c = 0; c < auditEntries.length; c += AUDIT_BATCH_SIZE) {
@@ -546,7 +392,7 @@ export async function importSBG(filePath, batchCode = null) {
     }
   }
 
-  // ─── 4. MARK UNMATCHED DEALER MAPPING DEALERS ───
+  // ─── 3. MARK UNMATCHED DEALER MAPPING DEALERS ───
   await dbRun(
     `UPDATE master_dealers
      SET sbg_status = 'SBG_NOT_FOUND',
@@ -559,15 +405,16 @@ export async function importSBG(filePath, batchCode = null) {
     `SELECT COUNT(*) as cnt FROM master_dealers WHERE sbg_status = 'SBG_NOT_FOUND'`
   );
 
-  const totalValid = matchedRows + insertedRows + duplicateRows;
+  const totalValid = matchedRows;
 
   const result = {
     success: true,
     totalRows: rowsRead,
     validRows: totalValid,
     matchedCount: matchedRows,
-    insertedCount: insertedRows,
-    duplicateRows,
+    unmatchedCount: unmatchedRows,
+    insertedCount: 0,
+    duplicateRows: 0,
     notFoundInSBG: notFoundInDM?.cnt || 0,
     invalidRows,
     warnings,
@@ -578,9 +425,8 @@ export async function importSBG(filePath, batchCode = null) {
     totalRead: rowsRead,
     validRows: totalValid,
     matchedRows,
-    insertedRows,
-    duplicateRows,
-    uniqueNewDealers: allNewDealers.length,
+    unmatchedRows,
+    insertedRows: 0,
     dealersWithoutSBG: notFoundInDM?.cnt || 0,
     invalid: invalidRows
   });
