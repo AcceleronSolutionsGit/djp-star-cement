@@ -235,15 +235,13 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
   const formatCustType = (type) => {
     if (!type) return 'Dealer';
     const t = String(type).toUpperCase().trim();
-    if (t === 'PROSPECTIVE' || t === 'PROSPECT') return 'Prospective';
-    if (t === 'NON_STAR' || t === 'NON-STAR' || t === 'NON STAR') return 'Non-Star';
+    if (t === 'PROSPECTIVE' || t === 'PROSPECT' || t === 'NON_STAR' || t === 'NON-STAR' || t === 'NON STAR') return 'Non-Star';
     if (t === 'RSAR' || t.includes('SUB') || t === 'SUB-DEALER' || t === 'RSSD') return 'RSAR';
     return 'Dealer';
   };
 
   const getCustTypeBadgeClass = (type) => {
     const t = formatCustType(type);
-    if (t === 'Prospective') return 'badge-cust-prospect';
     if (t === 'Non-Star') return 'badge-cust-nonstar';
     if (t === 'RSAR') return 'badge-cust-rsar';
     return 'badge-cust-dealer';
@@ -319,10 +317,9 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
               onChange={(e) => setFilters({ ...filters, custType: e.target.value })}
             >
               <option value="ALL">All Cust Types</option>
-              <option value="STAR">STAR</option>
-              <option value="NON-STAR">NON-STAR</option>
               <option value="DEALER">DEALER</option>
-              <option value="PROSPECTIVE">PROSPECTIVE</option>
+              <option value="RSAR">RSAR</option>
+              <option value="NON-STAR">NON-STAR</option>
             </select>
           </div>
 

@@ -290,14 +290,16 @@ export async function getTerritoryMapping(req, res) {
     const countParams = [];
 
     if (custType && custType !== 'ALL') {
-      if (custType === 'NON-STAR' || custType === 'NON_STAR') {
-        sql += " AND (d.dealer_type = 'NON_STAR' OR d.dealer_type = 'NON-STAR')";
-        countSql += " AND (d.dealer_type = 'NON_STAR' OR d.dealer_type = 'NON-STAR')";
+      const cUpper = String(custType).toUpperCase().replace('-', '_').replace(' ', '_');
+      if (cUpper === 'NON_STAR' || cUpper === 'PROSPECTIVE') {
+        sql += " AND (d.dealer_type IN ('NON_STAR', 'NON-STAR', 'NON STAR', 'PROSPECTIVE', 'PROSPECT') OR m.cust_type IN ('NON_STAR', 'NON-STAR', 'NON STAR', 'PROSPECTIVE', 'PROSPECT'))";
+        countSql += " AND (d.dealer_type IN ('NON_STAR', 'NON-STAR', 'NON STAR', 'PROSPECTIVE', 'PROSPECT') OR m.cust_type IN ('NON_STAR', 'NON-STAR', 'NON STAR', 'PROSPECTIVE', 'PROSPECT'))";
+      } else if (cUpper === 'RSAR') {
+        sql += " AND (d.dealer_type = 'RSAR' OR m.cust_type = 'RSAR')";
+        countSql += " AND (d.dealer_type = 'RSAR' OR m.cust_type = 'RSAR')";
       } else {
-        sql += " AND d.dealer_type = ?";
-        countSql += " AND d.dealer_type = ?";
-        params.push(custType);
-        countParams.push(custType);
+        sql += " AND (d.dealer_type IN ('DEALER', 'STAR') OR m.cust_type IN ('DEALER', 'STAR') OR (d.dealer_type IS NULL AND m.cust_type IS NULL))";
+        countSql += " AND (d.dealer_type IN ('DEALER', 'STAR') OR m.cust_type IN ('DEALER', 'STAR') OR (d.dealer_type IS NULL AND m.cust_type IS NULL))";
       }
     }
     if (area && area !== 'ALL') {

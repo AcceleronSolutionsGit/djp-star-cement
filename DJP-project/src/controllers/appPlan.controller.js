@@ -2099,11 +2099,11 @@ export async function punchVisit(req, res) {
   }
 }
 
-/** The SFA report's Type vocabulary. */
+/** The SFA report's Type vocabulary: Dealer, RSAR, NON STAR (Never Prospective). */
 function custTypeForSfa(raw) {
   const v = norm(raw).toUpperCase();
-  if (v === 'NON_STAR' || v === 'NON-STAR' || v === 'NON STAR') return 'NON STAR';
-  if (v === 'PROSPECTIVE') return 'Prospective';
+  if (v === 'NON_STAR' || v === 'NON-STAR' || v === 'NON STAR' || v === 'PROSPECTIVE' || v === 'PROSPECT') return 'NON STAR';
+  if (v === 'RSAR' || v.includes('SUB') || v === 'SUB-DEALER' || v === 'RSSD') return 'RSAR';
   if (!v || v === 'STAR' || v === 'DEALER') return 'Dealer';
   return raw;
 }

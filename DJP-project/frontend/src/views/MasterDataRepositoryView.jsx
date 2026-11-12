@@ -493,15 +493,13 @@ export default function MasterDataRepositoryView({ onShowToast }) {
   const formatCustType = (type) => {
     if (!type) return 'Dealer';
     const t = String(type).toUpperCase().trim();
-    if (t === 'PROSPECTIVE' || t === 'PROSPECT') return 'Prospective';
-    if (t === 'NON_STAR' || t === 'NON-STAR' || t === 'NON STAR') return 'Non-Star';
+    if (t === 'PROSPECTIVE' || t === 'PROSPECT' || t === 'NON_STAR' || t === 'NON-STAR' || t === 'NON STAR') return 'Non-Star';
     if (t === 'RSAR' || t.includes('SUB') || t === 'SUB-DEALER' || t === 'RSSD') return 'RSAR';
     return 'Dealer';
   };
 
   const getCustTypeBadgeClass = (type) => {
     const t = formatCustType(type);
-    if (t === 'Prospective') return 'badge-cust-prospect';
     if (t === 'Non-Star') return 'badge-cust-nonstar';
     if (t === 'RSAR') return 'badge-cust-rsar';
     return 'badge-cust-dealer';
@@ -680,7 +678,7 @@ export default function MasterDataRepositoryView({ onShowToast }) {
 
               <FilterSelect options={filterOptions.pjpSos} value={pjpFilters.soName} onChange={v => { setPjpFilters(prev => ({ ...prev, soName: v })); setPage(1); }} placeholder="Sales Officers" width="180px" />
 
-              <FilterSelect options={['STAR', 'NON-STAR', 'DEALER', 'PROSPECTIVE']} value={pjpFilters.custType} onChange={v => { setPjpFilters(prev => ({ ...prev, custType: v })); setPage(1); }} placeholder="Cust Type" width="130px" />
+              <FilterSelect options={['DEALER', 'RSAR', 'NON-STAR']} value={pjpFilters.custType} onChange={v => { setPjpFilters(prev => ({ ...prev, custType: v })); setPage(1); }} placeholder="Cust Type" width="130px" />
 
               <FilterSelect options={filterOptions.pjpCategories.length > 0 ? filterOptions.pjpCategories : ['A', 'B', 'C', 'D']} value={pjpFilters.category} onChange={v => { setPjpFilters(prev => ({ ...prev, category: v })); setPage(1); }} placeholder="Categories" width="160px" />
 
@@ -711,7 +709,7 @@ export default function MasterDataRepositoryView({ onShowToast }) {
                 <span>Filters:</span>
               </div>
 
-              <FilterSelect options={['STAR', 'NON-STAR', 'DEALER', 'PROSPECTIVE']} value={mapFilters.custType} onChange={v => { setMapFilters(prev => ({ ...prev, custType: v })); setPage(1); }} placeholder="Cust Type" width="130px" />
+              <FilterSelect options={['DEALER', 'RSAR', 'NON-STAR']} value={mapFilters.custType} onChange={v => { setMapFilters(prev => ({ ...prev, custType: v })); setPage(1); }} placeholder="Cust Type" width="130px" />
 
               <FilterSelect options={filterOptions.mappingRegions} value={mapFilters.region} onChange={v => { setMapFilters(prev => ({ ...prev, region: v })); setPage(1); }} placeholder="Regions" width="130px" />
 

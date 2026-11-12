@@ -203,14 +203,16 @@ export async function getDealerVisitTargets(req, res) {
     }
 
     if (custType && custType !== 'ALL') {
-      if (custType === 'NON-STAR' || custType === 'NON_STAR') {
-        sql += " AND (md.dealer_type = 'NON_STAR' OR md.dealer_type = 'NON-STAR')";
-        countSql += " AND (md.dealer_type = 'NON_STAR' OR md.dealer_type = 'NON-STAR')";
+      const cUpper = String(custType).toUpperCase().replace('-', '_').replace(' ', '_');
+      if (cUpper === 'NON_STAR' || cUpper === 'PROSPECTIVE') {
+        sql += " AND (dvt.cust_type IN ('NON STAR', 'NON_STAR', 'NON-STAR', 'PROSPECTIVE') OR md.dealer_type IN ('NON_STAR', 'NON-STAR', 'NON STAR', 'PROSPECTIVE'))";
+        countSql += " AND (dvt.cust_type IN ('NON STAR', 'NON_STAR', 'NON-STAR', 'PROSPECTIVE') OR md.dealer_type IN ('NON_STAR', 'NON-STAR', 'NON STAR', 'PROSPECTIVE'))";
+      } else if (cUpper === 'RSAR') {
+        sql += " AND (dvt.cust_type = 'RSAR' OR md.dealer_type = 'RSAR')";
+        countSql += " AND (dvt.cust_type = 'RSAR' OR md.dealer_type = 'RSAR')";
       } else {
-        sql += " AND md.dealer_type = ?";
-        countSql += " AND md.dealer_type = ?";
-        params.push(custType);
-        countParams.push(custType);
+        sql += " AND (dvt.cust_type IN ('DEALER', 'STAR') OR (dvt.cust_type IS NULL AND (md.dealer_type IS NULL OR md.dealer_type IN ('DEALER', 'STAR'))))";
+        countSql += " AND (dvt.cust_type IN ('DEALER', 'STAR') OR (dvt.cust_type IS NULL AND (md.dealer_type IS NULL OR md.dealer_type IN ('DEALER', 'STAR'))))";
       }
     }
     if (targetPeriod) {
@@ -447,12 +449,10 @@ export async function exportPjpTradeExcel(req, res) {
 
     // 2. Map strictly to the 16 requested columns
     const exportData = targets.map(t => {
-      // Resolve Cust Type: Title Case ('Dealer', 'RSAR', 'Prospective', 'Non-Star')
+      // Resolve Cust Type: Title Case ('Dealer', 'RSAR', 'Non-Star') — Never Prospective
       let rawType = String(t.cust_type || t.dealer_type || 'DEALER').toUpperCase();
       let custType = 'Dealer';
-      if (rawType === 'PROSPECTIVE' || rawType === 'PROSPECT') {
-        custType = 'Prospective';
-      } else if (rawType === 'NON_STAR' || rawType === 'NON-STAR' || rawType === 'NON STAR') {
+      if (rawType === 'PROSPECTIVE' || rawType === 'PROSPECT' || rawType === 'NON_STAR' || rawType === 'NON-STAR' || rawType === 'NON STAR') {
         custType = 'Non-Star';
       } else if (rawType === 'RSAR' || rawType.includes('SUB') || rawType === 'SUB-DEALER' || rawType === 'RSSD') {
         custType = 'RSAR';
@@ -769,11 +769,10 @@ function visitsForTarget(scheduled, t) {
     ((ROLE_ORDER[a.role] ?? 9) - (ROLE_ORDER[b.role] ?? 9)));
 }
 
-/** The client's Cust Type vocabulary: DEALER, NON STAR, Prospective. */
+/** The client's Cust Type vocabulary: DEALER, NON STAR, RSAR (Never Prospective). */
 function custTypeLabel(raw) {
   const v = String(raw || 'DEALER').toUpperCase();
-  if (v === 'NON_STAR' || v === 'NON-STAR' || v === 'NON STAR') return 'NON STAR';
-  if (v === 'PROSPECTIVE' || v === 'PROSPECT') return 'Prospective';
+  if (v === 'NON_STAR' || v === 'NON-STAR' || v === 'NON STAR' || v === 'PROSPECTIVE' || v === 'PROSPECT') return 'NON STAR';
   if (v === 'RSAR' || v.includes('SUB') || v === 'SUB-DEALER' || v === 'RSSD') return 'RSAR';
   if (v === 'STAR') return 'DEALER';
   return raw || 'DEALER';

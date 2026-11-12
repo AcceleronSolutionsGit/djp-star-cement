@@ -268,15 +268,13 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
   const formatCustType = (type) => {
     if (!type) return 'Dealer';
     const t = String(type).toUpperCase().trim();
-    if (t === 'PROSPECTIVE' || t === 'PROSPECT') return 'Prospective';
-    if (t === 'NON_STAR' || t === 'NON-STAR' || t === 'NON STAR') return 'Non-Star';
+    if (t === 'PROSPECTIVE' || t === 'PROSPECT' || t === 'NON_STAR' || t === 'NON-STAR' || t === 'NON STAR') return 'Non-Star';
     if (t === 'RSAR' || t.includes('SUB') || t === 'SUB-DEALER' || t === 'RSSD') return 'RSAR';
     return 'Dealer';
   };
 
   const getCustTypeBadgeClass = (type) => {
     const t = formatCustType(type);
-    if (t === 'Prospective') return 'badge-cust-prospect';
     if (t === 'Non-Star') return 'badge-cust-nonstar';
     if (t === 'RSAR') return 'badge-cust-rsar';
     return 'badge-cust-dealer';

@@ -625,7 +625,7 @@ async function persistPjpResults(results, reportMonth, cycleCode, generationRunC
         r.sbg_block || null,    // sbg_block dedicated column
         r.branch || null,
         r.zone || null, r.region || null,
-        r.cust_type || (r.dealer_type === 'PROSPECTIVE' ? 'PROSPECTIVE' : (r.dealer_type === 'NON_STAR' || r.dealer_type === 'NON STAR' ? 'NON STAR' : (r.dealer_type === 'RSAR' ? 'RSAR' : 'DEALER'))),
+        r.cust_type || (r.dealer_type === 'PROSPECTIVE' || r.dealer_type === 'NON_STAR' || r.dealer_type === 'NON STAR' ? 'NON STAR' : (r.dealer_type === 'RSAR' ? 'RSAR' : 'DEALER')),
         r.territoryCode || null, r.territoryName || null,
         r.soCode || r.soEmpCode || null, r.soName || null, r.soEmpCode || null,
         finalAsmName, finalAsmCode,
