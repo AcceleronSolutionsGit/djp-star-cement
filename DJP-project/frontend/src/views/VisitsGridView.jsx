@@ -232,6 +232,23 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
     return 'badge-growing';
   };
 
+  const formatCustType = (type) => {
+    if (!type) return 'Dealer';
+    const t = String(type).toUpperCase().trim();
+    if (t === 'PROSPECTIVE' || t === 'PROSPECT') return 'Prospective';
+    if (t === 'NON_STAR' || t === 'NON-STAR' || t === 'NON STAR') return 'Non-Star';
+    if (t === 'RSAR' || t.includes('SUB') || t === 'SUB-DEALER' || t === 'RSSD') return 'RSAR';
+    return 'Dealer';
+  };
+
+  const getCustTypeBadgeClass = (type) => {
+    const t = formatCustType(type);
+    if (t === 'Prospective') return 'badge-cust-prospect';
+    if (t === 'Non-Star') return 'badge-cust-nonstar';
+    if (t === 'RSAR') return 'badge-cust-rsar';
+    return 'badge-cust-dealer';
+  };
+
   return (
     <div>
       {/* 5 KPI Metric Cards */}
@@ -487,6 +504,7 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
                 <th>RSM Name</th>
                 <th>ZH Name</th>
                 <th>Customer Name</th>
+                <th>Cust Type</th>
                 <th>Customer Code (SAP)</th>
                 <th>SFA Code</th>
                 <th>Grade</th>
@@ -502,13 +520,13 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="17" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  <td colSpan="18" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                     Loading visit targets...
                   </td>
                 </tr>
               ) : paginatedData.length === 0 ? (
                 <tr>
-                  <td colSpan="17" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  <td colSpan="18" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                     No visit target records found matching the current filters.
                   </td>
                 </tr>
@@ -523,6 +541,11 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
                     <td>{r.rsm_name || '-'}</td>
                     <td>{r.zh_name || '-'}</td>
                     <td><strong>{r.dealer_name}</strong></td>
+                    <td>
+                      <span className={getCustTypeBadgeClass(r.cust_type || r.dealer_type)}>
+                        {formatCustType(r.cust_type || r.dealer_type)}
+                      </span>
+                    </td>
                     <td><code>{r.sap_code || '-'}</code></td>
                     <td><code>{r.sfa_code || '-'}</code></td>
                     <td style={{ fontWeight: 800, color: 'var(--star-red)' }}>{r.category || 'A'}</td>

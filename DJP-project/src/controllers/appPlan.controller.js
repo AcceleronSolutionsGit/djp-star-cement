@@ -569,6 +569,7 @@ async function buildDetail(plan, viewerIsOwner) {
           sfa_code: v.sfa_code || (!/^\d+$/.test(v.dealer_sap_code) ? v.dealer_sap_code : null),
           name: v.dealer_name,
           type: v.dealer_type,
+          cust_type: v.dealer_type,
           area: v.area,
           zone: v.zone,
           block: v.block,

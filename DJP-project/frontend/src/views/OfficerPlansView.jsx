@@ -265,6 +265,23 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
     }
   };
 
+  const formatCustType = (type) => {
+    if (!type) return 'Dealer';
+    const t = String(type).toUpperCase().trim();
+    if (t === 'PROSPECTIVE' || t === 'PROSPECT') return 'Prospective';
+    if (t === 'NON_STAR' || t === 'NON-STAR' || t === 'NON STAR') return 'Non-Star';
+    if (t === 'RSAR' || t.includes('SUB') || t === 'SUB-DEALER' || t === 'RSSD') return 'RSAR';
+    return 'Dealer';
+  };
+
+  const getCustTypeBadgeClass = (type) => {
+    const t = formatCustType(type);
+    if (t === 'Prospective') return 'badge-cust-prospect';
+    if (t === 'Non-Star') return 'badge-cust-nonstar';
+    if (t === 'RSAR') return 'badge-cust-rsar';
+    return 'badge-cust-dealer';
+  };
+
   // ── SFA Live Background Sync Polling & Status ───────────────────────────────
   const [syncStatus, setSyncStatus] = useState(null);
 
@@ -2982,6 +2999,9 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                             )}
                           </div>
                           <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
+                            <span className={getCustTypeBadgeClass(v.dealer?.type || v.cust_type)}>
+                              {formatCustType(v.dealer?.type || v.cust_type)}
+                            </span>
                             {v.final_category && <span className="badge">{v.final_category}</span>}
                             {v.grade && <span className="badge">{v.grade}</span>}
                             {v.dealer.has_coordinates && (

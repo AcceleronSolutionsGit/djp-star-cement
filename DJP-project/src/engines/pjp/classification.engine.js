@@ -140,14 +140,17 @@ export function classifyDealer({
   const type = String(dealerType || custType || '').toUpperCase();
   const stat = String(status || '').toUpperCase();
 
-  // ── T = "New" → Prospective ───────────────────────────────────────────────
-  // In the master the prospect marker is the literal string "New" in the DOA column.
-  // Here prospects arrive typed, so both are accepted.
-  if (type === 'PROSPECTIVE' || type === 'PROSPECT' || stat === 'PROSPECTIVE') {
-    return { finalCategory: CATEGORY.PROSPECTIVE, doaTier: 'PROSPECT', reason: 'Prospect row' };
+  // ── Non-Star & Prospective Dealers: Never Zero Lifter or Churn ───────────────
+  // 1. Non-Star counters: Competitor-selling counters targeted for conversion & growth.
+  // Classified as "Need to Grow" — NEVER as "Zero Lifter" or "Churn".
+  if (type === 'NON STAR' || type === 'NON-STAR' || type === 'NON_STAR') {
+    return { finalCategory: CATEGORY.NEED_TO_GROW, doaTier: 'PROSPECT', reason: 'Non-Star counter (Need to Grow)' };
   }
-  if ((type === 'NON STAR' || type === 'NON-STAR' || type === 'NON_STAR') && (String(doa).toUpperCase() === 'NEW' || !doa || (!O && !S && !R))) {
-    return { finalCategory: CATEGORY.PROSPECTIVE, doaTier: 'PROSPECT', reason: 'Non-Star prospect row (DOA New / no sales)' };
+
+  // 2. Prospective counters: Target unappointed counters.
+  // Classified as "Prospective" — NEVER as "Zero Lifter" or "Churn".
+  if (type === 'PROSPECTIVE' || type === 'PROSPECT' || stat === 'PROSPECTIVE' || String(doa).toUpperCase() === 'NEW') {
+    return { finalCategory: CATEGORY.PROSPECTIVE, doaTier: 'PROSPECT', reason: 'Prospect row (never Zero Lifter)' };
   }
 
   const { tier, cutoffs, doaDate } = resolveDoaTier(doa, reportMonth);

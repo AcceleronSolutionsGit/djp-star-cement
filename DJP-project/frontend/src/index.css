@@ -570,6 +570,12 @@ tbody tr:hover td {
 .badge-needgrow { background: var(--color-warning-bg); color: #B45309; }
 .badge-prospect { background: var(--color-purple-bg); color: #6D28D9; }
 
+/* Customer Type Badges */
+.badge-cust-dealer { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; font-weight: 700; padding: 2px 7px; border-radius: var(--radius-full); font-size: 0.75rem; display: inline-flex; align-items: center; }
+.badge-cust-rsar { background: #FAF5FF; color: #7E22CE; border: 1px solid #E9D5FF; font-weight: 700; padding: 2px 7px; border-radius: var(--radius-full); font-size: 0.75rem; display: inline-flex; align-items: center; }
+.badge-cust-nonstar { background: #FFFBEB; color: #B45309; border: 1px solid #FDE68A; font-weight: 700; padding: 2px 7px; border-radius: var(--radius-full); font-size: 0.75rem; display: inline-flex; align-items: center; }
+.badge-cust-prospect { background: #F0FDF4; color: #15803D; border: 1px solid #BBF7D0; font-weight: 700; padding: 2px 7px; border-radius: var(--radius-full); font-size: 0.75rem; display: inline-flex; align-items: center; }
+
 .visit-pill {
   font-weight: 800;
   padding: 3px 8px;
