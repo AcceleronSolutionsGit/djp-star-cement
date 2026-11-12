@@ -117,7 +117,8 @@ export class AutoPlanGenerator {
                OR dvt.dealer_status LIKE '%Sub%' THEN 'RSAR'
           WHEN mcc.customer_type IN ('Dealer', 'Exclusive Dealer') 
                OR md.dealer_type IN ('DEALER', 'STAR') THEN 'DEALER'
-          WHEN mcc.customer_type = 'Non Star' OR md.dealer_type = 'PROSPECTIVE' THEN 'PROSPECTIVE'
+          WHEN mcc.customer_type = 'Non Star' OR md.dealer_type IN ('PROSPECTIVE', 'NON STAR', 'NON_STAR', 'NON-STAR') 
+               OR dvt.cust_type IN ('NON STAR', 'NON_STAR', 'NON-STAR', 'PROSPECTIVE') THEN 'NON STAR'
           ELSE COALESCE(NULLIF(md.dealer_type, ''), 'DEALER')
         END as dealer_type,
         dvt.area,

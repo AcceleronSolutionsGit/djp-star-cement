@@ -36,6 +36,21 @@ export default function PlanApprovalsView({ onShowToast }) {
   const [approvalRemarks, setApprovalRemarks] = useState('');
   const [reviewBackdatedAlert, setReviewBackdatedAlert] = useState(null);
 
+  const formatCustType = (type) => {
+    if (!type) return 'DEALER';
+    const t = String(type).toUpperCase().trim();
+    if (t === 'PROSPECTIVE' || t === 'PROSPECT' || t === 'NON_STAR' || t === 'NON-STAR' || t === 'NON STAR') return 'NON STAR';
+    if (t === 'RSAR' || t.includes('SUB') || t === 'SUB-DEALER' || t === 'RSSD') return 'RSAR';
+    return 'DEALER';
+  };
+
+  const getCustTypeColor = (type) => {
+    const t = formatCustType(type);
+    if (t === 'RSAR') return '#7C3AED';
+    if (t === 'NON STAR') return '#B45309';
+    return '#2563EB';
+  };
+
   const loadPlans = async () => {
     setLoading(true);
     try {
@@ -234,7 +249,9 @@ export default function PlanApprovalsView({ onShowToast }) {
             {dayVisits.slice(0, 3).map((v, idx) => (
               <div key={v.id || idx} className={`dealer-calendar-chip ${v.is_backdated ? 'backdated' : ''}`} title={`${v.dealer_name} (${v.dealer_sap_code || 'N/A'})${v.is_backdated ? ' - [BACKDATED VISIT]' : ''}`}>
                 <span className="dealer-chip-name">{v.is_backdated ? '⚠️ ' : ''}{v.dealer_name}</span>
-                <span className={`dealer-chip-badge ${(v.dealer_type || '').toLowerCase()}`}>{v.dealer_type || 'DEALER'}</span>
+                <span className={`dealer-chip-badge ${formatCustType(v.dealer_type).toLowerCase().replace(' ', '-')}`}>
+                  {formatCustType(v.dealer_type)}
+                </span>
               </div>
             ))}
 
@@ -792,7 +809,7 @@ export default function PlanApprovalsView({ onShowToast }) {
                         {v.dealer_name}
                       </div>
                       <div style={{ fontSize: '0.75rem', color: '#64748B' }}>
-                        Code: <b>{v.dealer_sap_code || 'N/A'}</b> | Type: <b style={{ color: v.dealer_type === 'RSAR' ? '#7C3AED' : '#2563EB' }}>{v.dealer_type || 'DEALER'}</b> | {v.purpose_of_visit}
+                        Code: <b>{v.dealer_sap_code || 'N/A'}</b> | Type: <b style={{ color: getCustTypeColor(v.dealer_type) }}>{formatCustType(v.dealer_type)}</b> | {v.purpose_of_visit}
                         {v.is_backdated === 1 && (
                           <span style={{ marginLeft: '8px', color: '#DC2626', fontWeight: 800 }}>
                             ⚠️ [EDITED BACKDATED VISIT]

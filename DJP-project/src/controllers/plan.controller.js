@@ -295,11 +295,23 @@ export async function getPlanDetails(req, res) {
       [planId]
     );
 
-    const backdatedVisits = details.filter(d => d.is_backdated === 1);
+    const normalizeType = (t) => {
+      const v = String(t || 'DEALER').toUpperCase().trim();
+      if (v === 'PROSPECTIVE' || v === 'PROSPECT' || v === 'NON_STAR' || v === 'NON-STAR' || v === 'NON STAR') return 'NON STAR';
+      if (v === 'RSAR' || v.includes('SUB') || v === 'SUB-DEALER' || v === 'RSSD') return 'RSAR';
+      return 'DEALER';
+    };
+
+    const normalizedDetails = details.map(d => ({
+      ...d,
+      dealer_type: normalizeType(d.dealer_type)
+    }));
+
+    const backdatedVisits = normalizedDetails.filter(d => d.is_backdated === 1);
 
     res.json({ 
       plan, 
-      details,
+      details: normalizedDetails,
       backdatedAlert: {
         hasBackdatedVisits: backdatedVisits.length > 0,
         count: backdatedVisits.length,
@@ -311,7 +323,7 @@ export async function getPlanDetails(req, res) {
           visit_date: v.visit_date,
           dealer_name: v.dealer_name,
           dealer_sap_code: v.dealer_sap_code,
-          dealer_type: v.dealer_type,
+          dealer_type: normalizeType(v.dealer_type),
           created_at: v.created_at,
           updated_at: v.updated_at
         }))
@@ -470,7 +482,8 @@ export async function getDealersForSO(req, res) {
                 OR dvt.dealer_status LIKE '%Sub%' THEN 'RSAR'
            WHEN mcc.customer_type IN ('Dealer', 'Exclusive Dealer') 
                 OR md.dealer_type IN ('DEALER', 'STAR') THEN 'DEALER'
-           WHEN mcc.customer_type = 'Non Star' OR md.dealer_type = 'PROSPECTIVE' THEN 'PROSPECTIVE'
+           WHEN mcc.customer_type = 'Non Star' OR md.dealer_type IN ('PROSPECTIVE', 'NON STAR', 'NON_STAR', 'NON-STAR') 
+                OR dvt.cust_type IN ('NON STAR', 'NON_STAR', 'NON-STAR', 'PROSPECTIVE') THEN 'NON STAR'
            ELSE COALESCE(NULLIF(md.dealer_type, ''), 'DEALER')
          END as dealer_type,
          dvt.area,
@@ -503,7 +516,8 @@ export async function getDealersForSO(req, res) {
                 OR (md.rssd_code IS NOT NULL AND md.rssd_code != '' AND md.rssd_code != '-') THEN 'RSAR'
            WHEN mcc.customer_type IN ('Dealer', 'Exclusive Dealer') 
                 OR md.dealer_type IN ('DEALER', 'STAR') THEN 'DEALER'
-           WHEN mcc.customer_type = 'Non Star' OR md.dealer_type = 'PROSPECTIVE' THEN 'PROSPECTIVE'
+           WHEN mcc.customer_type = 'Non Star' OR md.dealer_type IN ('PROSPECTIVE', 'NON STAR', 'NON_STAR', 'NON-STAR') 
+                OR dvt.cust_type IN ('NON STAR', 'NON_STAR', 'NON-STAR', 'PROSPECTIVE') THEN 'NON STAR'
            ELSE COALESCE(NULLIF(md.dealer_type, ''), 'DEALER')
          END as dealer_type,
          md.area,
@@ -537,7 +551,8 @@ export async function getDealersForSO(req, res) {
            CASE
              WHEN mcc.customer_type = 'Sub Dealer' OR md.dealer_type = 'RSAR' THEN 'RSAR'
              WHEN mcc.customer_type IN ('Dealer', 'Exclusive Dealer') OR md.dealer_type = 'DEALER' THEN 'DEALER'
-             WHEN mcc.customer_type = 'Non Star' OR md.dealer_type = 'PROSPECTIVE' THEN 'PROSPECTIVE'
+             WHEN mcc.customer_type = 'Non Star' OR md.dealer_type IN ('PROSPECTIVE', 'NON STAR', 'NON_STAR', 'NON-STAR') 
+                 OR dvt.cust_type IN ('NON STAR', 'NON_STAR', 'NON-STAR', 'PROSPECTIVE') THEN 'NON STAR'
              ELSE 'DEALER'
            END as dealer_type,
            md.area,

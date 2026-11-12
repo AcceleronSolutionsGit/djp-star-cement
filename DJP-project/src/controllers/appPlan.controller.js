@@ -401,7 +401,11 @@ async function buildDetail(plan, viewerIsOwner) {
        ) AS sfa_code,
        COALESCE(d.dealer_sap_code, md.sap_code, dvt.sap_code, md.sfa_code, dvt.sfa_code) AS dealer_sap_code,
        COALESCE(d.dealer_name, md.dealer_name, dvt.dealer_name) AS dealer_name,
-       COALESCE(d.dealer_type, md.dealer_type, 'DEALER') AS dealer_type,
+       CASE 
+         WHEN COALESCE(d.dealer_type, md.dealer_type, dvt.cust_type) IN ('PROSPECTIVE', 'PROSPECT', 'NON_STAR', 'NON-STAR', 'NON STAR') THEN 'NON STAR'
+         WHEN COALESCE(d.dealer_type, md.dealer_type, dvt.cust_type) = 'RSAR' THEN 'RSAR'
+         ELSE 'DEALER'
+       END AS dealer_type,
        d.purpose_of_visit,
        COALESCE(d.visit_status, 'ACTIVE') AS visit_status,
        COALESCE(d.source, 'AUTO')         AS source,

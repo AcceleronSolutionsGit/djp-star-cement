@@ -768,6 +768,21 @@ tbody tr:hover td {
   background: #E2E8F0;
   color: #334155;
 }
+.dealer-chip-badge.non-star, .dealer-chip-badge.nonstar {
+  background: #FFFBEB;
+  color: #B45309;
+  border: 1px solid #FDE68A;
+}
+.dealer-chip-badge.rsar {
+  background: #FAF5FF;
+  color: #7E22CE;
+  border: 1px solid #E9D5FF;
+}
+.dealer-chip-badge.dealer {
+  background: #EFF6FF;
+  color: #1D4ED8;
+  border: 1px solid #BFDBFE;
+}
 
 .more-visits-chip {
   background: #EFF6FF;

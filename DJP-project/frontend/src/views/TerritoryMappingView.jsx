@@ -10,6 +10,21 @@ export default function TerritoryMappingView({ onShowToast }) {
   const [page, setPage] = useState(1);
   const pageSize = 50;
 
+  const formatCustType = (type) => {
+    if (!type) return 'Dealer';
+    const t = String(type).toUpperCase().trim();
+    if (t === 'PROSPECTIVE' || t === 'PROSPECT' || t === 'NON_STAR' || t === 'NON-STAR' || t === 'NON STAR') return 'Non-Star';
+    if (t === 'RSAR' || t.includes('SUB') || t === 'SUB-DEALER' || t === 'RSSD') return 'RSAR';
+    return 'Dealer';
+  };
+
+  const getCustTypeBadgeClass = (type) => {
+    const t = formatCustType(type);
+    if (t === 'Non-Star') return 'badge-cust-nonstar';
+    if (t === 'RSAR') return 'badge-cust-rsar';
+    return 'badge-cust-dealer';
+  };
+
   const loadMappings = async () => {
     setLoading(true);
     try {
@@ -142,7 +157,7 @@ export default function TerritoryMappingView({ onShowToast }) {
                     <td><code>{m.sap_code || '-'}</code></td>
                     <td><code style={{ color: 'var(--star-red)' }}>{m.sfa_code || '-'}</code></td>
                     <td><strong>{m.dealer_name}</strong></td>
-                    <td><span className="badge badge-needgrow">{m.dealer_type || 'DEALER'}</span></td>
+                    <td><span className={getCustTypeBadgeClass(m.dealer_type)}>{formatCustType(m.dealer_type)}</span></td>
                     <td>{m.area || m.branch || '-'}</td>
                     <td><code>{m.so_emp_code || '-'}</code></td>
                     <td><b>{m.so_name || '-'}</b></td>
