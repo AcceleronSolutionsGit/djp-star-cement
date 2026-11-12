@@ -216,6 +216,9 @@ export async function generateFullPjpDjpSolution(periodMonth, cycleCode, options
     console.warn('[DJP Generator] Warning loading coordinates:', err.message);
   }
 
+  // ──── Allocate and Collect Recommendations ────
+  const allAllocatedRecs = [];
+
   // ──── SO Allocation ────
   for (const [soKey, targets] of soGroups.entries()) {
     const soRecs = [];
@@ -233,7 +236,7 @@ export async function generateFullPjpDjpSolution(periodMonth, cycleCode, options
     }
     const { allocated, unallocated } = allocateToWorkingDays(soRecs, workingDays, soCapacity, coordsMap);
     for (const item of allocated) {
-      await saveDjpRecommendation('SO', periodMonth, cycleCode, item, generationRunCode);
+      allAllocatedRecs.push({ roleType: 'SO', item });
       totalDjpSlots++;
     }
     if (unallocated.length > 0) {
@@ -261,7 +264,7 @@ export async function generateFullPjpDjpSolution(periodMonth, cycleCode, options
     }
     const { allocated, unallocated } = allocateToWorkingDays(asmRecs, workingDays, asmCapacity, coordsMap);
     for (const item of allocated) {
-      await saveDjpRecommendation('ASM', periodMonth, cycleCode, item, generationRunCode);
+      allAllocatedRecs.push({ roleType: 'ASM', item });
       totalDjpSlots++;
     }
     if (unallocated.length > 0) {
@@ -287,7 +290,7 @@ export async function generateFullPjpDjpSolution(periodMonth, cycleCode, options
     }
     const { allocated, unallocated } = allocateToWorkingDays(rsmRecs, workingDays, rsmCapacity, coordsMap);
     for (const item of allocated) {
-      await saveDjpRecommendation('RSM', periodMonth, cycleCode, item, generationRunCode);
+      allAllocatedRecs.push({ roleType: 'RSM', item });
       totalDjpSlots++;
     }
     if (unallocated.length > 0) {
@@ -315,7 +318,7 @@ export async function generateFullPjpDjpSolution(periodMonth, cycleCode, options
     const cappedRecs = zhRecs.slice(0, zhMonthlyCapacity);
     const { allocated, unallocated } = allocateToWorkingDays(cappedRecs, workingDays, zhDailyLimit, coordsMap);
     for (const item of allocated) {
-      await saveDjpRecommendation('ZH', periodMonth, cycleCode, item, generationRunCode);
+      allAllocatedRecs.push({ roleType: 'ZH', item });
       totalDjpSlots++;
     }
     if (unallocated.length > 0 || zhRecs.length > zhMonthlyCapacity) {
@@ -323,6 +326,11 @@ export async function generateFullPjpDjpSolution(periodMonth, cycleCode, options
       totalUnallocated += unallocated.length + Math.max(0, excessFromCap);
       capacityViolated = true;
     }
+  }
+
+  // Fast Bulk Insert for all recommended DJP slots
+  if (allAllocatedRecs.length > 0) {
+    await saveDjpRecommendationsBatch(allAllocatedRecs, periodMonth, cycleCode, generationRunCode);
   }
 
   console.log(`\n----------------------------------------------------------------`);
@@ -340,7 +348,8 @@ export async function generateFullPjpDjpSolution(periodMonth, cycleCode, options
     totalDjpSlots,
     unallocatedCount: totalUnallocated,
     capacityViolated,
-    validationErrors
+    validationErrors,
+    coordsMap
   };
 }
 
@@ -364,6 +373,48 @@ function allocateToWorkingDays(recs, workingDays, dailyCapacity, coordinatesMap 
   }
 
   return { allocated, unallocated };
+}
+
+async function saveDjpRecommendationsBatch(recommendations, periodMonth, cycleCode, generationRunCode = null) {
+  const BATCH_SIZE = 500;
+  for (let i = 0; i < recommendations.length; i += BATCH_SIZE) {
+    const chunk = recommendations.slice(i, i + BATCH_SIZE);
+    const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+    const params = [];
+
+    for (const { roleType, item } of chunk) {
+      const sapCode = item.sap_code || (item.dealerCode && !String(item.dealerCode).startsWith('DLR_') && !String(item.dealerCode).startsWith('PROSPECT_') && !String(item.dealerCode).startsWith('TGT_') ? item.dealerCode : null);
+      const sfaCode = item.sfa_code || item.dealerCode || null;
+      params.push(
+        generationRunCode,
+        roleType, cycleCode, periodMonth,
+        item.empCode, item.empName,
+        item.visitDate, item.visitSequence || item.sequence || 1,
+        sapCode, sfaCode,
+        item.dealerName, 'DEALER',
+        item.grade || 'C',
+        item.finalCategory || 'Growing',
+        'GA',
+        item.totalScore || 0, 1,
+        `${roleType} allocated (${item.finalCategory || 'N/A'}, Grade ${item.grade || 'N/A'})`,
+        'DRAFT',
+        item.latitude || null,
+        item.longitude || null,
+        item.distance_from_prev_km || 0,
+        item.route_name || null
+      );
+    }
+
+    await dbRun(
+      `INSERT INTO djp_recommendations 
+      (generation_run_code, role_type, cycle_code, period_month, emp_code, emp_name, visit_date, visit_sequence, 
+       dealer_sap_code, dealer_sfa_code, dealer_name, dealer_type, category, dealer_status, 
+       market_strategy, priority_score, required_visits, recommendation_reason, plan_status,
+       latitude, longitude, distance_from_prev_km, route_name) 
+      VALUES ${placeholders}`,
+      params
+    );
+  }
 }
 
 async function saveDjpRecommendation(roleType, periodMonth, cycleCode, item, generationRunCode = null) {

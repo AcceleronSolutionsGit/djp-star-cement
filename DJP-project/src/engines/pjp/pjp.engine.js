@@ -579,7 +579,7 @@ async function persistPjpResults(results, reportMonth, cycleCode, generationRunC
   );
 
   const processedKeys = new Set();
-  let insertCount = 0;
+  const rowsToInsert = [];
 
   for (const r of results) {
     const key = `${reportMonth}_${cycleCode}_${r.dealerCode}`;
@@ -596,6 +596,58 @@ async function persistPjpResults(results, reportMonth, cycleCode, generationRunC
     const rsmVisitsPct = totalVisits > 0 ? Math.round((r.rsmVisits / totalVisits) * 10000) / 100 : 0;
     const zhVisitsPct = totalVisits > 0 ? Math.round((r.zhVisits / totalVisits) * 10000) / 100 : 0;
 
+    rowsToInsert.push([
+      generationRunCode,
+      reportMonth, cycleCode, r.dealerId, r.dealerName,
+      r.sap_code || null, r.sfa_code || null,
+      r.area || null,         // dm_area as area
+      r.dm_area || null,      // dm_area dedicated column
+      r.block || null,        // sbg_block as block
+      r.sbg_block || null,    // sbg_block dedicated column
+      r.branch || null,
+      r.zone || null, r.region || null,
+      r.cust_type || (r.dealer_type === 'PROSPECTIVE' || r.dealer_type === 'NON_STAR' || r.dealer_type === 'NON STAR' ? 'NON STAR' : (r.dealer_type === 'RSAR' ? 'RSAR' : 'DEALER')),
+      r.territoryCode || null, r.territoryName || null,
+      r.soCode || r.soEmpCode || null, r.soName || null, r.soEmpCode || null,
+      finalAsmName, finalAsmCode,
+      r.rsmName || null, r.rsmCode || null,
+      r.zhName || null, r.zhCode || null,
+      // Potential: sbg_potential (may be NULL — store as-is)
+      r.sbg_potential !== null ? r.sbg_potential : null,
+      r.sbg_potential !== null ? r.sbg_potential : null,
+      r.previousSales || 0, r.currentSales || 0, r.lysmSales || 0,
+      r.rsarSixMonthAverage || 0,  // RSAR 6M avg
+      r.dpSixMonthAverage || 0,    // DP 6M avg (independent)
+      r.finalVolume || 0,
+      r.counterShare || 0,
+      r.needToGrow ? 1 : 0,
+      r.areaPotential || 0,
+      r.areaPotentialRank || 1,
+      r.areaPotentialPercentile || 0,
+      r.areaVolume || 0,
+      r.areaVolumeRank || 1,
+      r.areaVolumePercentile || 0,
+      r.potentialRank || 1,
+      r.doa || null,
+      r.scoreA ?? 0, r.scoreB ?? 0, r.scoreC ?? 0, r.totalScore ?? 0,
+      r.priorityRank || 0,   // priority = numeric rank
+      r.priorityLabel || 'Medium',  // priority_label = text label
+      r.grade,               // category = grade (A/B/C/D)
+      r.finalCategory,       // dealer_status = final category
+      r.grade,               // grade column
+      r.sbg_status || 'SBG_NOT_FOUND',
+      r.rsar_status || 'RSAR_NOT_FOUND',
+      r.dp_status || 'DP_NOT_FOUND',
+      r.prospect_status || 'PROSPECT_NOT_FOUND',
+      r.soVisits, finalAsmVisits, r.rsmVisits, r.zhVisits, totalVisits,
+      soVisitsPct, asmVisitsPct, rsmVisitsPct, zhVisitsPct
+    ]);
+  }
+
+  const BATCH_SIZE = 500;
+  for (let i = 0; i < rowsToInsert.length; i += BATCH_SIZE) {
+    const chunk = rowsToInsert.slice(i, i + BATCH_SIZE);
+    const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
     await dbRun(
       `INSERT INTO dealer_visit_targets 
       (generation_run_code, period_month, cycle_code, dealer_id, dealer_name, sap_code, sfa_code,
@@ -614,56 +666,10 @@ async function persistPjpResults(results, reportMonth, cycleCode, generationRunC
        sbg_status, rsar_status, dp_status, prospect_status,
        so_visits, asm_visits, rsm_visits, zh_visits, total_visits,
        so_visits_pct, asm_visits_pct, rsm_visits_pct, zh_visits_pct)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        generationRunCode,
-        reportMonth, cycleCode, r.dealerId, r.dealerName,
-        r.sap_code || null, r.sfa_code || null,
-        r.area || null,         // dm_area as area
-        r.dm_area || null,      // dm_area dedicated column
-        r.block || null,        // sbg_block as block
-        r.sbg_block || null,    // sbg_block dedicated column
-        r.branch || null,
-        r.zone || null, r.region || null,
-        r.cust_type || (r.dealer_type === 'PROSPECTIVE' || r.dealer_type === 'NON_STAR' || r.dealer_type === 'NON STAR' ? 'NON STAR' : (r.dealer_type === 'RSAR' ? 'RSAR' : 'DEALER')),
-        r.territoryCode || null, r.territoryName || null,
-        r.soCode || r.soEmpCode || null, r.soName || null, r.soEmpCode || null,
-        finalAsmName, finalAsmCode,
-        r.rsmName || null, r.rsmCode || null,
-        r.zhName || null, r.zhCode || null,
-        // Potential: sbg_potential (may be NULL — store as-is)
-        r.sbg_potential !== null ? r.sbg_potential : null,
-        r.sbg_potential !== null ? r.sbg_potential : null,
-        r.previousSales || 0, r.currentSales || 0, r.lysmSales || 0,
-        r.rsarSixMonthAverage || 0,  // RSAR 6M avg
-        r.dpSixMonthAverage || 0,    // DP 6M avg (independent)
-        r.finalVolume || 0,
-        r.counterShare || 0,
-        r.needToGrow ? 1 : 0,
-        r.areaPotential || 0,
-        r.areaPotentialRank || 1,
-        r.areaPotentialPercentile || 0,
-        r.areaVolume || 0,
-        r.areaVolumeRank || 1,
-        r.areaVolumePercentile || 0,
-        r.potentialRank || 1,
-        r.doa || null,
-        r.scoreA ?? 0, r.scoreB ?? 0, r.scoreC ?? 0, r.totalScore ?? 0,
-        r.priorityRank || 0,   // priority = numeric rank
-        r.priorityLabel || 'Medium',  // priority_label = text label
-        r.grade,               // category = grade (A/B/C/D)
-        r.finalCategory,       // dealer_status = final category
-        r.grade,               // grade column
-        r.sbg_status || 'SBG_NOT_FOUND',
-        r.rsar_status || 'RSAR_NOT_FOUND',
-        r.dp_status || 'DP_NOT_FOUND',
-        r.prospect_status || 'PROSPECT_NOT_FOUND',
-        r.soVisits, finalAsmVisits, r.rsmVisits, r.zhVisits, totalVisits,
-        soVisitsPct, asmVisitsPct, rsmVisitsPct, zhVisitsPct
-      ]
+      VALUES ${placeholders}`,
+      chunk.flat()
     );
-    insertCount++;
   }
 
-  console.log(`  Persisted ${insertCount} dealer visit targets.`);
+  console.log(`  Persisted ${rowsToInsert.length} dealer visit targets in batches of ${BATCH_SIZE}.`);
 }

@@ -469,5 +469,5 @@ const server = app.listen(PORT, () => {
 // mid-run, which reaches the browser as a dead connection
 server.requestTimeout = 30 * 60 * 1000;   // 30 min
 server.headersTimeout = 31 * 60 * 1000;   // must exceed requestTimeout
-server.keepAliveTimeout = 5 * 60 * 1000;
+server.keepAliveTimeout = 30 * 60 * 1000;
 server.setTimeout(0);

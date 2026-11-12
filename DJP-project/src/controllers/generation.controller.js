@@ -134,7 +134,7 @@ export async function runGenerationPipeline(periodMonth, cycleCode, options = {}
   });
 
   console.log(`[Pipeline:${cycleCode}] 2/2 Officer plans${sfaAdherenceByEmployee ? ' (adherence-aware)' : ''}...`);
-  const plans = await generatePlansForAllRoles(periodMonth, cycleCode, { sfaAdherenceByEmployee });
+  const plans = await generatePlansForAllRoles(periodMonth, cycleCode, { sfaAdherenceByEmployee, coordsMap: djp?.coordsMap });
 
   return { cycleCode, djp, plans };
 }
@@ -146,6 +146,7 @@ export async function runGenerationPipeline(periodMonth, cycleCode, options = {}
  */
 export async function createGenerationRun(req, res) {
   try {
+    if (req.socket) req.socket.setTimeout(30 * 60 * 1000);
     const planMonth = req.body.planMonth || req.body.periodMonth || req.body.reportMonth;
     const {
       cycleCode,
@@ -343,6 +344,7 @@ export async function getGenerationRun(req, res) {
  */
 export async function generateAllLegacy(req, res) {
   try {
+    if (req.socket) req.socket.setTimeout(30 * 60 * 1000);
     const planMonth = req.body.planMonth || req.body.periodMonth || req.body.reportMonth;
 
     if (!planMonth || typeof planMonth !== 'string') {

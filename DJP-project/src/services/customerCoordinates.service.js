@@ -258,6 +258,8 @@ export async function updateMasterDealersFromCoordinates() {
  * @param {string[]} codes
  * @returns {Promise<Map<string, { lat: number, lng: number, routeName: string, hasCoordinates: boolean, customerName: string, address: string, pin: string }>>}
  */
+let coordinatesTableChecked = false;
+
 export async function getCoordinatesForDealers(codes = []) {
   const result = new Map();
   if (!codes || codes.length === 0) return result;
@@ -265,18 +267,21 @@ export async function getCoordinatesForDealers(codes = []) {
   const cleanCodes = [...new Set(codes.map(c => String(c || '').trim().toUpperCase()).filter(Boolean))];
   if (cleanCodes.length === 0) return result;
 
-  // Ensure table has data; if empty, sync once
-  try {
-    const countRow = await dbGet('SELECT COUNT(*) as cnt FROM master_customer_coordinates');
-    if (!countRow || countRow.cnt === 0) {
-      console.log('[CustomerCoords] master_customer_coordinates is empty, performing initial sync...');
-      await syncCustomerCoordinatesFromApi({ force: true, allRecords: false });
+  // Ensure table has data; if empty, sync once (checked once per process lifetime)
+  if (!coordinatesTableChecked) {
+    try {
+      const countRow = await dbGet('SELECT COUNT(*) as cnt FROM master_customer_coordinates');
+      if (!countRow || countRow.cnt === 0) {
+        console.log('[CustomerCoords] master_customer_coordinates is empty, performing initial sync...');
+        await syncCustomerCoordinatesFromApi({ force: true, allRecords: false });
+      }
+      coordinatesTableChecked = true;
+    } catch (e) {
+      console.warn('[CustomerCoords] Could not check coordinates table:', e.message);
     }
-  } catch (e) {
-    console.warn('[CustomerCoords] Could not check coordinates table:', e.message);
   }
 
-  // Fetch in chunks of 500
+  // Fetch in chunks of 500 (indexed lookup without wrapping functions on indexed columns)
   const CHUNK_SIZE = 500;
   for (let i = 0; i < cleanCodes.length; i += CHUNK_SIZE) {
     const chunk = cleanCodes.slice(i, i + CHUNK_SIZE);
@@ -285,8 +290,8 @@ export async function getCoordinatesForDealers(codes = []) {
     const rows = await dbAll(
       `SELECT dns_customer_code, customer_code, customer_name, route_name, latitude, longitude, has_coordinates, address, pin
        FROM master_customer_coordinates
-       WHERE UPPER(TRIM(dns_customer_code)) IN (${placeholders})
-          OR UPPER(TRIM(customer_code)) IN (${placeholders})`,
+       WHERE dns_customer_code IN (${placeholders})
+          OR customer_code IN (${placeholders})`,
       [...chunk, ...chunk]
     );
 
@@ -319,7 +324,7 @@ export async function getCoordinatesForDealers(codes = []) {
         `SELECT sap_code, sfa_code, dealer_name, route_name, latitude, longitude, has_coordinates
          FROM master_dealers
          WHERE (latitude IS NOT NULL AND latitude != 0)
-           AND (UPPER(TRIM(sfa_code)) IN (${placeholders}) OR UPPER(TRIM(sap_code)) IN (${placeholders}))`,
+           AND (sfa_code IN (${placeholders}) OR sap_code IN (${placeholders}))`,
         [...chunk, ...chunk]
       );
       for (const r of rows) {

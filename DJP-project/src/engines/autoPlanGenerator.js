@@ -106,23 +106,19 @@ export class AutoPlanGenerator {
       SELECT 
         dvt.id as target_id,
         dvt.dealer_id,
-        COALESCE(NULLIF(mcc.customer_name, ''), NULLIF(md.dealer_name, ''), dvt.dealer_name) as dealer_name,
-        COALESCE(NULLIF(dvt.sap_code, ''), NULLIF(md.sap_code, ''), CASE WHEN mcc.customer_code REGEXP '^[0-9]+$' THEN mcc.customer_code END) as sap_code,
-        COALESCE(NULLIF(dvt.sfa_code, ''), NULLIF(md.sfa_code, ''), NULLIF(mcc.dns_customer_code, ''), CASE WHEN mcc.customer_code NOT REGEXP '^[0-9]+$' THEN mcc.customer_code END) as sfa_code,
+        COALESCE(NULLIF(dvt.dealer_name, ''), NULLIF(md.dealer_name, '')) as dealer_name,
+        COALESCE(NULLIF(dvt.sap_code, ''), NULLIF(md.sap_code, '')) as sap_code,
+        COALESCE(NULLIF(dvt.sfa_code, ''), NULLIF(md.sfa_code, '')) as sfa_code,
         CASE 
-          WHEN mcc.customer_type = 'Sub Dealer' OR mcc.customer_type LIKE '%Sub%' 
-               OR md.dealer_type = 'RSAR' 
+          WHEN dvt.cust_type IN ('NON STAR', 'NON_STAR', 'NON-STAR') OR md.dealer_type IN ('PROSPECTIVE', 'NON STAR', 'NON_STAR', 'NON-STAR') THEN 'NON STAR'
+          WHEN dvt.cust_type = 'RSAR' OR md.dealer_type = 'RSAR' 
                OR (md.linked_dealer_code IS NOT NULL AND md.linked_dealer_code != '' AND md.linked_dealer_code != '-')
                OR (md.rssd_code IS NOT NULL AND md.rssd_code != '' AND md.rssd_code != '-')
                OR dvt.dealer_status LIKE '%Sub%' THEN 'RSAR'
-          WHEN mcc.customer_type IN ('Dealer', 'Exclusive Dealer') 
-               OR md.dealer_type IN ('DEALER', 'STAR') THEN 'DEALER'
-          WHEN mcc.customer_type = 'Non Star' OR md.dealer_type IN ('PROSPECTIVE', 'NON STAR', 'NON_STAR', 'NON-STAR') 
-               OR dvt.cust_type IN ('NON STAR', 'NON_STAR', 'NON-STAR', 'PROSPECTIVE') THEN 'NON STAR'
-          ELSE COALESCE(NULLIF(md.dealer_type, ''), 'DEALER')
+          ELSE 'DEALER'
         END as dealer_type,
         dvt.area,
-        md.block,
+        COALESCE(NULLIF(md.block, ''), dvt.block, dvt.area) as block,
         dvt.zone,
         dvt.category as grade,
         dvt.dealer_status as final_category,
@@ -135,18 +131,12 @@ export class AutoPlanGenerator {
         dvt.${visitCol} as required_visits
       FROM dealer_visit_targets dvt
       LEFT JOIN master_dealers md ON dvt.dealer_id = md.id
-      LEFT JOIN master_customer_coordinates mcc ON (
-        (md.sfa_code IS NOT NULL AND mcc.dns_customer_code = md.sfa_code) OR
-        (md.sap_code IS NOT NULL AND (mcc.dns_customer_code = md.sap_code OR mcc.customer_code = md.sap_code)) OR
-        (dvt.sap_code IS NOT NULL AND (mcc.dns_customer_code = dvt.sap_code OR mcc.customer_code = dvt.sap_code)) OR
-        (dvt.sfa_code IS NOT NULL AND mcc.dns_customer_code = dvt.sfa_code)
-      )
       WHERE (dvt.${codeField} = ? OR dvt.${roleField} = ? OR dvt.${roleField} LIKE ?)
         AND dvt.period_month = ?
         AND (dvt.cycle_code = ? OR dvt.cycle_code IS NULL OR dvt.cycle_code = '')
         AND dvt.${visitCol} > 0
         AND (md.status IS NULL OR UPPER(TRIM(md.status)) NOT LIKE 'INACT%')
-      ORDER BY md.block ASC, dvt.category ASC, dvt.dealer_name ASC
+      ORDER BY block ASC, dvt.category ASC, dvt.dealer_name ASC
     `;
 
     const rawRows = await dbAll(sql, [empCode, empCode, `%${empCode}%`, targetPeriod, cycleCode]);
@@ -351,17 +341,19 @@ export class AutoPlanGenerator {
     const planId = planRes.insertId || planRes.lastID;
 
     // Load customer coordinates for all target dealers (include both SAP code and SFA code)
-    const dealerCodes = [];
-    for (const d of visitItems) {
-      if (d.sap_code) dealerCodes.push(d.sap_code);
-      if (d.sfa_code) dealerCodes.push(d.sfa_code);
-      if (d.dealer_code) dealerCodes.push(d.dealer_code);
-    }
-    let coordsMap = new Map();
-    try {
-      coordsMap = await getCoordinatesForDealers(dealerCodes);
-    } catch (coordErr) {
-      console.warn(`[AutoPlanGen] Warning loading coordinates for ${empCode}:`, coordErr.message);
+    let coordsMap = options.coordsMap || null;
+    if (!coordsMap) {
+      const dealerCodes = [];
+      for (const d of visitItems) {
+        if (d.sap_code) dealerCodes.push(d.sap_code);
+        if (d.sfa_code) dealerCodes.push(d.sfa_code);
+        if (d.dealer_code) dealerCodes.push(d.dealer_code);
+      }
+      try {
+        coordsMap = await getCoordinatesForDealers(dealerCodes);
+      } catch (coordErr) {
+        console.warn(`[AutoPlanGen] Warning loading coordinates for ${empCode}:`, coordErr.message);
+      }
     }
 
     // Heuristic Route Map Clustering and Daily Scheduling
@@ -372,35 +364,45 @@ export class AutoPlanGenerator {
       coordsMap
     );
 
-    // Insert scheduled details into sales_plan_details with route sequences and coordinates
+    // Insert scheduled details into sales_plan_details in bulk
     let totalScheduled = 0;
     let totalDistanceKm = 0;
+    const planDetailRows = [];
 
     for (const [vDate, visits] of dayAllocations.entries()) {
       const dayRoute = dayRouteMaps.get(vDate);
       if (dayRoute) totalDistanceKm += (dayRoute.totalDistanceKm || 0);
 
       for (const item of visits) {
+        planDetailRows.push([
+          planId,
+          vDate,
+          item.dealer_id,
+          item.sap_code || item.sfa_code,
+          item.dealer_name,
+          item.dealer_type || 'DEALER',
+          `PJP Scheduled Visit (${item.grade || 'A'} - ${item.final_category || 'Routine'})`,
+          item.sequence || 1,
+          item.latitude || null,
+          item.longitude || null,
+          item.distance_from_prev_km || 0,
+          item.route_name || null
+        ]);
+        totalScheduled++;
+      }
+    }
+
+    if (planDetailRows.length > 0) {
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < planDetailRows.length; i += BATCH_SIZE) {
+        const chunk = planDetailRows.slice(i, i + BATCH_SIZE);
+        const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
         await dbRun(
           `INSERT INTO sales_plan_details 
            (plan_id, visit_date, dealer_id, dealer_sap_code, dealer_name, dealer_type, purpose_of_visit, sequence, latitude, longitude, distance_from_prev_km, route_name) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            planId,
-            vDate,
-            item.dealer_id,
-            item.sap_code || item.sfa_code,
-            item.dealer_name,
-            item.dealer_type || 'DEALER',
-            `PJP Scheduled Visit (${item.grade || 'A'} - ${item.final_category || 'Routine'})`,
-            item.sequence || 1,
-            item.latitude || null,
-            item.longitude || null,
-            item.distance_from_prev_km || 0,
-            item.route_name || null
-          ]
+           VALUES ${placeholders}`,
+          chunk.flat()
         );
-        totalScheduled++;
       }
     }
 
