@@ -19,7 +19,8 @@ import {
   Check,
   Layers,
   FileCheck,
-  Rocket
+  Rocket,
+  MapPin
 } from 'lucide-react';
 
 export default function PlanApprovalsView({ onShowToast }) {
@@ -246,14 +247,22 @@ export default function PlanApprovalsView({ onShowToast }) {
 
           {/* Chips */}
           <div className="calendar-chips-container">
-            {dayVisits.slice(0, 3).map((v, idx) => (
-              <div key={v.id || idx} className={`dealer-calendar-chip ${v.is_backdated ? 'backdated' : ''}`} title={`${v.dealer_name} (${v.dealer_sap_code || 'N/A'})${v.is_backdated ? ' - [BACKDATED VISIT]' : ''}`}>
-                <span className="dealer-chip-name">{v.is_backdated ? '⚠️ ' : ''}{v.dealer_name}</span>
-                <span className={`dealer-chip-badge ${formatCustType(v.dealer_type).toLowerCase().replace(' ', '-')}`}>
-                  {formatCustType(v.dealer_type)}
-                </span>
-              </div>
-            ))}
+            {dayVisits.slice(0, 3).map((v, idx) => {
+              const cType = formatCustType(v.dealer_type);
+              const cSlug = cType === 'NON STAR' ? 'non-star' : cType === 'RSAR' ? 'rsar' : 'dealer';
+              return (
+                <div 
+                  key={v.id || idx} 
+                  className={`dealer-calendar-chip ${cSlug} ${v.is_backdated ? 'backdated' : ''}`} 
+                  title={`${v.dealer_name} (${v.dealer_sap_code || 'N/A'})${v.is_backdated ? ' - [BACKDATED VISIT]' : ''}`}
+                >
+                  <span className="dealer-chip-name">{v.is_backdated ? '⚠️ ' : ''}{v.dealer_name}</span>
+                  <span className={`dealer-chip-badge ${cSlug}`}>
+                    {cType}
+                  </span>
+                </div>
+              );
+            })}
 
             {visitCount > 3 && (
               <div className="more-visits-chip">
@@ -759,71 +768,192 @@ export default function PlanApprovalsView({ onShowToast }) {
       {/* Review Day Itinerary Modal */}
       {reviewDayModal && (
         <div className="modal-overlay" onClick={() => setReviewDayModal(null)} style={{ zIndex: 1100 }}>
-          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
-            <div className="modal-header">
-              <h3 style={{ fontSize: '1.05rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-                <Calendar size={18} color="var(--star-red)" />
-                Schedule for {reviewDayModal.displayDate}
-              </h3>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '640px', borderRadius: '14px', overflow: 'hidden' }}>
+            <div className="modal-header" style={{ padding: '16px 20px', background: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ 
+                  width: '38px', 
+                  height: '38px', 
+                  borderRadius: '10px', 
+                  background: '#FEE2E2', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  border: '1px solid #FECACA'
+                }}>
+                  <Calendar size={20} color="var(--star-red)" />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0, color: '#0F172A' }}>
+                    Schedule for {reviewDayModal.displayDate}
+                  </h3>
+                  <div style={{ fontSize: '0.76rem', color: '#64748B', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontWeight: 700, color: 'var(--star-red)' }}>{reviewDayModal.visits.length} Visit(s) Scheduled</span>
+                    <span>•</span>
+                    <span>Max 8 visits constraint</span>
+                  </div>
+                </div>
+              </div>
               <button
                 onClick={() => setReviewDayModal(null)}
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+                style={{ 
+                  background: '#FFFFFF', 
+                  border: '1px solid #E2E8F0', 
+                  borderRadius: '8px',
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer', 
+                  color: '#64748B',
+                  transition: 'all 0.15s ease'
+                }}
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </div>
 
-            <div className="modal-body">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {reviewDayModal.visits.map((v, idx) => (
-                  <div 
-                    key={v.id || idx}
-                    style={{
-                      padding: '10px 14px',
-                      borderRadius: '6px',
-                      border: '1px solid var(--border-subtle)',
-                      background: '#F8FAFC',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px'
-                    }}
-                  >
+            <div className="modal-body" style={{ padding: '16px 20px', background: '#F8FAFC', maxHeight: '70vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {reviewDayModal.visits.map((v, idx) => {
+                  const cType = formatCustType(v.dealer_type);
+                  const isNonStar = cType === 'NON STAR' || cType === 'Non-Star';
+                  const isRsar = cType === 'RSAR';
+                  const accentColor = isRsar ? '#7C3AED' : isNonStar ? '#D97706' : '#2563EB';
+                  const accentBg = isRsar ? '#F3E8FF' : isNonStar ? '#FEF3C7' : '#EFF6FF';
+                  const accentBorder = isRsar ? '#E9D5FF' : isNonStar ? '#FDE68A' : '#BFDBFE';
+                  const badgeClass = isRsar ? 'badge-cust-rsar' : isNonStar ? 'badge-cust-nonstar' : 'badge-cust-dealer';
+
+                  const purposeMatch = v.purpose_of_visit?.match(/\((.*?)\)/);
+                  const tagPill = purposeMatch ? purposeMatch[1] : null;
+                  const cleanPurpose = v.purpose_of_visit ? v.purpose_of_visit.replace(/\(.*?\)/, '').trim() : 'Scheduled Visit';
+
+                  return (
                     <div 
-                      style={{ 
-                        width: '24px', 
-                        height: '24px', 
-                        borderRadius: '50%', 
-                        background: '#FEE2E2', 
-                        color: 'var(--star-red)', 
-                        fontWeight: 800, 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        justifyContent: 'center',
-                        fontSize: '0.78rem'
+                      key={v.id || idx}
+                      style={{
+                        padding: '14px 16px',
+                        borderRadius: '10px',
+                        border: '1px solid #E2E8F0',
+                        borderLeft: `4px solid ${accentColor}`,
+                        background: '#FFFFFF',
+                        boxShadow: '0 2px 5px rgba(0, 0, 0, 0.04)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '10px',
+                        transition: 'all 0.15s ease',
                       }}
                     >
-                      {idx + 1}
-                    </div>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#0F172A' }}>
-                        {v.dealer_name}
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: '#64748B' }}>
-                        Code: <b>{v.dealer_sap_code || 'N/A'}</b> | Type: <b style={{ color: getCustTypeColor(v.dealer_type) }}>{formatCustType(v.dealer_type)}</b> | {v.purpose_of_visit}
-                        {v.is_backdated === 1 && (
-                          <span style={{ marginLeft: '8px', color: '#DC2626', fontWeight: 800 }}>
-                            ⚠️ [EDITED BACKDATED VISIT]
+                      {/* Top Row: Sequence Badge, Dealer Name & Status Badges */}
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                          <div 
+                            style={{ 
+                              width: '28px', 
+                              height: '28px', 
+                              borderRadius: '8px', 
+                              background: accentBg, 
+                              color: accentColor, 
+                              fontWeight: 800, 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center',
+                              fontSize: '0.82rem',
+                              flexShrink: 0,
+                              border: `1px solid ${accentBorder}`
+                            }}
+                          >
+                            {idx + 1}
+                          </div>
+                          <div style={{ fontWeight: 800, fontSize: '0.96rem', color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {v.dealer_name}
+                          </div>
+                        </div>
+
+                        {/* Badges Right */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                          <span className={badgeClass} style={{ fontSize: '0.74rem', padding: '3px 9px' }}>
+                            {cType}
                           </span>
+                          {tagPill && (
+                            <span style={{ 
+                              background: '#F1F5F9', 
+                              color: '#334155', 
+                              border: '1px solid #E2E8F0', 
+                              borderRadius: '999px', 
+                              padding: '2px 8px', 
+                              fontSize: '0.72rem', 
+                              fontWeight: 700 
+                            }}>
+                              {tagPill}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Bottom Row: Code chip, Purpose, Location & Backdated Alert */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px', paddingTop: '6px', borderTop: '1px solid #F1F5F9' }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ 
+                            display: 'inline-flex', 
+                            alignItems: 'center', 
+                            gap: '4px', 
+                            background: '#F8FAFC', 
+                            border: '1px solid #E2E8F0', 
+                            borderRadius: '5px', 
+                            padding: '2px 8px',
+                            fontFamily: 'var(--font-mono, monospace)',
+                            fontSize: '0.74rem',
+                            color: '#334155',
+                            fontWeight: 600
+                          }}>
+                            <span style={{ color: '#64748B' }}>Code:</span>
+                            <b style={{ color: '#0F172A' }}>{v.dealer_sap_code || 'N/A'}</b>
+                          </div>
+
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.76rem', color: '#64748B' }}>
+                            <CalendarDays size={13} style={{ color: '#94A3B8' }} />
+                            <span>{cleanPurpose}</span>
+                          </div>
+
+                          {v.route_name && (
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.74rem', color: '#64748B' }}>
+                              <MapPin size={12} style={{ color: '#94A3B8' }} />
+                              <span>{v.route_name}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {v.is_backdated === 1 && (
+                          <div style={{ 
+                            display: 'inline-flex', 
+                            alignItems: 'center', 
+                            gap: '4px', 
+                            background: '#FEF2F2', 
+                            color: '#DC2626', 
+                            border: '1px solid #FECACA', 
+                            padding: '3px 8px', 
+                            borderRadius: '6px', 
+                            fontWeight: 800, 
+                            fontSize: '0.7rem' 
+                          }}>
+                            <AlertTriangle size={12} />
+                            <span>EDITED BACKDATED VISIT</span>
+                          </div>
                         )}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setReviewDayModal(null)}>
+            <div className="modal-footer" style={{ padding: '12px 20px', background: '#FFFFFF', borderTop: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: '0.76rem', color: '#64748B' }}>
+                Showing <b>{reviewDayModal.visits.length}</b> customer visits
+              </div>
+              <button className="btn btn-secondary" onClick={() => setReviewDayModal(null)} style={{ padding: '6px 16px', fontWeight: 600 }}>
                 Close
               </button>
             </div>

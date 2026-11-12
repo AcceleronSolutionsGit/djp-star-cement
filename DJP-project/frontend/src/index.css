@@ -732,10 +732,10 @@ tbody tr:hover td {
 }
 
 .dealer-calendar-chip {
-  background: #F8FAFC;
+  background: #FFFFFF;
   border: 1px solid #E2E8F0;
-  border-left: 3px solid var(--star-red);
-  border-radius: 4px;
+  border-left: 3px solid #2563EB;
+  border-radius: 5px;
   padding: 3px 6px;
   font-size: 0.72rem;
   display: flex;
@@ -745,12 +745,32 @@ tbody tr:hover td {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: background 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  transition: all 0.15s ease;
 }
 
 .dealer-calendar-chip:hover {
+  background: #F8FAFC;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.06);
+}
+
+.dealer-calendar-chip.non-star, .dealer-calendar-chip.nonstar {
+  border-left-color: #D97706;
+}
+
+.dealer-calendar-chip.rsar {
+  border-left-color: #7C3AED;
+}
+
+.dealer-calendar-chip.dealer {
+  border-left-color: #2563EB;
+}
+
+.dealer-calendar-chip.backdated {
   background: #FFF1F2;
-  border-left-color: #BE123C;
+  border-color: #FECACA;
+  border-left-color: #DC2626;
 }
 
 .dealer-chip-name {

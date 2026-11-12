@@ -831,11 +831,12 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
         .op-bar > i { display:block; height:100%; border-radius:var(--radius-full); }
         .op-note { display:flex; gap:10px; padding:12px 14px; border-radius:var(--radius-md);
                    font-size:.82rem; line-height:1.5; margin-bottom:16px; align-items:flex-start; }
-        .op-day { border:1px solid var(--border-subtle); border-radius:var(--radius-md); margin-bottom:10px; overflow:hidden; }
+        .op-day { border:1px solid #E2E8F0; border-radius:10px; margin-bottom:12px; overflow:hidden; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,0.03); }
         .op-day-head { display:flex; justify-content:space-between; align-items:center;
-                       padding:9px 14px; background:var(--bg-hover); font-weight:700; font-size:.82rem; }
+                       padding:10px 16px; background:#F8FAFC; border-bottom:1px solid #E2E8F0; font-weight:800; font-size:.84rem; color:#0F172A; }
         .op-visit { display:flex; justify-content:space-between; align-items:center; gap:12px;
-                    padding:9px 14px; border-top:1px solid var(--border-subtle); font-size:.82rem; }
+                    padding:11px 16px; border-top:1px solid #F1F5F9; font-size:.82rem; transition: background 0.15s ease; }
+        .op-visit:hover { background: #F8FAFC; }
         .op-pagination { display:flex; align-items:center; justify-content:space-between;
                          padding:12px 16px; border-top:1px solid var(--border-subtle);
                          font-size:.82rem; color:var(--text-secondary); flex-wrap:wrap; gap:12px; }
