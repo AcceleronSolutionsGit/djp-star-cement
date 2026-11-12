@@ -388,6 +388,17 @@ async function buildDetail(plan, viewerIsOwner) {
        d.visit_date,
        d.sequence,
        COALESCE(d.dealer_id, md.id, dvt.dealer_id) AS dealer_id,
+       COALESCE(
+         NULLIF(NULLIF(md.sap_code, ''), '-'),
+         NULLIF(NULLIF(dvt.sap_code, ''), '-'),
+         CASE WHEN d.dealer_sap_code REGEXP '^[0-9]+$' THEN d.dealer_sap_code END
+       ) AS sap_code,
+       COALESCE(
+         NULLIF(NULLIF(md.sfa_code, ''), '-'),
+         NULLIF(NULLIF(dvt.sfa_code, ''), '-'),
+         NULLIF(NULLIF(mcc.dns_customer_code, ''), '-'),
+         CASE WHEN d.dealer_sap_code NOT REGEXP '^[0-9]+$' THEN d.dealer_sap_code END
+       ) AS sfa_code,
        COALESCE(d.dealer_sap_code, md.sap_code, dvt.sap_code, md.sfa_code, dvt.sfa_code) AS dealer_sap_code,
        COALESCE(d.dealer_name, md.dealer_name, dvt.dealer_name) AS dealer_name,
        COALESCE(d.dealer_type, md.dealer_type, 'DEALER') AS dealer_type,
@@ -400,7 +411,6 @@ async function buildDetail(plan, viewerIsOwner) {
        COALESCE(dvt.area, md.area, m.area) AS area,
        COALESCE(dvt.zone, md.zone, m.region) AS zone,
        COALESCE(md.block, dvt.block, dvt.sbg_block, m.block) AS block,
-       COALESCE(md.sfa_code, dvt.sfa_code) AS sfa_code,
        COALESCE(d.latitude, md.latitude, mcc.latitude) AS latitude,
        COALESCE(d.longitude, md.longitude, mcc.longitude) AS longitude,
        COALESCE(d.distance_from_prev_km, 0) AS distance_from_prev_km,
@@ -451,6 +461,11 @@ async function buildDetail(plan, viewerIsOwner) {
     if (!v.block) v.block = v.area || 'AGARTALA';
     if (!v.sfa_code && v.dealer_sap_code && !/^\d+$/.test(v.dealer_sap_code)) {
       v.sfa_code = v.dealer_sap_code;
+    }
+    if (v.dealer_sap_code && !/^\d+$/.test(v.dealer_sap_code) && v.sap_code) {
+      v.dealer_sap_code = v.sap_code;
+    } else if (v.dealer_sap_code && !/^\d+$/.test(v.dealer_sap_code) && !v.sap_code) {
+      v.sap_code = null;
     }
   }
 
@@ -550,8 +565,8 @@ async function buildDetail(plan, viewerIsOwner) {
         cumulative_distance_km: v.cumulative_distance_km || 0,
         dealer: {
           dealer_id: v.dealer_id,
-          sap_code: v.dealer_sap_code,
-          sfa_code: v.sfa_code,
+          sap_code: v.sap_code || (/^\d+$/.test(v.dealer_sap_code) ? v.dealer_sap_code : null),
+          sfa_code: v.sfa_code || (!/^\d+$/.test(v.dealer_sap_code) ? v.dealer_sap_code : null),
           name: v.dealer_name,
           type: v.dealer_type,
           area: v.area,

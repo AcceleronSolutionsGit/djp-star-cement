@@ -109,7 +109,7 @@ export default function MonthlyIngestionView({
     let detected = '';
     if (name.includes('sbg')) detected = 'SBG';
     else if (name.includes('performance')) detected = 'DEALER_PERFORMANCE';
-    else if (name.includes('mapping') || name.includes('hierarchy') || name.includes('dealer_map') || name.includes('relationship') || name.includes('territory') || name.includes('master_test')) detected = 'DEALER_MAPPING';
+    else if (name.includes('mapping') || name.includes('hierarchy') || name.includes('dealer_map') || name.includes('relationship') || name.includes('territory') || name.includes('master_test') || name.includes('tagging') || name.includes('so_asm') || name.includes('so asm')) detected = 'DEALER_MAPPING';
     else if (name.includes('prospect')) detected = 'PROSPECT_DEALERS';
     else if (name.includes('rsar') || name.includes('sale') || name.includes('history')) detected = 'SALES_HISTORY';
     else if (name.includes('visit') || name.includes('pjp') || name.includes('djp') || name.includes('trade')) detected = 'PJP_TRADE';

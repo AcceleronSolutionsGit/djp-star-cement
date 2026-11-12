@@ -146,7 +146,10 @@ export async function loadDealersWithMappings(options = {}) {
     const region = d.region || d.zone || null;
     const territoryCode = d.territory_code || null;
     const territoryName = d.territory_name || area || null;
-    const custType = d.dealer_type === 'PROSPECTIVE' ? 'NON STAR' : (d.dealer_type || 'DEALER');
+    const dTypeUpper = String(d.dealer_type || '').toUpperCase();
+    const custType = (dTypeUpper === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED' || dTypeUpper === 'NON_STAR' || dTypeUpper === 'NON-STAR' || dTypeUpper === 'NON STAR')
+      ? 'NON STAR'
+      : (dTypeUpper === 'RSAR' || dTypeUpper.includes('SUB') || (d.linked_dealer_code && d.linked_dealer_code !== '-') || d.rssd_code ? 'RSAR' : 'DEALER');
     const isProspect = d.dealer_type === 'PROSPECTIVE' || d.prospect_status === 'PROSPECT_MATCHED';
 
     let zhName = d.zh_name;

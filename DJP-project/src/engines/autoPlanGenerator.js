@@ -107,8 +107,8 @@ export class AutoPlanGenerator {
         dvt.id as target_id,
         dvt.dealer_id,
         COALESCE(NULLIF(mcc.customer_name, ''), NULLIF(md.dealer_name, ''), dvt.dealer_name) as dealer_name,
-        COALESCE(dvt.sap_code, md.sap_code, mcc.customer_code) as sap_code,
-        COALESCE(dvt.sfa_code, md.sfa_code, mcc.dns_customer_code) as sfa_code,
+        COALESCE(NULLIF(dvt.sap_code, ''), NULLIF(md.sap_code, ''), CASE WHEN mcc.customer_code REGEXP '^[0-9]+$' THEN mcc.customer_code END) as sap_code,
+        COALESCE(NULLIF(dvt.sfa_code, ''), NULLIF(md.sfa_code, ''), NULLIF(mcc.dns_customer_code, ''), CASE WHEN mcc.customer_code NOT REGEXP '^[0-9]+$' THEN mcc.customer_code END) as sfa_code,
         CASE 
           WHEN mcc.customer_type = 'Sub Dealer' OR mcc.customer_type LIKE '%Sub%' 
                OR md.dealer_type = 'RSAR' 

@@ -236,10 +236,12 @@ export async function importDealerMapping(filePath, batchCode = null) {
     const territoryCode = normalizeCode(getCell(row, 'territory_code'));
     const territoryName = getCell(row, 'territory_name');
     // Area and Branch are identical entities. Take input from area, branch, or territory.
-    const dmArea = getCell(row, 'area') || territoryName || null;
-    const branch = dmArea; // Keep variable for database insertion so both columns get the same value
-    const region = getCell(row, 'region') || getCell(row, 'zone');
-    const zone = getCell(row, 'zone') || getCell(row, 'region');
+    const rawBranch = getCell(row, 'branch');
+    const rawArea = getCell(row, 'area');
+    const dmArea = rawArea || rawBranch || territoryName || null;
+    const branch = rawBranch || dmArea || null;
+    let region = getCell(row, 'region') || getCell(row, 'zone');
+    let zone = getCell(row, 'zone') || getCell(row, 'region');
     const soName = getCell(row, 'so_name');
     let soEmpCode = normalizeCode(getCell(row, 'so_emp_code') || getCell(row, 'so_code'));
     const asmName = getCell(row, 'asm_name');
@@ -253,7 +255,7 @@ export async function importDealerMapping(filePath, batchCode = null) {
     let effectiveZhCode = zhCode;
     let effectiveZone = zone;
 
-    if (!effectiveZhName || !effectiveZhCode) {
+    if (!effectiveZhName || !effectiveZhCode || !effectiveZone) {
       const resolvedZh = await resolveZonalHead({ zone, region, area: dmArea, branch });
       if (resolvedZh?.zh_name) {
         if (!effectiveZhName) effectiveZhName = resolvedZh.zh_name;
@@ -262,6 +264,8 @@ export async function importDealerMapping(filePath, batchCode = null) {
       if (!effectiveZone && resolvedZh?.zone) {
         effectiveZone = resolvedZh.zone;
       }
+      if (!region && effectiveZone) region = effectiveZone;
+      if (!zone && effectiveZone) zone = effectiveZone;
     }
     // Block from Dealer Mapping — stored in master_dealers.block (NOT sbg_block)
     // sbg_block is only written by the SBG importer
@@ -323,8 +327,8 @@ export async function importDealerMapping(filePath, batchCode = null) {
       rawArea: dmArea,   // Dealer Mapping authoritative area
       rawBranch: branch,
       rawBlock: block,
-      zone,
-      region,
+      zone: effectiveZone || zone,
+      region: region || effectiveZone,
       soName,
       soEmpCode,
       asmName,

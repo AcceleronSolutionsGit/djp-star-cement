@@ -447,13 +447,17 @@ export async function exportPjpTradeExcel(req, res) {
 
     // 2. Map strictly to the 16 requested columns
     const exportData = targets.map(t => {
-      // Resolve Cust Type: Title Case ('Dealer' or 'Prospective')
+      // Resolve Cust Type: Title Case ('Dealer', 'RSAR', 'Prospective', 'Non-Star')
       let rawType = String(t.cust_type || t.dealer_type || 'DEALER').toUpperCase();
       let custType = 'Dealer';
       if (rawType === 'PROSPECTIVE' || rawType === 'PROSPECT') {
         custType = 'Prospective';
-      } else if (rawType === 'NON_STAR' || rawType === 'NON-STAR') {
+      } else if (rawType === 'NON_STAR' || rawType === 'NON-STAR' || rawType === 'NON STAR') {
         custType = 'Non-Star';
+      } else if (rawType === 'RSAR' || rawType.includes('SUB') || rawType === 'SUB-DEALER' || rawType === 'RSSD') {
+        custType = 'RSAR';
+      } else {
+        custType = 'Dealer';
       }
 
       // Customer CODE: SAP if available, else SFA, else dealer ID.
@@ -769,7 +773,8 @@ function visitsForTarget(scheduled, t) {
 function custTypeLabel(raw) {
   const v = String(raw || 'DEALER').toUpperCase();
   if (v === 'NON_STAR' || v === 'NON-STAR' || v === 'NON STAR') return 'NON STAR';
-  if (v === 'PROSPECTIVE') return 'Prospective';
+  if (v === 'PROSPECTIVE' || v === 'PROSPECT') return 'Prospective';
+  if (v === 'RSAR' || v.includes('SUB') || v === 'SUB-DEALER' || v === 'RSSD') return 'RSAR';
   if (v === 'STAR') return 'DEALER';
   return raw || 'DEALER';
 }

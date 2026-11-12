@@ -143,8 +143,11 @@ export function classifyDealer({
   // ── T = "New" → Prospective ───────────────────────────────────────────────
   // In the master the prospect marker is the literal string "New" in the DOA column.
   // Here prospects arrive typed, so both are accepted.
-  if (type === 'PROSPECTIVE' || type === 'PROSPECT' || type === 'NON STAR' || type === 'NON-STAR' || type === 'NON_STAR' || stat === 'PROSPECTIVE') {
+  if (type === 'PROSPECTIVE' || type === 'PROSPECT' || stat === 'PROSPECTIVE') {
     return { finalCategory: CATEGORY.PROSPECTIVE, doaTier: 'PROSPECT', reason: 'Prospect row' };
+  }
+  if ((type === 'NON STAR' || type === 'NON-STAR' || type === 'NON_STAR') && (String(doa).toUpperCase() === 'NEW' || !doa || (!O && !S && !R))) {
+    return { finalCategory: CATEGORY.PROSPECTIVE, doaTier: 'PROSPECT', reason: 'Non-Star prospect row (DOA New / no sales)' };
   }
 
   const { tier, cutoffs, doaDate } = resolveDoaTier(doa, reportMonth);

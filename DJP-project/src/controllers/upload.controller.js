@@ -125,8 +125,11 @@ export function detectUploadTypeFromWorkbook(filePath) {
         }
 
         // 5. Dealer Mapping
-        if (norm.some(h => h.includes('so/se name') || h.includes('so name') || h.includes('zonal head') || h.includes('cust type')) &&
-            norm.some(h => h.includes('dealer name') || h.includes('customer name') || h.includes('customer code'))) {
+        if (
+          (norm.some(h => h.includes('so/se name') || h.includes('so name') || h.includes('so code') || h.includes('zonal head') || h.includes('cust type')) ||
+           norm.some(h => h.includes('asm name') || h.includes('asm code'))) &&
+          norm.some(h => h.includes('dealer name') || h.includes('customer name') || h.includes('customer code') || h.includes('dealer code'))
+        ) {
           return 'DEALER_MAPPING';
         }
 
@@ -168,7 +171,7 @@ export async function uploadFile(req, res) {
       const fn = originalName.toLowerCase();
       if (fn.includes('sbg')) uploadType = 'SBG';
       else if (fn.includes('performance')) uploadType = 'DEALER_PERFORMANCE';
-      else if (fn.includes('mapping') || fn.includes('hierarchy') || fn.includes('dealer_map')) uploadType = 'DEALER_MAPPING';
+      else if (fn.includes('mapping') || fn.includes('hierarchy') || fn.includes('dealer_map') || fn.includes('tagging') || fn.includes('so_asm') || fn.includes('so asm')) uploadType = 'DEALER_MAPPING';
       else if (fn.includes('prospect')) uploadType = 'PROSPECT_DEALERS';
       else if (fn.includes('rsar') || fn.includes('sale') || fn.includes('history')) uploadType = 'SALES_HISTORY';
       else if (fn.includes('visit') && !fn.includes('target') && !fn.includes('override') && (fn.includes('pjp') || fn.includes('trade'))) uploadType = 'PJP_TRADE';

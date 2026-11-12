@@ -489,8 +489,8 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
                 <th>Customer Name</th>
                 <th>Customer Code (SAP)</th>
                 <th>SFA Code</th>
-                <th>Category</th>
-                <th>Status Classification</th>
+                <th>Grade</th>
+                <th>Final Category</th>
                 <th style={{ textAlign: 'center' }}>SO Visits</th>
                 <th style={{ textAlign: 'center' }}>ASM Visits</th>
                 <th style={{ textAlign: 'center' }}>RSM Visits</th>

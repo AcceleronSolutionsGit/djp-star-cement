@@ -2952,9 +2952,21 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                           <div>
                             <span style={{ color: 'var(--text-tertiary)', marginRight: 9 }}>{v.sequence}.</span>
                             <strong>{v.dealer.name}</strong>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--text-tertiary)', marginLeft: 9 }}>
-                              {v.dealer.sap_code}
-                            </span>
+                            {v.dealer.sap_code && (
+                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--text-secondary)', marginLeft: 8, background: 'var(--bg-tertiary, #f1f5f9)', padding: '1px 5px', borderRadius: 4 }}>
+                                SAP: {v.dealer.sap_code}
+                              </span>
+                            )}
+                            {v.dealer.sfa_code && (
+                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--star-red, #e11d48)', marginLeft: 6, background: '#fff1f2', padding: '1px 5px', borderRadius: 4 }}>
+                                SFA: {v.dealer.sfa_code}
+                              </span>
+                            )}
+                            {!v.dealer.sap_code && !v.dealer.sfa_code && (
+                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--text-tertiary)', marginLeft: 8 }}>
+                                -
+                              </span>
+                            )}
                             {v.distance_from_prev_km > 0 && (
                               <span style={{ fontSize: '.72rem', color: '#059669', fontWeight: 600, marginLeft: 9 }}>
                                 +{v.distance_from_prev_km} km

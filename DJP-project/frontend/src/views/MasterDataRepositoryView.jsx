@@ -968,9 +968,10 @@ export default function MasterDataRepositoryView({ onShowToast }) {
                   <th>RSM Name</th>
                   <th>ZH Name</th>
                   <th>Customer Name</th>
-                  <th>Customer Code</th>
-                  <th>Category</th>
-                  <th>Status Classification</th>
+                  <th>Customer Code (SAP)</th>
+                  <th>SFA Code</th>
+                  <th>Grade</th>
+                  <th>Final Category</th>
                   <th style={{ textAlign: 'center' }}>SO Visits</th>
                   <th style={{ textAlign: 'center' }}>ASM Visits</th>
                   <th style={{ textAlign: 'center' }}>RSM Visits</th>
@@ -994,7 +995,8 @@ export default function MasterDataRepositoryView({ onShowToast }) {
                       <td>{r.rsm_name || '-'}</td>
                       <td>{r.zh_name || '-'}</td>
                       <td><strong>{r.dealer_name}</strong></td>
-                      <td><code>{r.sap_code || r.sfa_code || '-'}</code></td>
+                      <td><code>{r.sap_code || '-'}</code></td>
+                      <td><code>{r.sfa_code || '-'}</code></td>
                       <td style={{ fontWeight: 800, color: 'var(--star-red)' }}>{r.category || 'A'}</td>
                       <td>
                         <span className={`status-badge ${getStatusBadgeClass(r.dealer_status || r.category)}`}>
