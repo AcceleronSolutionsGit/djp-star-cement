@@ -287,9 +287,16 @@ export async function getTerritoryMapping(req, res) {
     let sql = `
       SELECT m.*, 
              CASE 
-               WHEN m.sap_code LIKE '150%' OR d.dealer_type = 'RSAR' OR m.dealer_name LIKE '%(RSD%' OR m.dealer_name LIKE '%(RSAR%' OR m.linked_dealer_code IS NOT NULL THEN 'RSAR'
-               WHEN d.dealer_type IN ('NON STAR', 'NON_STAR', 'NON-STAR', 'PROSPECTIVE') OR m.sap_code LIKE 'NS%' THEN 'NON STAR'
-               ELSE COALESCE(d.dealer_type, 'DEALER')
+               WHEN m.sap_code LIKE '150%' 
+                    OR d.dealer_type = 'RSAR' 
+                    OR m.dealer_name LIKE '%(RSD%' 
+                    OR m.dealer_name LIKE '%(RSAR%' 
+                    OR (m.linked_dealer_code IS NOT NULL AND m.linked_dealer_code != '' AND m.linked_dealer_code != '-')
+                    OR EXISTS (SELECT 1 FROM sales_history sh WHERE sh.sap_code = m.sap_code) THEN 'RSAR'
+               WHEN d.dealer_type IN ('NON STAR', 'NON_STAR', 'NON-STAR', 'PROSPECTIVE') 
+                    OR m.sap_code LIKE 'NS%' 
+                    OR (d.sfa_code IS NOT NULL AND d.sfa_code LIKE 'NS%') THEN 'NON STAR'
+               ELSE 'DEALER'
              END AS dealer_type,
              COALESCE(d.sfa_code, m.linked_dealer_code) AS sfa_code 
       FROM master_dealer_so_mapping m 
@@ -311,11 +318,11 @@ export async function getTerritoryMapping(req, res) {
         sql += " AND (COALESCE(d.dealer_type, 'DEALER') IN ('NON_STAR', 'NON-STAR', 'NON STAR', 'PROSPECTIVE', 'PROSPECT') OR m.sap_code LIKE 'NS%')";
         countSql += " AND (COALESCE(d.dealer_type, 'DEALER') IN ('NON_STAR', 'NON-STAR', 'NON STAR', 'PROSPECTIVE', 'PROSPECT') OR m.sap_code LIKE 'NS%')";
       } else if (cUpper === 'RSAR') {
-        sql += " AND (COALESCE(d.dealer_type, '') = 'RSAR' OR m.sap_code LIKE '150%' OR m.dealer_name LIKE '%(RSD%' OR m.dealer_name LIKE '%(RSAR%' OR m.linked_dealer_code IS NOT NULL)";
-        countSql += " AND (COALESCE(d.dealer_type, '') = 'RSAR' OR m.sap_code LIKE '150%' OR m.dealer_name LIKE '%(RSD%' OR m.dealer_name LIKE '%(RSAR%' OR m.linked_dealer_code IS NOT NULL)";
+        sql += " AND (m.sap_code LIKE '150%' OR d.dealer_type = 'RSAR' OR m.dealer_name LIKE '%(RSD%' OR m.dealer_name LIKE '%(RSAR%' OR (m.linked_dealer_code IS NOT NULL AND m.linked_dealer_code != '' AND m.linked_dealer_code != '-') OR EXISTS (SELECT 1 FROM sales_history sh WHERE sh.sap_code = m.sap_code))";
+        countSql += " AND (m.sap_code LIKE '150%' OR d.dealer_type = 'RSAR' OR m.dealer_name LIKE '%(RSD%' OR m.dealer_name LIKE '%(RSAR%' OR (m.linked_dealer_code IS NOT NULL AND m.linked_dealer_code != '' AND m.linked_dealer_code != '-') OR EXISTS (SELECT 1 FROM sales_history sh WHERE sh.sap_code = m.sap_code))";
       } else {
-        sql += " AND (COALESCE(d.dealer_type, 'DEALER') IN ('DEALER', 'STAR') AND (m.sap_code NOT LIKE '150%') AND (m.sap_code NOT LIKE 'NS%'))";
-        countSql += " AND (COALESCE(d.dealer_type, 'DEALER') IN ('DEALER', 'STAR') AND (m.sap_code NOT LIKE '150%') AND (m.sap_code NOT LIKE 'NS%'))";
+        sql += " AND (m.sap_code NOT LIKE '150%' AND (d.dealer_type IS NULL OR d.dealer_type NOT IN ('RSAR', 'NON STAR', 'NON_STAR', 'NON-STAR', 'PROSPECTIVE')) AND m.sap_code NOT LIKE 'NS%' AND (m.linked_dealer_code IS NULL OR m.linked_dealer_code = '' OR m.linked_dealer_code = '-') AND NOT EXISTS (SELECT 1 FROM sales_history sh WHERE sh.sap_code = m.sap_code))";
+        countSql += " AND (m.sap_code NOT LIKE '150%' AND (d.dealer_type IS NULL OR d.dealer_type NOT IN ('RSAR', 'NON STAR', 'NON_STAR', 'NON-STAR', 'PROSPECTIVE')) AND m.sap_code NOT LIKE 'NS%' AND (m.linked_dealer_code IS NULL OR m.linked_dealer_code = '' OR m.linked_dealer_code = '-') AND NOT EXISTS (SELECT 1 FROM sales_history sh WHERE sh.sap_code = m.sap_code))";
       }
     }
     if (area && area !== 'ALL') {
@@ -350,7 +357,7 @@ export async function getTerritoryMapping(req, res) {
       }
     }
 
-    sql += ' ORDER BY dealer_name ASC LIMIT ? OFFSET ?';
+    sql += ' ORDER BY m.dealer_name ASC LIMIT ? OFFSET ?';
     params.push(parseInt(limit), parseInt(offset));
 
     const [rows, countObj] = await Promise.all([
@@ -454,7 +461,7 @@ export async function getMasterDealers(req, res) {
       countParams.push(s, s, s, s, s);
     }
 
-    sql += ' ORDER BY dealer_name ASC LIMIT ? OFFSET ?';
+    sql += ' ORDER BY m.dealer_name ASC LIMIT ? OFFSET ?';
     params.push(parseInt(limit), parseInt(offset));
 
     const [rows, countObj] = await Promise.all([

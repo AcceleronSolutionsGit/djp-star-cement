@@ -7,3 +7,4 @@ async function checkLogCustomerTypes() {
 }
 
 checkLogCustomerTypes().catch(console.error);
+

@@ -490,7 +490,8 @@ export default function MasterDataRepositoryView({ onShowToast }) {
     return 'badge-growing';
   };
 
-  const formatCustType = (type) => {
+  const formatCustType = (type, sapCode = '') => {
+    if (sapCode && String(sapCode).startsWith('150')) return 'RSAR';
     if (!type) return 'Dealer';
     const t = String(type).toUpperCase().trim();
     if (t === 'PROSPECTIVE' || t === 'PROSPECT' || t === 'NON_STAR' || t === 'NON-STAR' || t === 'NON STAR') return 'Non-Star';
@@ -498,8 +499,8 @@ export default function MasterDataRepositoryView({ onShowToast }) {
     return 'Dealer';
   };
 
-  const getCustTypeBadgeClass = (type) => {
-    const t = formatCustType(type);
+  const getCustTypeBadgeClass = (type, sapCode = '') => {
+    const t = formatCustType(type, sapCode);
     if (t === 'Non-Star') return 'badge-cust-nonstar';
     if (t === 'RSAR') return 'badge-cust-rsar';
     return 'badge-cust-dealer';
@@ -1012,8 +1013,8 @@ export default function MasterDataRepositoryView({ onShowToast }) {
                       <td>{r.zh_name || '-'}</td>
                       <td><strong>{r.dealer_name}</strong></td>
                       <td>
-                        <span className={getCustTypeBadgeClass(r.cust_type || r.dealer_type)}>
-                          {formatCustType(r.cust_type || r.dealer_type)}
+                        <span className={getCustTypeBadgeClass(r.cust_type || r.dealer_type, r.sap_code)}>
+                          {formatCustType(r.cust_type || r.dealer_type, r.sap_code)}
                         </span>
                       </td>
                       <td><code>{r.sap_code || '-'}</code></td>
@@ -1070,8 +1071,8 @@ export default function MasterDataRepositoryView({ onShowToast }) {
                       <td><code style={{ color: 'var(--star-red)' }}>{m.sfa_code || '-'}</code></td>
                       <td><strong>{m.dealer_name}</strong></td>
                       <td>
-                        <span className={getCustTypeBadgeClass(m.cust_type || m.dealer_type)}>
-                          {formatCustType(m.cust_type || m.dealer_type)}
+                        <span className={getCustTypeBadgeClass(m.cust_type || m.dealer_type, m.sap_code)}>
+                          {formatCustType(m.cust_type || m.dealer_type, m.sap_code)}
                         </span>
                       </td>
                       <td>{m.area || m.branch || '-'}</td>
