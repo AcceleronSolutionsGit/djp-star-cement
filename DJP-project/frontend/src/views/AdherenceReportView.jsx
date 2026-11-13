@@ -1252,7 +1252,7 @@ export default function AdherenceReportView({
                             {dl.dealer_name}
                           </div>
                           <div style={{ fontSize: '0.68rem', color: '#94A3B8', fontFamily: 'monospace' }}>
-                            SAP: {dl.sap_code} {dl.visit_dates?.length > 0 && `· Visited: ${dl.visit_dates.join(', ')}`}
+                            SAP: {dl.sap_code} {dl.sfa_code ? `· SFA: ${dl.sfa_code}` : ''} {dl.visit_dates?.length > 0 && `· Visited: ${dl.visit_dates.join(', ')}`}
                           </div>
                         </td>
                         <td style={{ textAlign: 'right', fontWeight: 600 }}>

@@ -1098,7 +1098,8 @@ export default function MasterDataRepositoryView({ onShowToast }) {
                   <th>#</th>
                   <th>Zone</th>
                   <th>Area</th>
-                  <th>Customer Code</th>
+                  <th>SAP CODE</th>
+                  <th>SFA CODE</th>
                   <th>Customer Name</th>
                   <th>Name of SO</th>
                   <th>Name of ASM</th>
@@ -1109,16 +1110,17 @@ export default function MasterDataRepositoryView({ onShowToast }) {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan="10" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading Prospect Dealer List...</td></tr>
+                  <tr><td colSpan="11" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading Prospect Dealer List...</td></tr>
                 ) : currentDataset.items.length === 0 ? (
-                  <tr><td colSpan="10" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No records found matching filters.</td></tr>
+                  <tr><td colSpan="11" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No records found matching filters.</td></tr>
                 ) : (
                   currentDataset.items.map((d, idx) => (
                     <tr key={d.id || idx}>
                       <td>{(page - 1) * pageSize + idx + 1}</td>
                       <td><b>{d.zone || '-'}</b></td>
                       <td><b>{d.area || '-'}</b></td>
-                      <td><code>{d.sfa_code || '-'}</code></td>
+                      <td><code>{d.sap_code || '-'}</code></td>
+                      <td><code style={{ color: 'var(--star-red)' }}>{d.sfa_code || '-'}</code></td>
                       <td><strong>{d.dealer_name}</strong></td>
                       <td>{d.so_name || 'N/A'}</td>
                       <td><b>{d.asm_name || '-'}</b></td>

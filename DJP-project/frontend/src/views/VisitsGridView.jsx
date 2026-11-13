@@ -504,8 +504,8 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
                 <th>Cust Type</th>
                 <th>Customer Code (SAP)</th>
                 <th>SFA Code</th>
-                <th>Grade</th>
                 <th>Final Category</th>
+                <th>Dealer Status</th>
                 <th style={{ textAlign: 'center' }}>SO Visits</th>
                 <th style={{ textAlign: 'center' }}>ASM Visits</th>
                 <th style={{ textAlign: 'center' }}>RSM Visits</th>
@@ -544,7 +544,7 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
                       </span>
                     </td>
                     <td><code>{r.sap_code || '-'}</code></td>
-                    <td><code>{r.sfa_code || '-'}</code></td>
+                    <td><code style={{ color: 'var(--star-red)' }}>{r.sfa_code || '-'}</code></td>
                     <td style={{ fontWeight: 800, color: 'var(--star-red)' }}>{r.category || 'A'}</td>
                     <td>
                       <span className={`status-badge ${getStatusBadgeClass(r.dealer_status || r.category)}`}>

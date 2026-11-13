@@ -208,7 +208,7 @@ export default function AnalyticsDashboardView({ onShowToast }) {
                           {e.missed_dealers.map(d => (
                             <div key={d.sap_code} style={{ fontSize: '.8rem', padding: '3px 0' }}>
                               <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)', marginRight: 8 }}>
-                                {d.sap_code}
+                                SAP: {d.sap_code} {d.sfa_code ? `| SFA: ${d.sfa_code}` : ''}
                               </span>
                               {d.name}
                               {d.planned_date && (

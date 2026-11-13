@@ -2763,8 +2763,9 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                           <td>{c.emp_role}</td>
                           <td>
                             <div style={{ fontSize: '.82rem' }}>{c.dealer_name}</div>
-                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: 'var(--text-tertiary)' }}>
-                              {c.dealer_sap_code}
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: 'var(--text-tertiary)', display: 'flex', gap: 6 }}>
+                              <span>SAP: {c.dealer_sap_code || '-'}</span>
+                              {c.sfa_code && <span style={{ color: 'var(--star-red)' }}>SFA: {c.sfa_code}</span>}
                             </div>
                           </td>
                           <td style={{ fontSize: '.76rem', color: 'var(--text-tertiary)' }}>
@@ -2846,9 +2847,16 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                                         <div>
                                           <span style={{ color: 'var(--text-tertiary)', marginRight: 9 }}>{v.sequence}.</span>
                                           <strong>{v.dealer_name}</strong>
-                                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--text-tertiary)', marginLeft: 9 }}>
-                                            {v.dealer_sap_code}
-                                          </span>
+                                          {v.dealer_sap_code && (
+                                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--text-secondary)', marginLeft: 8, background: 'var(--bg-tertiary, #f1f5f9)', padding: '1px 5px', borderRadius: 4 }}>
+                                              SAP: {v.dealer_sap_code}
+                                            </span>
+                                          )}
+                                          {v.sfa_code && (
+                                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--star-red, #e11d48)', marginLeft: 6, background: '#fff1f2', padding: '1px 5px', borderRadius: 4 }}>
+                                              SFA: {v.sfa_code}
+                                            </span>
+                                          )}
                                         </div>
                                         {v.carried_over && (
                                           <span style={{

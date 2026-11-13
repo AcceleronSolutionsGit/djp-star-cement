@@ -283,6 +283,12 @@ export async function getPlanDetails(req, res) {
 
     const details = await dbAll(
       `SELECT spd.*,
+              COALESCE(spd.dealer_sap_code, md.sap_code) AS sap_code,
+              md.sfa_code AS sfa_code,
+              COALESCE(NULLIF(spd.dealer_type, ''), md.dealer_type, 'DEALER') AS resolved_dealer_type,
+              md.area AS dealer_area,
+              md.zone AS dealer_zone,
+              md.block AS dealer_block,
               CASE 
                 WHEN spd.is_backdated_edit = 1 OR spd.edited_after_date = 1 THEN 1
                 WHEN spd.created_at IS NOT NULL AND spd.visit_date IS NOT NULL AND DATE(spd.created_at) > spd.visit_date THEN 1
@@ -290,6 +296,7 @@ export async function getPlanDetails(req, res) {
                 ELSE 0
               END AS is_backdated
        FROM sales_plan_details spd 
+       LEFT JOIN master_dealers md ON (spd.dealer_id = md.id OR (spd.dealer_sap_code IS NOT NULL AND (spd.dealer_sap_code = md.sap_code OR spd.dealer_sap_code = md.sfa_code)))
        WHERE spd.plan_id = ? 
        ORDER BY spd.visit_date ASC, spd.sequence ASC`,
       [planId]
@@ -304,7 +311,10 @@ export async function getPlanDetails(req, res) {
 
     const normalizedDetails = details.map(d => ({
       ...d,
-      dealer_type: normalizeType(d.dealer_type)
+      dealer_sap_code: d.sap_code || d.dealer_sap_code,
+      sap_code: d.sap_code || d.dealer_sap_code,
+      sfa_code: d.sfa_code || null,
+      dealer_type: normalizeType(d.resolved_dealer_type || d.dealer_type)
     }));
 
     const backdatedVisits = normalizedDetails.filter(d => d.is_backdated === 1);

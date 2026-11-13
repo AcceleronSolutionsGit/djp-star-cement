@@ -284,22 +284,34 @@ export async function getMasterFilterOptions(req, res) {
 export async function getTerritoryMapping(req, res) {
   try {
     const { search, area, region, soName, strategy, custType, limit = 50, offset = 0 } = req.query;
-    let sql = "SELECT m.*, d.dealer_type, d.sfa_code FROM master_dealer_so_mapping m LEFT JOIN master_dealers d ON m.dealer_id = d.id WHERE 1=1";
-    let countSql = "SELECT COUNT(*) as total FROM master_dealer_so_mapping m LEFT JOIN master_dealers d ON m.dealer_id = d.id WHERE 1=1";
+    let sql = `
+      SELECT m.*, 
+             COALESCE(d.dealer_type, CASE WHEN m.sap_code LIKE '150%' OR m.dealer_name LIKE '%(RSD%' OR m.dealer_name LIKE '%(RSAR%' OR m.linked_dealer_code IS NOT NULL THEN 'RSAR' ELSE 'DEALER' END) AS dealer_type,
+             COALESCE(d.sfa_code, m.linked_dealer_code) AS sfa_code 
+      FROM master_dealer_so_mapping m 
+      LEFT JOIN master_dealers d ON m.dealer_id = d.id
+      WHERE 1=1
+    `;
+    let countSql = `
+      SELECT COUNT(*) as total 
+      FROM master_dealer_so_mapping m 
+      LEFT JOIN master_dealers d ON m.dealer_id = d.id
+      WHERE 1=1
+    `;
     const params = [];
     const countParams = [];
 
     if (custType && custType !== 'ALL') {
       const cUpper = String(custType).toUpperCase().replace('-', '_').replace(' ', '_');
       if (cUpper === 'NON_STAR' || cUpper === 'PROSPECTIVE') {
-        sql += " AND (d.dealer_type IN ('NON_STAR', 'NON-STAR', 'NON STAR', 'PROSPECTIVE', 'PROSPECT') OR m.cust_type IN ('NON_STAR', 'NON-STAR', 'NON STAR', 'PROSPECTIVE', 'PROSPECT'))";
-        countSql += " AND (d.dealer_type IN ('NON_STAR', 'NON-STAR', 'NON STAR', 'PROSPECTIVE', 'PROSPECT') OR m.cust_type IN ('NON_STAR', 'NON-STAR', 'NON STAR', 'PROSPECTIVE', 'PROSPECT'))";
+        sql += " AND (COALESCE(d.dealer_type, 'DEALER') IN ('NON_STAR', 'NON-STAR', 'NON STAR', 'PROSPECTIVE', 'PROSPECT'))";
+        countSql += " AND (COALESCE(d.dealer_type, 'DEALER') IN ('NON_STAR', 'NON-STAR', 'NON STAR', 'PROSPECTIVE', 'PROSPECT'))";
       } else if (cUpper === 'RSAR') {
-        sql += " AND (d.dealer_type = 'RSAR' OR m.cust_type = 'RSAR')";
-        countSql += " AND (d.dealer_type = 'RSAR' OR m.cust_type = 'RSAR')";
+        sql += " AND (COALESCE(d.dealer_type, '') = 'RSAR' OR m.sap_code LIKE '150%' OR m.dealer_name LIKE '%(RSD%' OR m.dealer_name LIKE '%(RSAR%' OR m.linked_dealer_code IS NOT NULL)";
+        countSql += " AND (COALESCE(d.dealer_type, '') = 'RSAR' OR m.sap_code LIKE '150%' OR m.dealer_name LIKE '%(RSD%' OR m.dealer_name LIKE '%(RSAR%' OR m.linked_dealer_code IS NOT NULL)";
       } else {
-        sql += " AND (d.dealer_type IN ('DEALER', 'STAR') OR m.cust_type IN ('DEALER', 'STAR') OR (d.dealer_type IS NULL AND m.cust_type IS NULL))";
-        countSql += " AND (d.dealer_type IN ('DEALER', 'STAR') OR m.cust_type IN ('DEALER', 'STAR') OR (d.dealer_type IS NULL AND m.cust_type IS NULL))";
+        sql += " AND (COALESCE(d.dealer_type, 'DEALER') IN ('DEALER', 'STAR') AND (m.sap_code NOT LIKE '150%'))";
+        countSql += " AND (COALESCE(d.dealer_type, 'DEALER') IN ('DEALER', 'STAR') AND (m.sap_code NOT LIKE '150%'))";
       }
     }
     if (area && area !== 'ALL') {
@@ -321,11 +333,11 @@ export async function getTerritoryMapping(req, res) {
       countParams.push(soName);
     }
     if (search) {
-      sql += ' AND (m.dealer_name LIKE ? OR m.sap_code LIKE ? OR m.so_name LIKE ? OR m.so_emp_code LIKE ?)';
-      countSql += ' AND (m.dealer_name LIKE ? OR m.sap_code LIKE ? OR m.so_name LIKE ? OR m.so_emp_code LIKE ?)';
+      sql += ' AND (m.dealer_name LIKE ? OR m.sap_code LIKE ? OR d.sfa_code LIKE ? OR m.linked_dealer_code LIKE ? OR m.so_name LIKE ? OR m.so_emp_code LIKE ?)';
+      countSql += ' AND (m.dealer_name LIKE ? OR m.sap_code LIKE ? OR d.sfa_code LIKE ? OR m.linked_dealer_code LIKE ? OR m.so_name LIKE ? OR m.so_emp_code LIKE ?)';
       const s = `%${search}%`;
-      params.push(s, s, s, s);
-      countParams.push(s, s, s, s);
+      params.push(s, s, s, s, s, s);
+      countParams.push(s, s, s, s, s, s);
     }
 
     sql += ' ORDER BY dealer_name ASC LIMIT ? OFFSET ?';

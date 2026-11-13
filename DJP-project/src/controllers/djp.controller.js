@@ -176,7 +176,16 @@ export async function getDealerVisitTargets(req, res) {
   try {
     const { soEmpCode, soName, asmEmpCode, asmName, category, dealerStatus, custType, search, periodMonth, cycleCode, zone, area, limit, offset } = req.query;
 
-    let sql = 'SELECT dvt.*, md.dealer_type FROM dealer_visit_targets dvt LEFT JOIN master_dealers md ON dvt.dealer_id = md.id WHERE 1=1';
+    let sql = `
+      SELECT dvt.*, 
+             COALESCE(dvt.cust_type, md.dealer_type, 'DEALER') AS cust_type, 
+             COALESCE(md.dealer_type, dvt.cust_type, 'DEALER') AS dealer_type, 
+             COALESCE(dvt.sfa_code, md.sfa_code) AS sfa_code, 
+             COALESCE(dvt.sap_code, md.sap_code) AS sap_code 
+      FROM dealer_visit_targets dvt 
+      LEFT JOIN master_dealers md ON dvt.dealer_id = md.id 
+      WHERE 1=1
+    `;
     let countSql = 'SELECT COUNT(*) as total FROM dealer_visit_targets dvt LEFT JOIN master_dealers md ON dvt.dealer_id = md.id WHERE 1=1';
     const params = [];
     const countParams = [];
@@ -276,11 +285,11 @@ export async function getDealerVisitTargets(req, res) {
       countParams.push(dealerStatus);
     }
     if (search) {
-      sql += ' AND (dvt.dealer_name LIKE ? OR dvt.sap_code LIKE ? OR dvt.area LIKE ? OR dvt.so_name LIKE ? OR dvt.zone LIKE ?)';
-      countSql += ' AND (dvt.dealer_name LIKE ? OR dvt.sap_code LIKE ? OR dvt.area LIKE ? OR dvt.so_name LIKE ? OR dvt.zone LIKE ?)';
+      sql += ' AND (dvt.dealer_name LIKE ? OR dvt.sap_code LIKE ? OR dvt.sfa_code LIKE ? OR dvt.area LIKE ? OR dvt.so_name LIKE ? OR dvt.zone LIKE ?)';
+      countSql += ' AND (dvt.dealer_name LIKE ? OR dvt.sap_code LIKE ? OR dvt.sfa_code LIKE ? OR dvt.area LIKE ? OR dvt.so_name LIKE ? OR dvt.zone LIKE ?)';
       const s = `%${search}%`;
-      params.push(s, s, s, s, s);
-      countParams.push(s, s, s, s, s);
+      params.push(s, s, s, s, s, s);
+      countParams.push(s, s, s, s, s, s);
     }
 
     sql += ' ORDER BY dvt.category ASC, dvt.dealer_name ASC';

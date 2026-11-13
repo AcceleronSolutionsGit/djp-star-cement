@@ -164,6 +164,9 @@ export default function PlanApprovalsView({ onShowToast }) {
         auditRows.push({
           dealerName: dealerItem?.dealer_name || dKey,
           dealerCode: dealerItem?.dealer_sap_code || 'N/A',
+          sapCode: dealerItem?.sap_code || dealerItem?.dealer_sap_code || 'N/A',
+          sfaCode: dealerItem?.sfa_code || 'N/A',
+          dealerType: dealerItem?.dealer_type || 'DEALER',
           scheduledCount: count,
           status: 'VALIDATED'
         });
@@ -254,7 +257,7 @@ export default function PlanApprovalsView({ onShowToast }) {
                 <div 
                   key={v.id || idx} 
                   className={`dealer-calendar-chip ${cSlug} ${v.is_backdated ? 'backdated' : ''}`} 
-                  title={`${v.dealer_name} (${v.dealer_sap_code || 'N/A'})${v.is_backdated ? ' - [BACKDATED VISIT]' : ''}`}
+                  title={`${v.dealer_name} (SAP: ${v.sap_code || v.dealer_sap_code || 'N/A'}${v.sfa_code ? ` | SFA: ${v.sfa_code}` : ''})${v.is_backdated ? ' - [BACKDATED VISIT]' : ''}`}
                 >
                   <span className="dealer-chip-name">{v.is_backdated ? '⚠️ ' : ''}{v.dealer_name}</span>
                   <span className={`dealer-chip-badge ${cSlug}`}>
@@ -724,7 +727,9 @@ export default function PlanApprovalsView({ onShowToast }) {
                     <table style={{ fontSize: '0.8rem' }}>
                       <thead>
                         <tr>
-                          <th>Customer Code</th>
+                          <th>SAP Code</th>
+                          <th>SFA Code</th>
+                          <th>Cust Type</th>
                           <th>Customer Name</th>
                           <th style={{ textAlign: 'center' }}>Plan Scheduled Visits</th>
                           <th style={{ textAlign: 'center' }}>Max Constraint</th>
@@ -734,7 +739,13 @@ export default function PlanApprovalsView({ onShowToast }) {
                       <tbody>
                         {reviewAudit.map((a, idx) => (
                           <tr key={idx}>
-                            <td><code>{a.dealerCode}</code></td>
+                            <td><code>{a.sapCode !== 'N/A' ? a.sapCode : a.dealerCode}</code></td>
+                            <td><code style={{ color: 'var(--star-red)' }}>{a.sfaCode || '-'}</code></td>
+                            <td>
+                              <span className={`dealer-chip-badge ${a.dealerType === 'RSAR' ? 'rsar' : a.dealerType === 'NON STAR' ? 'non-star' : 'dealer'}`}>
+                                {formatCustType(a.dealerType)}
+                              </span>
+                            </td>
                             <td style={{ fontWeight: 700 }}>{a.dealerName}</td>
                             <td style={{ textAlign: 'center', fontWeight: 800, color: 'var(--star-red)' }}>
                               {a.scheduledCount} visit(s)
@@ -900,7 +911,7 @@ export default function PlanApprovalsView({ onShowToast }) {
                             alignItems: 'center', 
                             gap: '4px', 
                             background: '#F8FAFC', 
-                            border: '1px solid #E2E8F0', 
+                            border: '1px solid #CBD5E1', 
                             borderRadius: '5px', 
                             padding: '2px 8px',
                             fontFamily: 'var(--font-mono, monospace)',
@@ -908,8 +919,25 @@ export default function PlanApprovalsView({ onShowToast }) {
                             color: '#334155',
                             fontWeight: 600
                           }}>
-                            <span style={{ color: '#64748B' }}>Code:</span>
-                            <b style={{ color: '#0F172A' }}>{v.dealer_sap_code || 'N/A'}</b>
+                            <span style={{ color: '#64748B' }}>SAP:</span>
+                            <b style={{ color: '#0F172A' }}>{v.sap_code || v.dealer_sap_code || 'N/A'}</b>
+                          </div>
+
+                          <div style={{ 
+                            display: 'inline-flex', 
+                            alignItems: 'center', 
+                            gap: '4px', 
+                            background: '#FFF1F2', 
+                            border: '1px solid #FECDD3', 
+                            borderRadius: '5px', 
+                            padding: '2px 8px',
+                            fontFamily: 'var(--font-mono, monospace)',
+                            fontSize: '0.74rem',
+                            color: 'var(--star-red, #E11D48)',
+                            fontWeight: 600
+                          }}>
+                            <span style={{ color: '#E11D48' }}>SFA:</span>
+                            <b>{v.sfa_code || 'N/A'}</b>
                           </div>
 
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.76rem', color: '#64748B' }}>
