@@ -318,62 +318,67 @@ export async function findZoneByArea(area, state = '') {
       return BRANCH_ZONE_MAP[cleanArea];
     }
 
-  // 2. Substring / partial match in BRANCH_ZONE_MAP
-  for (const [branchName, zoneCode] of Object.entries(BRANCH_ZONE_MAP)) {
-    if (cleanArea === branchName || cleanArea.includes(branchName) || branchName.includes(cleanArea)) {
-      return zoneCode;
+    // 2. Substring / partial match in BRANCH_ZONE_MAP
+    for (const [branchName, zoneCode] of Object.entries(BRANCH_ZONE_MAP)) {
+      if (cleanArea === branchName || cleanArea.includes(branchName) || branchName.includes(cleanArea)) {
+        return zoneCode;
+      }
     }
-  }
 
-  // 3. Check keyword match in master_zone_zh_mapping
-  const allMappings = await dbAll('SELECT zone_code, area_keywords FROM master_zone_zh_mapping');
-  for (const m of allMappings) {
-    if (!m.area_keywords) continue;
-    const keywords = m.area_keywords.split(',').map(k => k.trim().toUpperCase());
-    if (keywords.some(k => cleanArea === k || cleanArea.includes(k) || k.includes(cleanArea))) {
-      return m.zone_code;
+    // 3. Check keyword match in master_zone_zh_mapping
+    const allMappings = await dbAll('SELECT zone_code, area_keywords FROM master_zone_zh_mapping');
+    for (const m of allMappings) {
+      if (!m.area_keywords) continue;
+      const keywords = m.area_keywords.split(',').map(k => k.trim().toUpperCase());
+      if (keywords.some(k => cleanArea === k || cleanArea.includes(k) || k.includes(cleanArea))) {
+        return m.zone_code;
+      }
     }
-  }
 
-  // 4. Check if any existing dealer in master_dealers with this area has a known zone
-  const dealerMatch = await dbGet(`
-    SELECT COALESCE(NULLIF(zone, ''), NULLIF(region, '')) as found_zone
-    FROM master_dealers
-    WHERE (LOWER(TRIM(area)) = LOWER(?) OR LOWER(TRIM(dm_area)) = LOWER(?) OR LOWER(TRIM(branch)) = LOWER(?))
-      AND (zone IS NOT NULL AND zone != '' OR region IS NOT NULL AND region != '')
-    LIMIT 1
-  `, [cleanArea, cleanArea, cleanArea]);
+    // 4. Check if any existing dealer in master_dealers with this area has a known zone
+    const dealerMatch = await dbGet(`
+      SELECT COALESCE(NULLIF(zone, ''), NULLIF(region, '')) as found_zone
+      FROM master_dealers
+      WHERE (LOWER(TRIM(area)) = LOWER(?) OR LOWER(TRIM(dm_area)) = LOWER(?) OR LOWER(TRIM(branch)) = LOWER(?))
+        AND (zone IS NOT NULL AND zone != '' OR region IS NOT NULL AND region != '')
+      LIMIT 1
+    `, [cleanArea, cleanArea, cleanArea]);
 
-  if (dealerMatch?.found_zone) {
-    const norm = normalizeZone(dealerMatch.found_zone);
-    if (norm) return norm;
-  }
+    if (dealerMatch?.found_zone) {
+      const norm = normalizeZone(dealerMatch.found_zone);
+      if (norm) return norm;
+    }
 
-  // 5. Check master_dealer_so_mapping
-  const soMapMatch = await dbGet(`
-    SELECT COALESCE(NULLIF(zone, ''), NULLIF(region, '')) as found_zone
-    FROM master_dealer_so_mapping
-    WHERE (LOWER(TRIM(area)) = LOWER(?) OR LOWER(TRIM(branch)) = LOWER(?))
-      AND (zone IS NOT NULL AND zone != '' OR region IS NOT NULL AND region != '')
-    LIMIT 1
-  `, [cleanArea, cleanArea]);
+    // 5. Check master_dealer_so_mapping
+    const soMapMatch = await dbGet(`
+      SELECT COALESCE(NULLIF(zone, ''), NULLIF(region, '')) as found_zone
+      FROM master_dealer_so_mapping
+      WHERE (LOWER(TRIM(area)) = LOWER(?) OR LOWER(TRIM(branch)) = LOWER(?))
+        AND (zone IS NOT NULL AND zone != '' OR region IS NOT NULL AND region != '')
+      LIMIT 1
+    `, [cleanArea, cleanArea]);
 
-  if (soMapMatch?.found_zone) {
-    const norm = normalizeZone(soMapMatch.found_zone);
-    if (norm) return norm;
-  }
+    if (soMapMatch?.found_zone) {
+      const norm = normalizeZone(soMapMatch.found_zone);
+      if (norm) return norm;
+    }
 
-  // 6. Fallback based on state name if provided
-  if (state) {
-    const cleanState = String(state).trim().toUpperCase();
-    if (cleanState.includes('TRIPURA') || cleanState.includes('MIZORAM') || cleanState.includes('SILCHAR')) return 'NE2';
-    if (cleanState.includes('ASSAM') || cleanState.includes('MEGHALAYA') || cleanState.includes('NAGALAND') || cleanState.includes('MANIPUR') || cleanState.includes('ARUNACHAL')) return 'NE1';
-    if (cleanState.includes('NORTH BENGAL') || cleanState.includes('SIKKIM')) return 'NB1';
-    if (cleanState.includes('SOUTH BENGAL') || cleanState.includes('WEST BENGAL')) return 'SOUTH BENGAL';
-    if (cleanState.includes('BIHAR')) return 'BIHAR';
-  }
+    // 6. Fallback based on state name if provided
+    if (state) {
+      const cleanState = String(state).trim().toUpperCase();
+      if (cleanState.includes('TRIPURA') || cleanState.includes('MIZORAM') || cleanState.includes('SILCHAR')) return 'NE2';
+      if (cleanState.includes('ASSAM') || cleanState.includes('MEGHALAYA') || cleanState.includes('NAGALAND') || cleanState.includes('MANIPUR') || cleanState.includes('ARUNACHAL')) return 'NE1';
+      if (cleanState.includes('NORTH BENGAL') || cleanState.includes('SIKKIM')) return 'NB1';
+      if (cleanState.includes('SOUTH BENGAL') || cleanState.includes('WEST BENGAL')) return 'SOUTH BENGAL';
+      if (cleanState.includes('BIHAR')) return 'BIHAR';
+    }
 
-  return null;
+    return null;
+  };
+
+  const res = await resolve();
+  zoneAreaCache.set(cleanArea, res);
+  return res;
 }
 
 /**
