@@ -24,29 +24,34 @@ export let pool = mysql.createPool({
   dateStrings: true
 });
 
-let fallbackTried = false;
+let fallbackPromise = null;
 async function executeWithFallback(fn) {
   try {
     return await fn(pool);
   } catch (err) {
-    if (!fallbackTried && (err.code === 'ER_ACCESS_DENIED_ERROR' || err.errno === 1045)) {
-      fallbackTried = true;
-      const altPassword = dbPassword === '' ? 'root' : '';
-      console.warn(`[Database] Access denied with '${dbPassword}'. Retrying with fallback '${altPassword}'...`);
-      pool = mysql.createPool({
-        host: dbHost,
-        port: dbPort,
-        user: dbUser,
-        password: altPassword,
-        database: dbName,
-        waitForConnections: true,
-        connectionLimit: 25,
-        queueLimit: 0,
-        multipleStatements: true,
-        decimalNumbers: true,
-        dateStrings: true
-      });
-      return await fn(pool);
+    if (err.code === 'ER_ACCESS_DENIED_ERROR' || err.errno === 1045) {
+      if (!fallbackPromise) {
+        fallbackPromise = (async () => {
+          const altPassword = dbPassword === '' ? 'root' : '';
+          console.warn(`[Database] Access denied with '${dbPassword}'. Switching to fallback '${altPassword}'...`);
+          pool = mysql.createPool({
+            host: dbHost,
+            port: dbPort,
+            user: dbUser,
+            password: altPassword,
+            database: dbName,
+            waitForConnections: true,
+            connectionLimit: 25,
+            queueLimit: 0,
+            multipleStatements: true,
+            decimalNumbers: true,
+            dateStrings: true
+          });
+          return pool;
+        })();
+      }
+      const newPool = await fallbackPromise;
+      return await fn(newPool);
     }
     throw err;
   }
