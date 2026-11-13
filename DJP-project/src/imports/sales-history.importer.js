@@ -339,7 +339,7 @@ export async function importSalesHistory(filePath, batchCode = null) {
     for (let i = 0; i < sapArray.length; i += 1000) {
       const chunk = sapArray.slice(i, i + 1000);
       const ph = chunk.map(() => '?').join(',');
-      await dbRun(`UPDATE master_dealers SET rsar_status = 'RSAR_MATCHED' WHERE sap_code IN (${ph})`, chunk);
+      await dbRun(`UPDATE master_dealers SET rsar_status = 'RSAR_MATCHED', dealer_type = 'RSAR' WHERE sap_code IN (${ph})`, chunk);
     }
   }
 

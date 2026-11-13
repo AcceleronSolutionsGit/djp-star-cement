@@ -285,7 +285,12 @@ export async function getPlanDetails(req, res) {
       `SELECT spd.*,
               COALESCE(spd.dealer_sap_code, md.sap_code) AS sap_code,
               md.sfa_code AS sfa_code,
-              COALESCE(NULLIF(spd.dealer_type, ''), md.dealer_type, 'DEALER') AS resolved_dealer_type,
+              CASE
+                WHEN spd.dealer_sap_code LIKE '150%' OR md.sap_code LIKE '150%' THEN 'RSAR'
+                WHEN COALESCE(NULLIF(spd.dealer_type, ''), md.dealer_type) = 'RSAR' THEN 'RSAR'
+                WHEN COALESCE(NULLIF(spd.dealer_type, ''), md.dealer_type) IN ('PROSPECTIVE', 'PROSPECT', 'NON_STAR', 'NON-STAR', 'NON STAR') OR spd.dealer_sap_code LIKE 'NS%' OR md.sap_code LIKE 'NS%' THEN 'NON STAR'
+                ELSE 'DEALER'
+              END AS resolved_dealer_type,
               md.area AS dealer_area,
               md.zone AS dealer_zone,
               md.block AS dealer_block,
@@ -302,9 +307,10 @@ export async function getPlanDetails(req, res) {
       [planId]
     );
 
-    const normalizeType = (t) => {
+    const normalizeType = (t, sapCode = '') => {
+      if (sapCode && String(sapCode).startsWith('150')) return 'RSAR';
       const v = String(t || 'DEALER').toUpperCase().trim();
-      if (v === 'PROSPECTIVE' || v === 'PROSPECT' || v === 'NON_STAR' || v === 'NON-STAR' || v === 'NON STAR') return 'NON STAR';
+      if (v === 'PROSPECTIVE' || v === 'PROSPECT' || v === 'NON_STAR' || v === 'NON-STAR' || v === 'NON STAR' || (sapCode && String(sapCode).startsWith('NS'))) return 'NON STAR';
       if (v === 'RSAR' || v.includes('SUB') || v === 'SUB-DEALER' || v === 'RSSD') return 'RSAR';
       return 'DEALER';
     };
@@ -314,7 +320,7 @@ export async function getPlanDetails(req, res) {
       dealer_sap_code: d.sap_code || d.dealer_sap_code,
       sap_code: d.sap_code || d.dealer_sap_code,
       sfa_code: d.sfa_code || null,
-      dealer_type: normalizeType(d.resolved_dealer_type || d.dealer_type)
+      dealer_type: normalizeType(d.resolved_dealer_type || d.dealer_type, d.sap_code || d.dealer_sap_code)
     }));
 
     const backdatedVisits = normalizedDetails.filter(d => d.is_backdated === 1);

@@ -298,6 +298,18 @@ export async function getTerritoryMapping(req, res) {
                     OR (d.sfa_code IS NOT NULL AND d.sfa_code LIKE 'NS%') THEN 'NON STAR'
                ELSE 'DEALER'
              END AS dealer_type,
+             CASE 
+               WHEN m.sap_code LIKE '150%' 
+                    OR d.dealer_type = 'RSAR' 
+                    OR m.dealer_name LIKE '%(RSD%' 
+                    OR m.dealer_name LIKE '%(RSAR%' 
+                    OR (m.linked_dealer_code IS NOT NULL AND m.linked_dealer_code != '' AND m.linked_dealer_code != '-')
+                    OR EXISTS (SELECT 1 FROM sales_history sh WHERE sh.sap_code = m.sap_code) THEN 'RSAR'
+               WHEN d.dealer_type IN ('NON STAR', 'NON_STAR', 'NON-STAR', 'PROSPECTIVE') 
+                    OR m.sap_code LIKE 'NS%' 
+                    OR (d.sfa_code IS NOT NULL AND d.sfa_code LIKE 'NS%') THEN 'NON STAR'
+               ELSE 'DEALER'
+             END AS cust_type,
              COALESCE(d.sfa_code, m.linked_dealer_code) AS sfa_code 
       FROM master_dealer_so_mapping m 
       LEFT JOIN master_dealers d ON m.dealer_id = d.id

@@ -37,16 +37,17 @@ export default function PlanApprovalsView({ onShowToast }) {
   const [approvalRemarks, setApprovalRemarks] = useState('');
   const [reviewBackdatedAlert, setReviewBackdatedAlert] = useState(null);
 
-  const formatCustType = (type) => {
+  const formatCustType = (type, sapCode = '') => {
+    if (sapCode && String(sapCode).startsWith('150')) return 'RSAR';
     if (!type) return 'DEALER';
     const t = String(type).toUpperCase().trim();
-    if (t === 'PROSPECTIVE' || t === 'PROSPECT' || t === 'NON_STAR' || t === 'NON-STAR' || t === 'NON STAR') return 'NON STAR';
+    if (t === 'PROSPECTIVE' || t === 'PROSPECT' || t === 'NON_STAR' || t === 'NON-STAR' || t === 'NON STAR' || (sapCode && String(sapCode).startsWith('NS'))) return 'NON STAR';
     if (t === 'RSAR' || t.includes('SUB') || t === 'SUB-DEALER' || t === 'RSSD') return 'RSAR';
     return 'DEALER';
   };
 
-  const getCustTypeColor = (type) => {
-    const t = formatCustType(type);
+  const getCustTypeColor = (type, sapCode = '') => {
+    const t = formatCustType(type, sapCode);
     if (t === 'RSAR') return '#7C3AED';
     if (t === 'NON STAR') return '#B45309';
     return '#2563EB';
@@ -742,8 +743,8 @@ export default function PlanApprovalsView({ onShowToast }) {
                             <td><code>{a.sapCode !== 'N/A' ? a.sapCode : a.dealerCode}</code></td>
                             <td><code style={{ color: 'var(--star-red)' }}>{a.sfaCode || '-'}</code></td>
                             <td>
-                              <span className={`dealer-chip-badge ${a.dealerType === 'RSAR' ? 'rsar' : a.dealerType === 'NON STAR' ? 'non-star' : 'dealer'}`}>
-                                {formatCustType(a.dealerType)}
+                              <span className={`dealer-chip-badge ${formatCustType(a.dealerType, a.sapCode) === 'RSAR' ? 'rsar' : formatCustType(a.dealerType, a.sapCode) === 'NON STAR' ? 'non-star' : 'dealer'}`}>
+                                {formatCustType(a.dealerType, a.sapCode !== 'N/A' ? a.sapCode : a.dealerCode)}
                               </span>
                             </td>
                             <td style={{ fontWeight: 700 }}>{a.dealerName}</td>
@@ -828,7 +829,7 @@ export default function PlanApprovalsView({ onShowToast }) {
             <div className="modal-body" style={{ padding: '16px 20px', background: '#F8FAFC', maxHeight: '70vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {reviewDayModal.visits.map((v, idx) => {
-                  const cType = formatCustType(v.dealer_type);
+                  const cType = formatCustType(v.dealer_type, v.dealer_sap_code || v.sap_code);
                   const isNonStar = cType === 'NON STAR' || cType === 'Non-Star';
                   const isRsar = cType === 'RSAR';
                   const accentColor = isRsar ? '#7C3AED' : isNonStar ? '#D97706' : '#2563EB';

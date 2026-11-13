@@ -371,9 +371,9 @@ export async function calculatePJP(reportMonth, cycleCode, options = {}) {
     linked_dealer_code: d.linked_dealer_code,
     dealerName: d.dealerName || d.dealer_name,
     dealerId: d.dealerId || d.dealer_id || d.id,
-    dealerType: d.dealerType || d.dealer_type,
-    cust_type: d.cust_type || d.custType || (d.finalCategory === 'Prospective' ? 'NON STAR' : (d.dealerType === 'RSAR' || d.dealer_type === 'RSAR' ? 'RSAR' : 'DEALER')),
-    custType: d.custType || d.cust_type || (d.finalCategory === 'Prospective' ? 'NON STAR' : (d.dealerType === 'RSAR' || d.dealer_type === 'RSAR' ? 'RSAR' : 'DEALER')),
+    dealerType: d.cust_type || d.custType || (String(d.sap_code || '').startsWith('150') || d.dealerType === 'RSAR' || d.dealer_type === 'RSAR' ? 'RSAR' : (d.finalCategory === 'Prospective' || d.dealer_type === 'NON STAR' || String(d.sap_code || '').startsWith('NS') ? 'NON STAR' : 'DEALER')),
+    cust_type: d.cust_type || d.custType || (String(d.sap_code || '').startsWith('150') || d.dealerType === 'RSAR' || d.dealer_type === 'RSAR' ? 'RSAR' : (d.finalCategory === 'Prospective' || d.dealer_type === 'NON STAR' || String(d.sap_code || '').startsWith('NS') ? 'NON STAR' : 'DEALER')),
+    custType: d.custType || d.cust_type || (String(d.sap_code || '').startsWith('150') || d.dealerType === 'RSAR' || d.dealer_type === 'RSAR' ? 'RSAR' : (d.finalCategory === 'Prospective' || d.dealer_type === 'NON STAR' || String(d.sap_code || '').startsWith('NS') ? 'NON STAR' : 'DEALER')),
     territoryCode: d.territory_code || d.territoryCode || null,
     territoryName: d.territory_name || d.territoryName || d.dm_area || null,
 
@@ -606,7 +606,7 @@ async function persistPjpResults(results, reportMonth, cycleCode, generationRunC
       r.sbg_block || null,    // sbg_block dedicated column
       r.branch || null,
       r.zone || null, r.region || null,
-      r.cust_type || (r.dealer_type === 'PROSPECTIVE' || r.dealer_type === 'NON_STAR' || r.dealer_type === 'NON STAR' ? 'NON STAR' : (r.dealer_type === 'RSAR' ? 'RSAR' : 'DEALER')),
+      r.cust_type || (String(r.sap_code || '').startsWith('150') ? 'RSAR' : (r.dealer_type === 'PROSPECTIVE' || r.dealer_type === 'NON_STAR' || r.dealer_type === 'NON STAR' || String(r.sap_code || '').startsWith('NS') ? 'NON STAR' : (r.dealer_type === 'RSAR' ? 'RSAR' : 'DEALER'))),
       r.territoryCode || null, r.territoryName || null,
       r.soCode || r.soEmpCode || null, r.soName || null, r.soEmpCode || null,
       finalAsmName, finalAsmCode,

@@ -265,16 +265,17 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
     }
   };
 
-  const formatCustType = (type) => {
+  const formatCustType = (type, sapCode = '') => {
+    if (sapCode && String(sapCode).startsWith('150')) return 'RSAR';
     if (!type) return 'Dealer';
     const t = String(type).toUpperCase().trim();
-    if (t === 'PROSPECTIVE' || t === 'PROSPECT' || t === 'NON_STAR' || t === 'NON-STAR' || t === 'NON STAR') return 'Non-Star';
+    if (t === 'PROSPECTIVE' || t === 'PROSPECT' || t === 'NON_STAR' || t === 'NON-STAR' || t === 'NON STAR' || (sapCode && String(sapCode).startsWith('NS'))) return 'Non-Star';
     if (t === 'RSAR' || t.includes('SUB') || t === 'SUB-DEALER' || t === 'RSSD') return 'RSAR';
     return 'Dealer';
   };
 
-  const getCustTypeBadgeClass = (type) => {
-    const t = formatCustType(type);
+  const getCustTypeBadgeClass = (type, sapCode = '') => {
+    const t = formatCustType(type, sapCode);
     if (t === 'Non-Star') return 'badge-cust-nonstar';
     if (t === 'RSAR') return 'badge-cust-rsar';
     return 'badge-cust-dealer';
@@ -3006,8 +3007,8 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                             )}
                           </div>
                           <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
-                            <span className={getCustTypeBadgeClass(v.dealer?.type || v.cust_type)}>
-                              {formatCustType(v.dealer?.type || v.cust_type)}
+                            <span className={getCustTypeBadgeClass(v.dealer?.type || v.cust_type, v.dealer?.sap_code || v.dealer?.dealer_sap_code || v.sap_code)}>
+                              {formatCustType(v.dealer?.type || v.cust_type, v.dealer?.sap_code || v.dealer?.dealer_sap_code || v.sap_code)}
                             </span>
                             {v.final_category && <span className="badge">{v.final_category}</span>}
                             {v.grade && <span className="badge">{v.grade}</span>}

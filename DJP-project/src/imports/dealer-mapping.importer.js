@@ -329,9 +329,9 @@ export async function importDealerMapping(filePath, batchCode = null) {
 
     const upperCust = custType.toUpperCase();
     let dType = 'DEALER';
-    if (upperCust.includes('RSAR') || upperCust.includes('SUB') || (rawLinkedCode && rawLinkedCode !== '-')) {
+    if (upperCust.includes('RSAR') || upperCust.includes('SUB') || (rawLinkedCode && rawLinkedCode !== '-') || (rawSapCode && rawSapCode.startsWith('150')) || (rawDealerName && (rawDealerName.includes('(RSD') || rawDealerName.includes('(RSAR')))) {
       dType = 'RSAR';
-    } else if (upperCust.includes('NON_STAR') || upperCust.includes('NON-STAR') || upperCust.includes('NON STAR') || upperCust.includes('PROSPECT')) {
+    } else if (upperCust.includes('NON_STAR') || upperCust.includes('NON-STAR') || upperCust.includes('NON STAR') || upperCust.includes('PROSPECT') || (rawSapCode && (rawSapCode.startsWith('NS') || rawSapCode.startsWith('WBS')))) {
       dType = 'NON STAR';
     }
 
@@ -374,6 +374,7 @@ export async function importDealerMapping(filePath, batchCode = null) {
       dealersToUpdate.push({
         id: internalId,
         params: [
+          dType,
           rawSapCode || null, rawSfaCode || null, dmArea || null,
           rawSapCode || null, rawCustomerCode || null, rawSfaCode || null,
           dmArea || null, branch || null, effectiveZone || null, effectiveZone || null,
@@ -513,6 +514,7 @@ export async function importDealerMapping(filePath, batchCode = null) {
       const chunk = dealersToUpdate.slice(i, i + chunkSz);
       const sqlBatch = chunk.map(() => `
         UPDATE master_dealers SET
+          dealer_type = ?,
           sap_code = COALESCE(?, sap_code),
           sfa_code = COALESCE(?, sfa_code),
           dm_area = ?,

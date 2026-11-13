@@ -152,7 +152,7 @@ export async function loadDealersWithMappings(options = {}) {
     const nameUpper = String(d.dealer_name || '').toUpperCase();
     const isProspect = Boolean(
       dTypeUpper === 'PROSPECTIVE' || dTypeUpper === 'PROSPECT' || dTypeUpper === 'NON_STAR' || dTypeUpper === 'NON-STAR' || dTypeUpper === 'NON STAR' ||
-      d.prospect_status === 'PROSPECT_MATCHED' || sfaUpper.startsWith('NSRE') || sfaUpper.startsWith('WBS') || String(d.doa || '').trim().toUpperCase() === 'NEW'
+      d.prospect_status === 'PROSPECT_MATCHED' || sfaUpper.startsWith('NSRE') || sfaUpper.startsWith('WBS') || sapUpper.startsWith('NS') || String(d.doa || '').trim().toUpperCase() === 'NEW'
     );
     const isRsar = Boolean(
       !isProspect && (
@@ -194,7 +194,10 @@ export async function loadDealersWithMappings(options = {}) {
       sfa_code: sfaCode,
       rssd_code: rssdCode,
       linked_dealer_code: linkedCode,
+      dealer_type: custType,
+      dealerType: custType,
       cust_type: custType,
+      custType: custType,
 
       // Authoritative source fields
       dm_area: area,

@@ -305,14 +305,18 @@ export function normalizeZone(zoneStr) {
  * @param {string} [state]
  * @returns {Promise<string|null>}
  */
+const zoneAreaCache = new Map();
+
 export async function findZoneByArea(area, state = '') {
   if (!area || String(area).trim() === '') return null;
   const cleanArea = String(area).trim().toUpperCase();
+  if (zoneAreaCache.has(cleanArea)) return zoneAreaCache.get(cleanArea);
 
-  // 1. Direct dictionary match in BRANCH_ZONE_MAP
-  if (BRANCH_ZONE_MAP[cleanArea]) {
-    return BRANCH_ZONE_MAP[cleanArea];
-  }
+  const resolve = async () => {
+    // 1. Direct dictionary match in BRANCH_ZONE_MAP
+    if (BRANCH_ZONE_MAP[cleanArea]) {
+      return BRANCH_ZONE_MAP[cleanArea];
+    }
 
   // 2. Substring / partial match in BRANCH_ZONE_MAP
   for (const [branchName, zoneCode] of Object.entries(BRANCH_ZONE_MAP)) {

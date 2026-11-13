@@ -110,8 +110,9 @@ export class AutoPlanGenerator {
         COALESCE(NULLIF(dvt.sap_code, ''), NULLIF(md.sap_code, '')) as sap_code,
         COALESCE(NULLIF(dvt.sfa_code, ''), NULLIF(md.sfa_code, '')) as sfa_code,
         CASE 
-          WHEN dvt.cust_type IN ('NON STAR', 'NON_STAR', 'NON-STAR') OR md.dealer_type IN ('PROSPECTIVE', 'NON STAR', 'NON_STAR', 'NON-STAR') THEN 'NON STAR'
+          WHEN dvt.cust_type IN ('NON STAR', 'NON_STAR', 'NON-STAR') OR md.dealer_type IN ('PROSPECTIVE', 'NON STAR', 'NON_STAR', 'NON-STAR') OR dvt.sap_code LIKE 'NS%' OR md.sap_code LIKE 'NS%' THEN 'NON STAR'
           WHEN dvt.cust_type = 'RSAR' OR md.dealer_type = 'RSAR' 
+               OR dvt.sap_code LIKE '150%' OR md.sap_code LIKE '150%'
                OR (md.linked_dealer_code IS NOT NULL AND md.linked_dealer_code != '' AND md.linked_dealer_code != '-')
                OR (md.rssd_code IS NOT NULL AND md.rssd_code != '' AND md.rssd_code != '-')
                OR dvt.dealer_status LIKE '%Sub%' THEN 'RSAR'

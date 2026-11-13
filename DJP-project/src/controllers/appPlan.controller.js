@@ -402,8 +402,9 @@ async function buildDetail(plan, viewerIsOwner) {
        COALESCE(d.dealer_sap_code, md.sap_code, dvt.sap_code, md.sfa_code, dvt.sfa_code) AS dealer_sap_code,
        COALESCE(d.dealer_name, md.dealer_name, dvt.dealer_name) AS dealer_name,
        CASE 
-         WHEN COALESCE(d.dealer_type, md.dealer_type, dvt.cust_type) IN ('PROSPECTIVE', 'PROSPECT', 'NON_STAR', 'NON-STAR', 'NON STAR') THEN 'NON STAR'
+         WHEN d.dealer_sap_code LIKE '150%' OR md.sap_code LIKE '150%' OR dvt.sap_code LIKE '150%' THEN 'RSAR'
          WHEN COALESCE(d.dealer_type, md.dealer_type, dvt.cust_type) = 'RSAR' THEN 'RSAR'
+         WHEN COALESCE(d.dealer_type, md.dealer_type, dvt.cust_type) IN ('PROSPECTIVE', 'PROSPECT', 'NON_STAR', 'NON-STAR', 'NON STAR') THEN 'NON STAR'
          ELSE 'DEALER'
        END AS dealer_type,
        d.purpose_of_visit,
@@ -1976,7 +1977,7 @@ export async function punchVisit(req, res) {
         dealer_name: planned.dealer_name,
         sap_code: planned.dealer_sap_code,
         sfa_code: planned.dealer_sap_code,
-        cust_type: 'Dealer',
+        cust_type: (planned.dealer_sap_code && String(planned.dealer_sap_code).startsWith('150')) ? 'RSAR' : 'Dealer',
         area: 'Unmapped',
         branch: null
       };
