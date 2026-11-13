@@ -27,6 +27,21 @@ export async function runPlanEnhancementsMigration() {
     await dbRun('ALTER TABLE sales_plan_details ADD COLUMN edited_after_date TINYINT(1) NOT NULL DEFAULT 0');
   }
 
+  if (!colNames.has('visit_status')) {
+    console.log('[Migration] Adding visit_status column to sales_plan_details...');
+    await dbRun("ALTER TABLE sales_plan_details ADD COLUMN visit_status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE'");
+  }
+
+  if (!colNames.has('source')) {
+    console.log('[Migration] Adding source column to sales_plan_details...');
+    await dbRun("ALTER TABLE sales_plan_details ADD COLUMN source VARCHAR(50) NOT NULL DEFAULT 'DJP_ENGINE'");
+  }
+
+  if (!colNames.has('added_by')) {
+    console.log('[Migration] Adding added_by column to sales_plan_details...');
+    await dbRun("ALTER TABLE sales_plan_details ADD COLUMN added_by VARCHAR(100) NULL");
+  }
+
   // 2. Insert or update edit window rules in business_rules
   const windowRules = [
     { key: 'c1_edit_start_day', name: 'Cycle 1 Edit Window Start Day', val: '1', desc: 'Day of month when C1 plan editing opens (1-5th)' },

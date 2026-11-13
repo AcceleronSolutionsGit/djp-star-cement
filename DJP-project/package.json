@@ -19,6 +19,7 @@
     "enforce:active": "node src/scripts/enforce-active-djp.js",
     "restore:plans": "node src/scripts/restore-overridden-djp-plans.js",
     "restore:dam": "node src/scripts/restore-abhijit-dam-c1.js",
+    "benchmark:mapping": "node src/scripts/test-fast-dealer-mapping.js",
     "dev:frontend": "npm run dev --prefix frontend",
     "build:frontend": "npm run build --prefix frontend"
   },

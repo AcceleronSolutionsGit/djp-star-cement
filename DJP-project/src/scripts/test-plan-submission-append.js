@@ -44,8 +44,8 @@ async function runTest() {
 
     for (const iv of initialVisits) {
       await dbRun(
-        `INSERT INTO sales_plan_details (plan_id, visit_date, dealer_sap_code, dealer_name, sequence, visit_status, source)
-         VALUES (?, ?, ?, ?, ?, 'ACTIVE', 'DJP_ENGINE')`,
+        `INSERT INTO sales_plan_details (plan_id, visit_date, dealer_sap_code, dealer_name, sequence)
+         VALUES (?, ?, ?, ?, ?)`,
         [planId, iv.date, iv.sap, iv.name, iv.seq]
       );
     }
