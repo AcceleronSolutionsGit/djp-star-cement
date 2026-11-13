@@ -485,16 +485,19 @@ export async function getDealersForSO(req, res) {
          COALESCE(dvt.sap_code, dvt.sfa_code, md.sap_code, md.sfa_code, mcc.customer_code, mcc.dns_customer_code) as sap_code,
          COALESCE(NULLIF(mcc.customer_name, ''), NULLIF(md.dealer_name, ''), dvt.dealer_name) as dealer_name,
          CASE
-           WHEN mcc.customer_type = 'Sub Dealer' OR mcc.customer_type LIKE '%Sub%' 
+           WHEN dvt.cust_type = 'RSAR'
+                OR mcc.customer_type = 'Sub Dealer' OR mcc.customer_type LIKE '%Sub%' 
                 OR md.dealer_type = 'RSAR' 
                 OR (md.linked_dealer_code IS NOT NULL AND md.linked_dealer_code != '' AND md.linked_dealer_code != '-')
                 OR (md.rssd_code IS NOT NULL AND md.rssd_code != '' AND md.rssd_code != '-')
                 OR dvt.dealer_status LIKE '%Sub%' THEN 'RSAR'
-           WHEN mcc.customer_type IN ('Dealer', 'Exclusive Dealer') 
+           WHEN dvt.cust_type IN ('NON STAR', 'NON_STAR', 'NON-STAR', 'PROSPECTIVE') 
+                OR mcc.customer_type = 'Non Star' 
+                OR md.dealer_type IN ('PROSPECTIVE', 'NON STAR', 'NON_STAR', 'NON-STAR') THEN 'NON STAR'
+           WHEN dvt.cust_type IN ('DEALER', 'STAR') 
+                OR mcc.customer_type IN ('Dealer', 'Exclusive Dealer') 
                 OR md.dealer_type IN ('DEALER', 'STAR') THEN 'DEALER'
-           WHEN mcc.customer_type = 'Non Star' OR md.dealer_type IN ('PROSPECTIVE', 'NON STAR', 'NON_STAR', 'NON-STAR') 
-                OR dvt.cust_type IN ('NON STAR', 'NON_STAR', 'NON-STAR', 'PROSPECTIVE') THEN 'NON STAR'
-           ELSE COALESCE(NULLIF(md.dealer_type, ''), 'DEALER')
+           ELSE COALESCE(NULLIF(dvt.cust_type, ''), NULLIF(md.dealer_type, ''), 'DEALER')
          END as dealer_type,
          dvt.area,
          COALESCE(md.branch, dvt.area) as branch
@@ -524,10 +527,9 @@ export async function getDealersForSO(req, res) {
                 OR md.dealer_type = 'RSAR' 
                 OR (md.linked_dealer_code IS NOT NULL AND md.linked_dealer_code != '' AND md.linked_dealer_code != '-')
                 OR (md.rssd_code IS NOT NULL AND md.rssd_code != '' AND md.rssd_code != '-') THEN 'RSAR'
+           WHEN mcc.customer_type = 'Non Star' OR md.dealer_type IN ('PROSPECTIVE', 'NON STAR', 'NON_STAR', 'NON-STAR') THEN 'NON STAR'
            WHEN mcc.customer_type IN ('Dealer', 'Exclusive Dealer') 
                 OR md.dealer_type IN ('DEALER', 'STAR') THEN 'DEALER'
-           WHEN mcc.customer_type = 'Non Star' OR md.dealer_type IN ('PROSPECTIVE', 'NON STAR', 'NON_STAR', 'NON-STAR') 
-                OR dvt.cust_type IN ('NON STAR', 'NON_STAR', 'NON-STAR', 'PROSPECTIVE') THEN 'NON STAR'
            ELSE COALESCE(NULLIF(md.dealer_type, ''), 'DEALER')
          END as dealer_type,
          md.area,
@@ -561,8 +563,7 @@ export async function getDealersForSO(req, res) {
            CASE
              WHEN mcc.customer_type = 'Sub Dealer' OR md.dealer_type = 'RSAR' THEN 'RSAR'
              WHEN mcc.customer_type IN ('Dealer', 'Exclusive Dealer') OR md.dealer_type = 'DEALER' THEN 'DEALER'
-             WHEN mcc.customer_type = 'Non Star' OR md.dealer_type IN ('PROSPECTIVE', 'NON STAR', 'NON_STAR', 'NON-STAR') 
-                 OR dvt.cust_type IN ('NON STAR', 'NON_STAR', 'NON-STAR', 'PROSPECTIVE') THEN 'NON STAR'
+             WHEN mcc.customer_type = 'Non Star' OR md.dealer_type IN ('PROSPECTIVE', 'NON STAR', 'NON_STAR', 'NON-STAR') THEN 'NON STAR'
              ELSE 'DEALER'
            END as dealer_type,
            md.area,

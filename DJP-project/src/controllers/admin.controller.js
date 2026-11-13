@@ -286,7 +286,11 @@ export async function getTerritoryMapping(req, res) {
     const { search, area, region, soName, strategy, custType, limit = 50, offset = 0 } = req.query;
     let sql = `
       SELECT m.*, 
-             COALESCE(d.dealer_type, CASE WHEN m.sap_code LIKE '150%' OR m.dealer_name LIKE '%(RSD%' OR m.dealer_name LIKE '%(RSAR%' OR m.linked_dealer_code IS NOT NULL THEN 'RSAR' ELSE 'DEALER' END) AS dealer_type,
+             CASE 
+               WHEN m.sap_code LIKE '150%' OR d.dealer_type = 'RSAR' OR m.dealer_name LIKE '%(RSD%' OR m.dealer_name LIKE '%(RSAR%' OR m.linked_dealer_code IS NOT NULL THEN 'RSAR'
+               WHEN d.dealer_type IN ('NON STAR', 'NON_STAR', 'NON-STAR', 'PROSPECTIVE') OR m.sap_code LIKE 'NS%' THEN 'NON STAR'
+               ELSE COALESCE(d.dealer_type, 'DEALER')
+             END AS dealer_type,
              COALESCE(d.sfa_code, m.linked_dealer_code) AS sfa_code 
       FROM master_dealer_so_mapping m 
       LEFT JOIN master_dealers d ON m.dealer_id = d.id
@@ -304,14 +308,14 @@ export async function getTerritoryMapping(req, res) {
     if (custType && custType !== 'ALL') {
       const cUpper = String(custType).toUpperCase().replace('-', '_').replace(' ', '_');
       if (cUpper === 'NON_STAR' || cUpper === 'PROSPECTIVE') {
-        sql += " AND (COALESCE(d.dealer_type, 'DEALER') IN ('NON_STAR', 'NON-STAR', 'NON STAR', 'PROSPECTIVE', 'PROSPECT'))";
-        countSql += " AND (COALESCE(d.dealer_type, 'DEALER') IN ('NON_STAR', 'NON-STAR', 'NON STAR', 'PROSPECTIVE', 'PROSPECT'))";
+        sql += " AND (COALESCE(d.dealer_type, 'DEALER') IN ('NON_STAR', 'NON-STAR', 'NON STAR', 'PROSPECTIVE', 'PROSPECT') OR m.sap_code LIKE 'NS%')";
+        countSql += " AND (COALESCE(d.dealer_type, 'DEALER') IN ('NON_STAR', 'NON-STAR', 'NON STAR', 'PROSPECTIVE', 'PROSPECT') OR m.sap_code LIKE 'NS%')";
       } else if (cUpper === 'RSAR') {
         sql += " AND (COALESCE(d.dealer_type, '') = 'RSAR' OR m.sap_code LIKE '150%' OR m.dealer_name LIKE '%(RSD%' OR m.dealer_name LIKE '%(RSAR%' OR m.linked_dealer_code IS NOT NULL)";
         countSql += " AND (COALESCE(d.dealer_type, '') = 'RSAR' OR m.sap_code LIKE '150%' OR m.dealer_name LIKE '%(RSD%' OR m.dealer_name LIKE '%(RSAR%' OR m.linked_dealer_code IS NOT NULL)";
       } else {
-        sql += " AND (COALESCE(d.dealer_type, 'DEALER') IN ('DEALER', 'STAR') AND (m.sap_code NOT LIKE '150%'))";
-        countSql += " AND (COALESCE(d.dealer_type, 'DEALER') IN ('DEALER', 'STAR') AND (m.sap_code NOT LIKE '150%'))";
+        sql += " AND (COALESCE(d.dealer_type, 'DEALER') IN ('DEALER', 'STAR') AND (m.sap_code NOT LIKE '150%') AND (m.sap_code NOT LIKE 'NS%'))";
+        countSql += " AND (COALESCE(d.dealer_type, 'DEALER') IN ('DEALER', 'STAR') AND (m.sap_code NOT LIKE '150%') AND (m.sap_code NOT LIKE 'NS%'))";
       }
     }
     if (area && area !== 'ALL') {
@@ -333,11 +337,17 @@ export async function getTerritoryMapping(req, res) {
       countParams.push(soName);
     }
     if (search) {
-      sql += ' AND (m.dealer_name LIKE ? OR m.sap_code LIKE ? OR d.sfa_code LIKE ? OR m.linked_dealer_code LIKE ? OR m.so_name LIKE ? OR m.so_emp_code LIKE ?)';
-      countSql += ' AND (m.dealer_name LIKE ? OR m.sap_code LIKE ? OR d.sfa_code LIKE ? OR m.linked_dealer_code LIKE ? OR m.so_name LIKE ? OR m.so_emp_code LIKE ?)';
-      const s = `%${search}%`;
-      params.push(s, s, s, s, s, s);
-      countParams.push(s, s, s, s, s, s);
+      const isSearchRsar = search.toUpperCase().trim() === 'RSAR';
+      if (isSearchRsar) {
+        sql += " AND (m.sap_code LIKE '150%' OR d.dealer_type = 'RSAR' OR m.dealer_name LIKE '%(RSD%' OR m.dealer_name LIKE '%(RSAR%' OR m.linked_dealer_code IS NOT NULL)";
+        countSql += " AND (m.sap_code LIKE '150%' OR d.dealer_type = 'RSAR' OR m.dealer_name LIKE '%(RSD%' OR m.dealer_name LIKE '%(RSAR%' OR m.linked_dealer_code IS NOT NULL)";
+      } else {
+        sql += ' AND (m.dealer_name LIKE ? OR m.sap_code LIKE ? OR d.sfa_code LIKE ? OR m.linked_dealer_code LIKE ? OR m.so_name LIKE ? OR m.so_emp_code LIKE ?)';
+        countSql += ' AND (m.dealer_name LIKE ? OR m.sap_code LIKE ? OR d.sfa_code LIKE ? OR m.linked_dealer_code LIKE ? OR m.so_name LIKE ? OR m.so_emp_code LIKE ?)';
+        const s = `%${search}%`;
+        params.push(s, s, s, s, s, s);
+        countParams.push(s, s, s, s, s, s);
+      }
     }
 
     sql += ' ORDER BY dealer_name ASC LIMIT ? OFFSET ?';

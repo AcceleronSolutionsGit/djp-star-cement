@@ -401,7 +401,7 @@ export default function MonthlyIngestionView({
               </span>
               <input
                 type="month"
-                value={selectedPeriod || '2026-06'}
+                value={selectedPeriod || '2026-10'}
                 onChange={(e) => {
                   if (e.target.value && onPeriodChange) {
                     onPeriodChange(e.target.value);
@@ -452,7 +452,7 @@ export default function MonthlyIngestionView({
                 alignItems: 'center',
                 gap: '6px'
               }}
-              title={readiness && !readiness.allAvailable ? `Missing inputs: ${readiness.missing?.join(', ') || ''}` : `Generate PJP & DJP for both C1 and C2 — ${selectedPeriod || '2026-06'}`}
+              title={readiness && !readiness.allAvailable ? `Missing inputs: ${readiness.missing?.join(', ') || ''}` : `Generate PJP & DJP for both C1 and C2 — ${selectedPeriod || '2026-10'}`}
             >
               <Zap size={15} />
               <span>Generate C1 + C2 Plans {selectedPeriod ? `(${selectedPeriod})` : ''} {readiness ? (readiness.allAvailable ? '✓ 5/5 Ready' : `(${readiness.required?.filter(r => r.uploaded).length || 0}/5 Excels)`) : ''}</span>
@@ -836,7 +836,7 @@ export default function MonthlyIngestionView({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <div>
               <h4 style={{ margin: '0 0 4px 0', fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                Multi-Source Reconciliation Status ({reconciliation.reportMonth || '2026-06'} / {reconciliation.cycleCode || 'C1'})
+                Multi-Source Reconciliation Status ({reconciliation.reportMonth || '2026-10'} / {reconciliation.cycleCode || 'C1'})
               </h4>
               <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                 Deterministic alignment across 5 input sources: Dealer Mapping, Prospects, RSAR, SBG, and Performance.

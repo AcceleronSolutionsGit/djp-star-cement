@@ -61,7 +61,7 @@ export default function Header({
           </span>
           <input
             type="month"
-            value={selectedPeriod || '2026-06'}
+            value={selectedPeriod || '2026-10'}
             onChange={(e) => {
               if (e.target.value) {
                 if (onPeriodChange) onPeriodChange(e.target.value);

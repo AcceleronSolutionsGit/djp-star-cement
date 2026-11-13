@@ -148,30 +148,33 @@ const s  = v => (v === null || v === undefined || v === '') ? '' : String(v).tri
 export function custType(t) {
   if (!t) return 'DEALER';
   const raw  = s(t.cust_type).toUpperCase();
+  if (raw === 'RSAR') return 'RSAR';
+  if (raw === 'NON STAR' || raw === 'NON_STAR' || raw === 'NON-STAR' || raw === 'NONSTAR') return 'NON STAR';
+  if (raw === 'DEALER') return 'DEALER';
+
+  const sap  = s(t.sap_code || t.customer_code).toUpperCase();
+  if (sap.startsWith('150')) return 'RSAR';
+  if (sap.startsWith('100')) return 'DEALER';
+
   const type = s(t.dealer_type || t.customer_type || t.coord_cust_type).toUpperCase();
+  if (type === 'RSAR' || type === 'SUB DEALER' || type === 'SUB-DEALER' || type.includes('SUB') || type === 'RSSD') return 'RSAR';
+  if (type === 'NON STAR' || type === 'NON_STAR' || type === 'NON-STAR' || type === 'PROSPECTIVE' || type === 'PROSPECT') return 'NON STAR';
+  if (type === 'DEALER') return 'DEALER';
+
+  const sfa  = s(t.sfa_code).toUpperCase();
+  if (sfa.startsWith('NSRE') || sfa.startsWith('NSNE') || sfa.startsWith('WBS')) return 'NON STAR';
+  if (sfa.startsWith('SD')) return 'RSAR';
+
+  const name = s(t.dealer_name).toUpperCase();
+  if (name.includes('(RSD') || name.includes('(RSAR')) return 'RSAR';
+
+  const linked = s(t.linked_dealer_code);
+  if ((linked && linked !== '-' && linked !== 'NA') || t.rssd_code) return 'RSAR';
+
   const cat  = s(t.dealer_status || t.category || t.finalCategory).toUpperCase();
   const doa  = s(t.doa).toUpperCase();
-  const sfa  = s(t.sfa_code).toUpperCase();
-  const sap  = s(t.sap_code || t.customer_code).toUpperCase();
-  const name = s(t.dealer_name).toUpperCase();
-  const linked = s(t.linked_dealer_code);
+  if (cat === 'PROSPECTIVE' || doa === 'NEW') return 'NON STAR';
 
-  // 1. NON STAR: Prospects / Non-Star Retail Entities (verified against M.xlsx)
-  if (raw === 'NON STAR' || raw === 'NON_STAR' || raw === 'NON-STAR' || raw === 'NONSTAR' ||
-      type === 'NON STAR' || type === 'NON_STAR' || type === 'NON-STAR' || type === 'PROSPECTIVE' || type === 'PROSPECT' ||
-      cat === 'PROSPECTIVE' || doa === 'NEW' || sfa.startsWith('NSRE') || sfa.startsWith('WBS')) {
-    return 'NON STAR';
-  }
-
-  // 2. RSAR: Sub-dealers / RSSD (verified against M.xlsx)
-  if (raw === 'RSAR' || raw.includes('SUB') ||
-      type === 'RSAR' || type === 'SUB DEALER' || type === 'SUB-DEALER' || type.includes('SUB') || type === 'RSSD' ||
-      sap.startsWith('150') || name.includes('(RSD') || name.includes('(RSAR') ||
-      (linked && linked !== '-' && linked !== 'NA') || t.rssd_code) {
-    return 'RSAR';
-  }
-
-  if (raw === 'DEALER' || type === 'DEALER') return 'DEALER';
   return 'DEALER';
 }
 

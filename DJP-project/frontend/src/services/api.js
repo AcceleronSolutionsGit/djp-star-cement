@@ -215,9 +215,10 @@ export const api = {
   },
 
   // Territory Mapping
-  getTerritoryMapping: async (search = '', limit = 500, offset = 0) => {
+  getTerritoryMapping: async (search = '', custType = 'ALL', limit = 50, offset = 0) => {
     const query = new URLSearchParams();
     if (search) query.append('search', search);
+    if (custType && custType !== 'ALL') query.append('custType', custType);
     query.append('limit', limit);
     query.append('offset', offset);
 

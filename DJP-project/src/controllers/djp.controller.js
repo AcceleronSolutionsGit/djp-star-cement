@@ -178,8 +178,8 @@ export async function getDealerVisitTargets(req, res) {
 
     let sql = `
       SELECT dvt.*, 
-             COALESCE(dvt.cust_type, md.dealer_type, 'DEALER') AS cust_type, 
-             COALESCE(md.dealer_type, dvt.cust_type, 'DEALER') AS dealer_type, 
+             COALESCE(dvt.cust_type, md.dealer_type, CASE WHEN dvt.sap_code LIKE '150%' THEN 'RSAR' ELSE 'DEALER' END) AS cust_type, 
+             COALESCE(md.dealer_type, dvt.cust_type, CASE WHEN dvt.sap_code LIKE '150%' THEN 'RSAR' ELSE 'DEALER' END) AS dealer_type, 
              COALESCE(dvt.sfa_code, md.sfa_code) AS sfa_code, 
              COALESCE(dvt.sap_code, md.sap_code) AS sap_code 
       FROM dealer_visit_targets dvt 
@@ -460,11 +460,12 @@ export async function exportPjpTradeExcel(req, res) {
     const exportData = targets.map(t => {
       // Resolve Cust Type: Title Case ('Dealer', 'RSAR', 'Non-Star') — Never Prospective
       let rawType = String(t.cust_type || t.dealer_type || 'DEALER').toUpperCase();
+      let sapCode = String(t.sap_code || '').toUpperCase();
       let custType = 'Dealer';
-      if (rawType === 'PROSPECTIVE' || rawType === 'PROSPECT' || rawType === 'NON_STAR' || rawType === 'NON-STAR' || rawType === 'NON STAR') {
-        custType = 'Non-Star';
-      } else if (rawType === 'RSAR' || rawType.includes('SUB') || rawType === 'SUB-DEALER' || rawType === 'RSSD') {
+      if (rawType === 'RSAR' || sapCode.startsWith('150') || rawType.includes('SUB') || rawType === 'SUB-DEALER' || rawType === 'RSSD') {
         custType = 'RSAR';
+      } else if (rawType === 'PROSPECTIVE' || rawType === 'PROSPECT' || rawType === 'NON_STAR' || rawType === 'NON-STAR' || rawType === 'NON STAR' || sapCode.startsWith('NS')) {
+        custType = 'Non-Star';
       } else {
         custType = 'Dealer';
       }
@@ -543,15 +544,24 @@ export async function exportMasterExcel(req, res) {
       if (latest) {
         targetPeriod = latest.period_month;
       } else {
-        targetPeriod = '2026-06';
+        targetPeriod = '2026-10';
       }
     }
 
     // Always fetch for the entire month across all cycles (whole month)
-    let targets = await dbAll(
-      `SELECT * FROM dealer_visit_targets
-       WHERE period_month = ?
-       ORDER BY id ASC`, [targetPeriod]);
+    const selectTargetSql = `
+      SELECT dvt.*,
+             COALESCE(dvt.cust_type, md.dealer_type, CASE WHEN dvt.sap_code LIKE '150%' THEN 'RSAR' ELSE 'DEALER' END) AS cust_type,
+             COALESCE(md.dealer_type, dvt.cust_type, CASE WHEN dvt.sap_code LIKE '150%' THEN 'RSAR' ELSE 'DEALER' END) AS dealer_type,
+             COALESCE(dvt.sfa_code, md.sfa_code) AS sfa_code,
+             COALESCE(dvt.sap_code, md.sap_code) AS sap_code
+      FROM dealer_visit_targets dvt
+      LEFT JOIN master_dealers md ON dvt.dealer_id = md.id
+      WHERE dvt.period_month = ?
+      ORDER BY dvt.id ASC
+    `;
+
+    let targets = await dbAll(selectTargetSql, [targetPeriod]);
 
     if (!targets || targets.length === 0) {
       const latest = await dbGet(
@@ -559,11 +569,7 @@ export async function exportMasterExcel(req, res) {
           WHERE period_month IS NOT NULL ORDER BY period_month DESC LIMIT 1`);
       if (latest) {
         targetPeriod = latest.period_month;
-        targets = await dbAll(
-          `SELECT * FROM dealer_visit_targets
-           WHERE period_month = ?
-           ORDER BY id ASC`,
-          [targetPeriod]);
+        targets = await dbAll(selectTargetSql, [targetPeriod]);
       }
     }
 

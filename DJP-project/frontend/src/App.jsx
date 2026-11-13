@@ -154,7 +154,7 @@ export default function App() {
   const handleExportExcel = async () => {
     try {
       showToast('Generating official 16-column PJP/DJP Excel file...', 'info');
-      const period = selectedPeriod || '2026-06';
+      const period = selectedPeriod || '2026-10';
       const cycle = selectedCycle || 'C1';
       const res = await fetch(`${API_BASE}/djp/export-pjp-trade?periodMonth=${encodeURIComponent(period)}&cycleCode=${encodeURIComponent(cycle)}`);
       if (!res.ok) {
@@ -180,7 +180,7 @@ export default function App() {
   const handleExportMaster = async () => {
     try {
       showToast('Preparing Master Report Excel file (Whole Month)...', 'info');
-      const period = selectedPeriod || '2026-09';
+      const period = selectedPeriod || '2026-10';
       const res = await fetch(`${API_BASE}/djp/export-master?periodMonth=${encodeURIComponent(period)}`);
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
@@ -205,7 +205,7 @@ export default function App() {
   const handleExportVisits = async () => {
     try {
       showToast('Preparing Visits Planned Report Excel file...', 'info');
-      const period = selectedPeriod || '2026-09';
+      const period = selectedPeriod || '2026-10';
       const cycle = selectedCycle || 'C1';
       const res = await fetch(`${API_BASE}/djp/export-visits?periodMonth=${encodeURIComponent(period)}&cycleCode=${encodeURIComponent(cycle)}`);
       if (!res.ok) {

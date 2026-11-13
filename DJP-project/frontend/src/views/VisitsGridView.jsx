@@ -42,7 +42,7 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
     custType: 'ALL',
     so: 'ALL',
     asm: 'ALL',
-    periodMonth: '2026-06',
+    periodMonth: '2026-10',
     cycleCode: 'C1',
     search: ''
   });
@@ -97,6 +97,9 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
     try {
       const data = await api.getStats();
       if (data.stats) setStats(data.stats);
+      if (data.latestPeriod) {
+        setFilters(prev => ({ ...prev, periodMonth: data.latestPeriod }));
+      }
     } catch (err) {
       console.error('Error fetching stats:', err);
     }

@@ -6,6 +6,7 @@ export default function TerritoryMappingView({ onShowToast }) {
   const [mappings, setMappings] = useState([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
+  const [custType, setCustType] = useState('ALL');
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const pageSize = 50;
@@ -28,7 +29,7 @@ export default function TerritoryMappingView({ onShowToast }) {
   const loadMappings = async () => {
     setLoading(true);
     try {
-      const data = await api.getTerritoryMapping(search, pageSize, (page - 1) * pageSize);
+      const data = await api.getTerritoryMapping(search, custType, pageSize, (page - 1) * pageSize);
       setMappings(data.mappings || []);
       setTotal(data.total || 0);
     } catch (err) {
@@ -40,7 +41,7 @@ export default function TerritoryMappingView({ onShowToast }) {
 
   useEffect(() => {
     loadMappings();
-  }, [page, search]);
+  }, [page, search, custType]);
 
   const totalPages = Math.ceil(total / pageSize) || 1;
 
@@ -59,6 +60,17 @@ export default function TerritoryMappingView({ onShowToast }) {
             </p>
           </div>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <select
+                className="form-control"
+                style={{ width: "160px", height: "36px", fontSize: "0.82rem", fontWeight: 600 }}
+                value={custType}
+                onChange={(e) => { setCustType(e.target.value); setPage(1); }}
+              >
+                <option value="ALL">All Cust Types</option>
+                <option value="RSAR">RSAR (Sub-Dealer)</option>
+                <option value="DEALER">DEALER (Star)</option>
+                <option value="NON-STAR">NON-STAR</option>
+              </select>
             <div style={{ position: 'relative', width: '280px' }}>
               <input
                 type="text"
