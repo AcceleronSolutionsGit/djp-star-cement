@@ -38,11 +38,14 @@ export default function PlanApprovalsView({ onShowToast }) {
   const [reviewBackdatedAlert, setReviewBackdatedAlert] = useState(null);
 
   const formatCustType = (type, sapCode = '') => {
-    if (sapCode && String(sapCode).startsWith('150')) return 'RSAR';
-    if (!type) return 'DEALER';
-    const t = String(type).toUpperCase().trim();
-    if (t === 'PROSPECTIVE' || t === 'PROSPECT' || t === 'NON_STAR' || t === 'NON-STAR' || t === 'NON STAR' || (sapCode && String(sapCode).startsWith('NS'))) return 'NON STAR';
+    const s = String(sapCode || '').trim();
+    if (s.startsWith('100')) return 'DEALER';
+    if (s.startsWith('150')) return 'RSAR';
+    if (s.startsWith('NS') || s.startsWith('PROSP')) return 'NON STAR';
+    const t = String(type || '').toUpperCase().trim();
+    if (t === 'DEALER' || t === 'STAR') return 'DEALER';
     if (t === 'RSAR' || t.includes('SUB') || t === 'SUB-DEALER' || t === 'RSSD') return 'RSAR';
+    if (t === 'PROSPECTIVE' || t === 'PROSPECT' || t === 'NON_STAR' || t === 'NON-STAR' || t === 'NON STAR') return 'NON STAR';
     return 'DEALER';
   };
 
@@ -252,7 +255,7 @@ export default function PlanApprovalsView({ onShowToast }) {
           {/* Chips */}
           <div className="calendar-chips-container">
             {dayVisits.slice(0, 3).map((v, idx) => {
-              const cType = formatCustType(v.dealer_type);
+              const cType = formatCustType(v.dealer_type, v.dealer_sap_code || v.sap_code);
               const cSlug = cType === 'NON STAR' ? 'non-star' : cType === 'RSAR' ? 'rsar' : 'dealer';
               return (
                 <div 

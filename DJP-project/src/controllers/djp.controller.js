@@ -551,8 +551,14 @@ export async function exportMasterExcel(req, res) {
     // Always fetch for the entire month across all cycles (whole month)
     const selectTargetSql = `
       SELECT dvt.*,
-             COALESCE(dvt.cust_type, md.dealer_type, CASE WHEN dvt.sap_code LIKE '150%' THEN 'RSAR' ELSE 'DEALER' END) AS cust_type,
-             COALESCE(md.dealer_type, dvt.cust_type, CASE WHEN dvt.sap_code LIKE '150%' THEN 'RSAR' ELSE 'DEALER' END) AS dealer_type,
+             CASE
+               WHEN dvt.sap_code LIKE '100%' OR md.sap_code LIKE '100%' THEN 'DEALER'
+               WHEN dvt.sap_code LIKE '150%' OR md.sap_code LIKE '150%' THEN 'RSAR'
+               WHEN dvt.sap_code LIKE 'NS%' OR md.sap_code LIKE 'NS%' OR dvt.sfa_code LIKE 'NS%' OR md.sfa_code LIKE 'NS%' THEN 'NON STAR'
+               WHEN COALESCE(dvt.cust_type, md.dealer_type) = 'RSAR' THEN 'RSAR'
+               WHEN COALESCE(dvt.cust_type, md.dealer_type) IN ('NON STAR', 'NON_STAR', 'NON-STAR', 'PROSPECTIVE', 'PROSPECT') THEN 'NON STAR'
+               ELSE 'DEALER'
+             END AS cust_type,
              COALESCE(dvt.sfa_code, md.sfa_code) AS sfa_code,
              COALESCE(dvt.sap_code, md.sap_code) AS sap_code
       FROM dealer_visit_targets dvt
@@ -787,12 +793,20 @@ function visitsForTarget(scheduled, t) {
 }
 
 /** The client's Cust Type vocabulary: DEALER, NON STAR, RSAR (Never Prospective). */
-function custTypeLabel(raw) {
+function custTypeLabel(raw, sapCode = '', sfaCode = '') {
+  const sap = String(sapCode || '').trim().toUpperCase();
+  if (sap.startsWith('100')) return 'DEALER';
+  if (sap.startsWith('150')) return 'RSAR';
+  if (sap.startsWith('NS')) return 'NON STAR';
+  const sfa = String(sfaCode || '').trim().toUpperCase();
+  if (sfa.startsWith('NS')) return 'NON STAR';
+  if (sfa.startsWith('SD')) return 'RSAR';
+
   const v = String(raw || 'DEALER').toUpperCase();
   if (v === 'NON_STAR' || v === 'NON-STAR' || v === 'NON STAR' || v === 'PROSPECTIVE' || v === 'PROSPECT') return 'NON STAR';
   if (v === 'RSAR' || v.includes('SUB') || v === 'SUB-DEALER' || v === 'RSSD') return 'RSAR';
-  if (v === 'STAR') return 'DEALER';
-  return raw || 'DEALER';
+  if (v === 'STAR' || v === 'DEALER') return 'DEALER';
+  return 'DEALER';
 }
 
 /** The minimum number of "Date of Visit" columns the sheet always carries. */
@@ -923,7 +937,7 @@ async function buildVisitsWorkbook({ headers, rows, scheduled, targets, targetPe
       date:    toExcelDate(v.date),
       code:    t.sfa_code || t.sap_code || v.code,
       cname:   v.dealerName || t.dealer_name || '',
-      ctype:   custTypeLabel(t.cust_type),
+      ctype:   custTypeLabel(t.cust_type, t.sap_code, t.sfa_code),
       route:   t.territory_name || t.dm_area || t.area || '',
       branch:  t.branch || t.sbg_block || t.block || '',
       emp:     v.empCode,
@@ -1061,7 +1075,7 @@ export async function exportVisitsExcel(req, res) {
 
       const customerCode = t.sap_code || t.sfa_code || (t.dealer_id ? `DLR_${t.dealer_id}` : '-');
 
-      const custType = custTypeLabel(t.cust_type);
+      const custType = custTypeLabel(t.cust_type, t.sap_code, t.sfa_code);
 
       const priority = t.priority || 0;
 

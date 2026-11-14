@@ -244,33 +244,40 @@ export async function loadSalesHistory(periods) {
 
   const placeholders = periods.map(() => '?').join(',');
   
-  // Aggregate RSAR rows by canonical dealer identity (linked_dealer_code primary key)
+  // Select RSAR records by sap_code, rssd_code, and linked_dealer_code
   const rows = await dbAll(
     `SELECT 
-       COALESCE(NULLIF(TRIM(linked_dealer_code), ''), NULLIF(TRIM(sap_code), ''), NULLIF(TRIM(rssd_code), '')) as canonical_dealer_code,
+       TRIM(sap_code) as sap_code,
+       TRIM(rssd_code) as rssd_code,
+       TRIM(linked_dealer_code) as linked_dealer_code,
        period_year_month, 
        SUM(quantity_mt) as quantity_mt
      FROM sales_history 
      WHERE period_year_month IN (${placeholders})
-     GROUP BY canonical_dealer_code, period_year_month`,
+     GROUP BY TRIM(sap_code), TRIM(rssd_code), TRIM(linked_dealer_code), period_year_month`,
     periods
   );
 
   const salesByDealer = new Map();
 
   for (const row of rows) {
-    const code = normalizeCode(row.canonical_dealer_code);
-    if (!code) continue;
-
     const item = {
       period_year_month: row.period_year_month,
       quantity_mt: parseFloat(row.quantity_mt) || 0
     };
 
-    if (!salesByDealer.has(code)) {
-      salesByDealer.set(code, []);
+    const keys = new Set();
+    if (row.sap_code) keys.add(normalizeCode(row.sap_code));
+    if (row.rssd_code) keys.add(normalizeCode(row.rssd_code));
+    if (row.linked_dealer_code) keys.add(normalizeCode(row.linked_dealer_code));
+
+    for (const code of keys) {
+      if (!code) continue;
+      if (!salesByDealer.has(code)) {
+        salesByDealer.set(code, []);
+      }
+      salesByDealer.get(code).push(item);
     }
-    salesByDealer.get(code).push(item);
   }
 
   return salesByDealer;

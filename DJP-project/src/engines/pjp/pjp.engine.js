@@ -185,26 +185,37 @@ export async function calculatePJP(reportMonth, cycleCode, options = {}) {
       dealer.rsar_status = 'RSAR_NOT_FOUND';
     }
 
-    // ── The dealer's own sales — Dealer Performance only ─────────────────────
-    // Absence of a Dealer Performance record means no sales, which is a real
-    // signal (it is how Churn and Zero Lifter are reached). It is not a reason to
-    // substitute somebody else's numbers.
-    dealer.currentSales  = dpCurrent ?? 0;
-    dealer.previousSales = dpPrev ?? 0;
+    // ── Distinguish Direct Dealers (100...) vs RSAR Sub-Dealers (150...) ───────
+    const isRsar = (
+      dealer.dealer_type === 'RSAR' || 
+      dealer.cust_type === 'RSAR' || 
+      String(dealer.dealerCode || dealer.sap_code || '').startsWith('150')
+    );
 
-    // Q — same month last year. Dealer Performance, same reasoning as above.
-    dealer.lysmSales = (dpLysm !== null && dpLysm !== undefined) ? dpLysm : 0;
-    dealer.dp_status = (dpCurrent !== null || dpPrev !== null || dpLysm !== null || dpSixMonthAvg > 0)
-      ? 'DP_MATCHED' : 'DP_NOT_FOUND';
-
-    // Aliases the classification engine reads: O, R, Q, S — all Dealer Performance.
-    dealer.previousMonthSales     = dealer.previousSales;
-    dealer.sameMonthLastYearSales = dealer.lysmSales;
-    dealer.sixMonthAverage        = dealer.dpSixMonthAverage;
-
-    // Counter Share: currentSales / sbg_potential
-    // sbg_potential may be NULL — calculateCounterShare handles this (returns 0 if potential is NULL/0)
-    dealer.counterShare = calculateCounterShare(dealer.currentSales, dealer.sbg_potential);
+    if (isRsar) {
+      // For RSAR counters: sales, 6m avg, and potential come from the RSAR sales dataset & counter potential
+      dealer.currentSales           = (sales ? sales.currentSales : 0) || dealer.rsarCurrentSales || 0;
+      dealer.previousSales          = (sales && sales.previousSales !== undefined) ? sales.previousSales : 0;
+      dealer.previousMonthSales     = dealer.previousSales;
+      dealer.lysmSales              = (sales && sales.lysmSales !== undefined) ? sales.lysmSales : 0;
+      dealer.sameMonthLastYearSales = dealer.lysmSales;
+      dealer.sixMonthAverage        = (sales ? sales.sixMonthAverage : 0) || dealer.rsarSixMonthAverage || 0;
+      dealer.potential              = parseFloat(dealer.counter_potential) || parseFloat(dealer.potential) || parseFloat(dealer.sbg_potential) || 0;
+      dealer.counterShare           = calculateCounterShare(dealer.currentSales, dealer.potential);
+      dealer.dp_status              = 'NOT_APPLICABLE_RSAR';
+    } else {
+      // For Direct Dealers (100...): sales and 6m avg come from Dealer Performance (DLRWISE)
+      dealer.currentSales           = dpCurrent ?? 0;
+      dealer.previousSales          = dpPrev ?? 0;
+      dealer.previousMonthSales     = dealer.previousSales;
+      dealer.lysmSales              = (dpLysm !== null && dpLysm !== undefined) ? dpLysm : 0;
+      dealer.sameMonthLastYearSales = dealer.lysmSales;
+      dealer.sixMonthAverage        = dealer.dpSixMonthAverage ?? 0;
+      dealer.potential              = parseFloat(dealer.sbg_potential) || parseFloat(dealer.counter_potential) || 0;
+      dealer.counterShare           = calculateCounterShare(dealer.currentSales, dealer.potential);
+      dealer.dp_status              = (dpCurrent !== null || dpPrev !== null || dpLysm !== null || dpSixMonthAvg > 0)
+        ? 'DP_MATCHED' : 'DP_NOT_FOUND';
+    }
   }
 
   // ──────────────────────────────────────────────

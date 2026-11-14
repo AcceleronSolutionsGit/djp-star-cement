@@ -147,14 +147,15 @@ const s  = v => (v === null || v === undefined || v === '') ? '' : String(v).tri
  */
 export function custType(t) {
   if (!t) return 'DEALER';
-  const raw  = s(t.cust_type).toUpperCase();
+  const sap = s(t.sap_code || t.customer_code).toUpperCase();
+  if (sap.startsWith('100')) return 'DEALER';
+  if (sap.startsWith('150')) return 'RSAR';
+  if (sap.startsWith('NS')) return 'NON STAR';
+
+  const raw = s(t.cust_type).toUpperCase();
   if (raw === 'RSAR') return 'RSAR';
   if (raw === 'NON STAR' || raw === 'NON_STAR' || raw === 'NON-STAR' || raw === 'NONSTAR') return 'NON STAR';
   if (raw === 'DEALER') return 'DEALER';
-
-  const sap  = s(t.sap_code || t.customer_code).toUpperCase();
-  if (sap.startsWith('150')) return 'RSAR';
-  if (sap.startsWith('100')) return 'DEALER';
 
   const type = s(t.dealer_type || t.customer_type || t.coord_cust_type).toUpperCase();
   if (type === 'RSAR' || type === 'SUB DEALER' || type === 'SUB-DEALER' || type.includes('SUB') || type === 'RSSD') return 'RSAR';
@@ -274,7 +275,9 @@ export function buildRow(t, index, soAsmMap = null) {
     counter_share:   counterShare,
     lysm_sales:      n(t.lysm_sales),
     previous_sales:  n(t.previous_sales),
-    six_month_avg:   n(t.dp_six_month_avg ?? t.rsar_six_month_avg),
+    six_month_avg:   (custType(t) === 'RSAR' || String(t.sap_code || '').startsWith('150'))
+      ? n(t.rsar_six_month_avg || t.dp_six_month_avg)
+      : n(t.dp_six_month_avg || t.rsar_six_month_avg),
     // A prospect has no date of appointment — it has not been appointed. The master
     // marks that with the text NEW rather than leaving the cell empty.
     doa:             isProspect ? PROSPECT_DOA : toDate(t.doa),

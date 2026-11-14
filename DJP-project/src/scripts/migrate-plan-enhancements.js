@@ -100,15 +100,10 @@ export async function runPlanEnhancementsMigration() {
       WHERE dealer_type = 'STAR'
     `);
 
-    // Sync sales_plan_details dealer_type and dealer_name
-    await dbRun(`
-      UPDATE sales_plan_details spd
-      JOIN master_dealers md ON (spd.dealer_id = md.id OR (spd.dealer_sap_code IS NOT NULL AND spd.dealer_sap_code = md.sap_code))
-      SET 
-        spd.dealer_type = md.dealer_type,
-        spd.dealer_name = COALESCE(NULLIF(md.dealer_name, ''), spd.dealer_name)
-      WHERE spd.dealer_type = 'STAR' OR spd.dealer_type IS NULL OR spd.dealer_type = ''
-    `);
+    // Sync sales_plan_details dealer_type fast via indexed codes
+    await dbRun(`UPDATE sales_plan_details SET dealer_type = 'DEALER' WHERE dealer_sap_code LIKE '100%' AND (dealer_type IS NULL OR dealer_type = '' OR dealer_type = 'STAR')`);
+    await dbRun(`UPDATE sales_plan_details SET dealer_type = 'RSAR' WHERE dealer_sap_code LIKE '150%' AND (dealer_type IS NULL OR dealer_type = '' OR dealer_type = 'STAR')`);
+    await dbRun(`UPDATE sales_plan_details SET dealer_type = 'NON STAR' WHERE (dealer_sap_code LIKE 'NS%' OR dealer_sap_code IS NULL) AND (dealer_type IS NULL OR dealer_type = '' OR dealer_type = 'STAR')`);
   } catch (healErr) {
     console.warn('[Migration] Note: Data healing encountered notice (continuing):', healErr.message);
   }
