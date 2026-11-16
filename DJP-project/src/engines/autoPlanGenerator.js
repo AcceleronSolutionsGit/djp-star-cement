@@ -60,7 +60,7 @@ export class AutoPlanGenerator {
   /**
    * Determine employee role and fetch assigned dealers with PJP visit frequencies.
    */
-  async fetchEmployeeTargetDealers(empCode, role, periodMonth, cycleCode = 'C1') {
+  async fetchEmployeeTargetDealers(empCode, role, periodMonth, cycleCode = 'C1', empName = null) {
     // Check dealer_visit_targets for this employee across roles
     let roleField = 'so_name';
     let codeField = 'so_emp_code';
@@ -72,17 +72,22 @@ export class AutoPlanGenerator {
       visitCol = 'asm_visits';
     } else if (role === 'RSM') {
       roleField = 'rsm_name';
-      // FIX: was 'rsm_name'. The caller passes rsm_CODE (see generatePlansForAllRoles),
-      // so matching it against the name column found nothing and every RSM plan came
-      // back empty — no sales_plans row was ever created for an RSM.
       codeField = 'rsm_code';
       visitCol = 'rsm_visits';
     } else if (role === 'ZH') {
       roleField = 'zh_name';
-      // FIX: was 'zh_name'. Same defect as RSM above.
       codeField = 'zh_code';
       visitCol = 'zh_visits';
     }
+
+    // Resolve employee identifiers to support code, DNS code, and full name matching
+    const empInfo = await dbGet(
+      `SELECT emp_code, dns_emp_code, emp_name FROM employee_master WHERE emp_code = ? OR dns_emp_code = ? LIMIT 1`,
+      [empCode, empCode]
+    );
+    const code1 = empInfo?.emp_code || empCode;
+    const code2 = empInfo?.dns_emp_code || empCode;
+    const resolvedName = empName || empInfo?.emp_name || null;
 
     // 1. Resolve canonical target period in dealer_visit_targets
     let targetPeriod = periodMonth;
@@ -132,7 +137,13 @@ export class AutoPlanGenerator {
         dvt.${visitCol} as required_visits
       FROM dealer_visit_targets dvt
       LEFT JOIN master_dealers md ON dvt.dealer_id = md.id
-      WHERE (dvt.${codeField} = ? OR dvt.${roleField} = ? OR dvt.${roleField} LIKE ?)
+      WHERE (
+          dvt.${codeField} = ? 
+          OR dvt.${codeField} = ?
+          OR dvt.${roleField} = ? 
+          OR dvt.${roleField} LIKE ?
+          OR (? IS NOT NULL AND (dvt.${roleField} = ? OR dvt.${roleField} LIKE ?))
+        )
         AND dvt.period_month = ?
         AND (dvt.cycle_code = ? OR dvt.cycle_code IS NULL OR dvt.cycle_code = '')
         AND dvt.${visitCol} > 0
@@ -149,7 +160,11 @@ export class AutoPlanGenerator {
         dvt.dealer_name ASC
     `;
 
-    const rawRows = await dbAll(sql, [empCode, empCode, `%${empCode}%`, targetPeriod, cycleCode]);
+    const rawRows = await dbAll(sql, [
+      code1, code2, code1, `%${code1}%`,
+      resolvedName, resolvedName, resolvedName ? `%${resolvedName}%` : null,
+      targetPeriod, cycleCode
+    ]);
 
     // 3. Strict Deduplication by canonical dealer identity
     const uniqueDealers = new Map();
@@ -261,7 +276,7 @@ export class AutoPlanGenerator {
     }
 
     // Fetch target dealers from PJP visit frequencies
-    const targetDealers = await this.fetchEmployeeTargetDealers(empCode, resolvedRole, periodMonth, cycleCode);
+    const targetDealers = await this.fetchEmployeeTargetDealers(empCode, resolvedRole, periodMonth, cycleCode, emCheck?.emp_name);
     if (!targetDealers || targetDealers.length === 0) {
       return {
         success: true,

@@ -143,14 +143,11 @@ export async function fixOctoberPlans() {
       await dbRun(sql, chunk.flat());
     }
 
-    // Update dealer_visit_targets via bulk JOIN
-    console.log('[4] Updating dealer_visit_targets via bulk JOIN...');
+    // Update dealer_visit_targets via bulk indexed JOINs
+    console.log('[4] Updating dealer_visit_targets via indexed JOINs (SAP & SFA)...');
     await dbRun(`
       UPDATE dealer_visit_targets dvt
-      JOIN temp_oct_master m ON (
-        (dvt.sap_code IS NOT NULL AND dvt.sap_code = m.sap_code)
-        OR (dvt.sfa_code IS NOT NULL AND dvt.sfa_code = m.sfa_code)
-      )
+      JOIN temp_oct_master m ON dvt.sap_code = m.sap_code
       SET 
         dvt.cust_type = m.cust_type,
         dvt.dealer_status = m.final_category,
@@ -169,7 +166,33 @@ export async function fixOctoberPlans() {
         dvt.potential = m.potential,
         dvt.counter_share = m.counter_share,
         dvt.final_volume = m.final_volume
-      WHERE dvt.period_month = '2026-10'
+      WHERE dvt.period_month = '2026-10' AND dvt.sap_code IS NOT NULL AND dvt.sap_code != ''
+    `);
+
+    await dbRun(`
+      UPDATE dealer_visit_targets dvt
+      JOIN temp_oct_master m ON dvt.sfa_code = m.sfa_code
+      SET 
+        dvt.cust_type = m.cust_type,
+        dvt.dealer_status = m.final_category,
+        dvt.category = m.grade,
+        dvt.grade = m.grade,
+        dvt.so_visits = m.so_visits,
+        dvt.asm_visits = m.asm_visits,
+        dvt.rsm_visits = m.rsm_visits,
+        dvt.zh_visits = m.zh_visits,
+        dvt.total_visits = m.total_visits,
+        dvt.current_sales = m.current_sales,
+        dvt.previous_sales = m.previous_sales,
+        dvt.lysm_sales = m.lysm_sales,
+        dvt.rsar_six_month_avg = m.rsar_six_month_avg,
+        dvt.dp_six_month_avg = m.dp_six_month_avg,
+        dvt.potential = m.potential,
+        dvt.counter_share = m.counter_share,
+        dvt.final_volume = m.final_volume
+      WHERE dvt.period_month = '2026-10' 
+        AND (dvt.sap_code IS NULL OR dvt.sap_code = '')
+        AND dvt.sfa_code IS NOT NULL AND dvt.sfa_code != ''
     `);
 
     await dbRun(`DROP TABLE IF EXISTS temp_oct_master`);
@@ -178,10 +201,62 @@ export async function fixOctoberPlans() {
   }
 
   // 5. Direct Heuristic Target Updates
-  console.log('[5] Enforcing exact Customer Types on dealer_visit_targets...');
+  console.log('[5] Enforcing exact Customer Types & Visits on dealer_visit_targets...');
   await dbRun(`UPDATE dealer_visit_targets SET cust_type = 'DEALER' WHERE period_month = '2026-10' AND sap_code LIKE '100%'`);
   await dbRun(`UPDATE dealer_visit_targets SET cust_type = 'RSAR' WHERE period_month = '2026-10' AND sap_code LIKE '150%'`);
   await dbRun(`UPDATE dealer_visit_targets SET cust_type = 'NON STAR' WHERE period_month = '2026-10' AND (sap_code IS NULL OR (sap_code NOT LIKE '100%' AND sap_code NOT LIKE '150%'))`);
+
+  // Ensure all RSARs have at least 2 visits target (1 in C1, 1 in C2) as per October Master
+  await dbRun(`
+    UPDATE dealer_visit_targets 
+    SET so_visits = 2, total_visits = GREATEST(COALESCE(total_visits, 0), 2)
+    WHERE period_month = '2026-10' 
+      AND cust_type = 'RSAR' 
+      AND (so_visits IS NULL OR so_visits = 0)
+  `);
+
+  // Backfill employee codes by matching names to employee_master in memory
+  console.log('[5b] Backfilling missing employee codes on dealer_visit_targets from employee_master...');
+  const emRows = await dbAll('SELECT emp_code, dns_emp_code, emp_name FROM employee_master WHERE emp_name IS NOT NULL');
+  const nameToCodeMap = new Map();
+  for (const e of emRows) {
+    const code = e.dns_emp_code || e.emp_code;
+    if (code && e.emp_name) {
+      nameToCodeMap.set(e.emp_name.trim().toUpperCase(), code);
+    }
+  }
+
+  const distinctSos = await dbAll('SELECT DISTINCT so_name FROM dealer_visit_targets WHERE period_month = "2026-10" AND so_name IS NOT NULL AND (so_emp_code IS NULL OR so_emp_code = "" OR so_emp_code = "VACANT")');
+  for (const { so_name } of distinctSos) {
+    const code = nameToCodeMap.get(so_name.trim().toUpperCase());
+    if (code) {
+      await dbRun('UPDATE dealer_visit_targets SET so_emp_code = ? WHERE period_month = "2026-10" AND so_name = ?', [code, so_name]);
+    }
+  }
+
+  const distinctAsms = await dbAll('SELECT DISTINCT asm_name FROM dealer_visit_targets WHERE period_month = "2026-10" AND asm_name IS NOT NULL AND (asm_code IS NULL OR asm_code = "" OR asm_code = "VACANT")');
+  for (const { asm_name } of distinctAsms) {
+    const code = nameToCodeMap.get(asm_name.trim().toUpperCase());
+    if (code) {
+      await dbRun('UPDATE dealer_visit_targets SET asm_code = ? WHERE period_month = "2026-10" AND asm_name = ?', [code, asm_name]);
+    }
+  }
+
+  const distinctRsms = await dbAll('SELECT DISTINCT rsm_name FROM dealer_visit_targets WHERE period_month = "2026-10" AND rsm_name IS NOT NULL AND (rsm_code IS NULL OR rsm_code = "" OR rsm_code = "VACANT")');
+  for (const { rsm_name } of distinctRsms) {
+    const code = nameToCodeMap.get(rsm_name.trim().toUpperCase());
+    if (code) {
+      await dbRun('UPDATE dealer_visit_targets SET rsm_code = ? WHERE period_month = "2026-10" AND rsm_name = ?', [code, rsm_name]);
+    }
+  }
+
+  const distinctZhs = await dbAll('SELECT DISTINCT zh_name FROM dealer_visit_targets WHERE period_month = "2026-10" AND zh_name IS NOT NULL AND (zh_code IS NULL OR zh_code = "" OR zh_code = "VACANT")');
+  for (const { zh_name } of distinctZhs) {
+    const code = nameToCodeMap.get(zh_name.trim().toUpperCase());
+    if (code) {
+      await dbRun('UPDATE dealer_visit_targets SET zh_code = ? WHERE period_month = "2026-10" AND zh_name = ?', [code, zh_name]);
+    }
+  }
 
   // Ensure DEALER and RSAR never have Prospective category
   await dbRun(`
