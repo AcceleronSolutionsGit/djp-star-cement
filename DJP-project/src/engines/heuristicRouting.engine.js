@@ -228,14 +228,25 @@ export function clusterAndScheduleHeuristicRoutes(visitItems, workingDays, daily
   }
 
   // Sort dealer groups:
-  // 1. Dealers with coordinates first, sorted spatially by longitude + latitude
-  // 2. Multi-visit dealers first (to place their spaced visits smoothly)
-  // 3. Higher priority score first
+  // 1. Direct DEALER counters first, then NON STAR, then RSAR
+  // 2. Dealers with coordinates first, sorted spatially by longitude + latitude
+  // 3. Multi-visit dealers first (to place their spaced visits smoothly)
+  // 4. Higher priority score first
   const sortedDealerKeys = Array.from(dealerGroups.keys()).sort((kA, kB) => {
     const itemsA = dealerGroups.get(kA);
     const itemsB = dealerGroups.get(kB);
     const a = itemsA[0];
     const b = itemsB[0];
+
+    // Priority 1: DEALER > NON STAR > RSAR (Direct dealers must never be dropped in favor of sub-dealers)
+    const typeRank = t => {
+      const u = String(t || '').toUpperCase();
+      if (u === 'DEALER') return 1;
+      if (u === 'NON STAR' || u === 'NON-STAR' || u === 'NON_STAR') return 2;
+      return 3; // RSAR / Sub-dealers
+    };
+    const rDiff = typeRank(a.dealer_type) - typeRank(b.dealer_type);
+    if (rDiff !== 0) return rDiff;
 
     const aHasGps = a.latitude !== 0 && a.longitude !== 0 ? 1 : 0;
     const bHasGps = b.latitude !== 0 && b.longitude !== 0 ? 1 : 0;

@@ -140,11 +140,17 @@ export function classifyDealer({
   const type = String(dealerType || custType || '').toUpperCase();
   const stat = String(status || '').toUpperCase();
 
+  const isTradeAccount = type === 'DEALER' || type === 'RSAR' || type.includes('SUB') || type.includes('RETAIL');
+  const isExplicitProspect = !isTradeAccount && (
+    type === 'NON STAR' || type === 'NON-STAR' || type === 'NON_STAR' || type === 'PROSPECTIVE' || type === 'PROSPECT' || stat === 'PROSPECTIVE'
+  );
+
   // ── Non-Star Accounts: Cust Type is ALWAYS Non-Star, Final Category can be Prospective (or Need to Grow) ──
   // Non-Star accounts sell competitor cement (O = 0 for Star).
   // They are acquisition/growth counters — their Final Category can be "Prospective" (or "Need to Grow").
   // They must NEVER fall through to "Zero Lifter" or "Churn".
-  if (type === 'NON STAR' || type === 'NON-STAR' || type === 'NON_STAR' || type === 'PROSPECTIVE' || type === 'PROSPECT' || stat === 'PROSPECTIVE' || String(doa).toUpperCase() === 'NEW') {
+  // DEALER and RSAR accounts are appointed Star accounts and can NEVER have Final Category "Prospective".
+  if (isExplicitProspect) {
     if (AK) {
       return { finalCategory: CATEGORY.NEED_TO_GROW, doaTier: 'PROSPECT', reason: 'Non-Star counter with Need to Grow potential' };
     }
@@ -153,6 +159,9 @@ export function classifyDealer({
 
   const { tier, cutoffs, doaDate } = resolveDoaTier(doa, reportMonth);
   if (tier === 'PROSPECT') {
+    if (isTradeAccount) {
+      return { finalCategory: CATEGORY.GROWING, doaTier: 'BRAND_NEW', reason: 'New trade account (DOA = "New") → Growing' };
+    }
     return { finalCategory: CATEGORY.PROSPECTIVE, doaTier: 'PROSPECT', reason: 'DOA = "New"' };
   }
 

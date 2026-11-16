@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import XLSX from 'xlsx';
 import { dbAll, dbRun, pool } from '../config/database.js';
+import { AutoPlanGenerator } from '../engines/autoPlanGenerator.js';
 
 export async function fixOctoberPlans() {
   const startTime = Date.now();
@@ -100,7 +101,12 @@ export async function fixOctoberPlans() {
         dealerCount++;
       }
 
-      const finalCategory = str(r[20]) || 'Active';
+      let finalCategory = str(r[20]) || 'Active';
+      // Safety guard: DEALER and RSAR can NEVER be Prospective
+      if ((custType === 'DEALER' || custType === 'RSAR') && finalCategory.toLowerCase() === 'prospective') {
+        finalCategory = num(r[14]) > 0 ? 'Growing' : (num(r[18]) === 0 ? 'Churn' : 'Zero Lifter');
+      }
+
       const potential = num(r[13]);
       const currentSales = num(r[14]);
       const counterShare = num(r[15]);
@@ -177,6 +183,19 @@ export async function fixOctoberPlans() {
   await dbRun(`UPDATE dealer_visit_targets SET cust_type = 'RSAR' WHERE period_month = '2026-10' AND sap_code LIKE '150%'`);
   await dbRun(`UPDATE dealer_visit_targets SET cust_type = 'NON STAR' WHERE period_month = '2026-10' AND (sap_code IS NULL OR (sap_code NOT LIKE '100%' AND sap_code NOT LIKE '150%'))`);
 
+  // Ensure DEALER and RSAR never have Prospective category
+  await dbRun(`
+    UPDATE dealer_visit_targets 
+    SET dealer_status = CASE 
+      WHEN current_sales > 0 THEN 'Growing'
+      WHEN (cust_type = 'DEALER' AND dp_six_month_avg = 0) OR (cust_type = 'RSAR' AND rsar_six_month_avg = 0) THEN 'Churn'
+      ELSE 'Zero Lifter'
+    END
+    WHERE period_month = '2026-10' 
+      AND cust_type IN ('DEALER', 'RSAR') 
+      AND dealer_status IN ('Prospective', 'PROSPECTIVE')
+  `);
+
   // 6. Direct Heuristic Updates on master_dealers
   console.log('[6] Enforcing exact Customer Types on master_dealers...');
   await dbRun("UPDATE master_dealers SET dealer_type = 'DEALER' WHERE sap_code LIKE '100%'");
@@ -199,8 +218,54 @@ export async function fixOctoberPlans() {
   await dbRun("UPDATE sales_plan_details SET dealer_type = 'RSAR' WHERE dealer_sap_code LIKE '150%'");
   await dbRun("UPDATE sales_plan_details SET dealer_type = 'NON STAR' WHERE dealer_sap_code IS NULL OR (dealer_sap_code NOT LIKE '100%' AND dealer_sap_code NOT LIKE '150%')");
 
-  // 8. Audit and Summary
-  console.log('\n[8] Summary Audit:');
+  // 8. Fix Zonal Head mapping: replace Dibyajyoti Guha with Giridhari Mukherjee
+  console.log('[8] Correcting Zonal Head mapping (replacing Dibyajyoti Guha with Giridhari Mukherjee)...');
+  await dbRun(`
+    UPDATE master_zone_zh_mapping
+    SET 
+      zh_name = 'GIRIDHARI MUKHERJEE',
+      zh_code = '11002257',
+      emp_code = 'E2352',
+      designation = 'General Manager',
+      level = 'L5',
+      updated_at = NOW()
+    WHERE zh_name LIKE '%DIBYAJYOTI GUHA%' OR zh_code = '1100380' OR emp_code = 'E0259'
+  `);
+
+  // 9. Remove non-sales employees from plans (vendor emp, branding, inactive)
+  console.log('[9] Removing plans for non-sales personnel...');
+  await dbRun(`
+    DELETE spd FROM sales_plan_details spd
+    JOIN sales_plans sp ON spd.plan_id = sp.id
+    JOIN employee_master em ON (sp.emp_code = em.emp_code OR sp.emp_code = em.dns_emp_code)
+    WHERE sp.period_month = '2026-10'
+      AND (
+        em.designation IN ('VENDOR EMP', 'DUMP INCHARGE', 'MIS', 'ACCOUNTS', 'Branding verification')
+        OR em.sale_access != 'Primary'
+        OR em.level = 'branding'
+      )
+  `);
+  await dbRun(`
+    DELETE sp FROM sales_plans sp
+    JOIN employee_master em ON (sp.emp_code = em.emp_code OR sp.emp_code = em.dns_emp_code)
+    WHERE sp.period_month = '2026-10'
+      AND (
+        em.designation IN ('VENDOR EMP', 'DUMP INCHARGE', 'MIS', 'ACCOUNTS', 'Branding verification')
+        OR em.sale_access != 'Primary'
+        OR em.level = 'branding'
+      )
+  `);
+
+  // 10. Regenerate Kishan Das C1 and C2 plans with balanced dealer-first scheduling
+  console.log('[10] Regenerating Kishan Das (1200178) plans for 2026-10 C1 & C2...');
+  const autoGen = new AutoPlanGenerator();
+  const c1Res = await autoGen.generatePlan('1200178', '2026-10', 'SO', 'C1', { isDjpPipeline: true, status: 'PENDING_ROLLOUT' });
+  const c2Res = await autoGen.generatePlan('1200178', '2026-10', 'SO', 'C2', { isDjpPipeline: true, status: 'PENDING_ROLLOUT' });
+  console.log(`     C1 Plan #${c1Res.planId}: ${c1Res.totalVisitsScheduled} visits scheduled`);
+  console.log(`     C2 Plan #${c2Res.planId}: ${c2Res.totalVisitsScheduled} visits scheduled`);
+
+  // 11. Audit and Summary
+  console.log('\n[11] Summary Audit:');
   const [targetAudit] = await pool.query(`
     SELECT cust_type, COUNT(*) as count 
     FROM dealer_visit_targets 
@@ -220,6 +285,16 @@ export async function fixOctoberPlans() {
   console.log('sales_plan_details (2026-10):');
   console.table(planAudit);
 
+  const [kishanAudit] = await pool.query(`
+    SELECT sp.cycle_code, spd.dealer_type, COUNT(*) as visits, COUNT(DISTINCT spd.dealer_sap_code) as distinct_dealers
+    FROM sales_plan_details spd
+    JOIN sales_plans sp ON spd.plan_id = sp.id
+    WHERE sp.period_month = '2026-10' AND (sp.emp_code = '1200178' OR sp.emp_name LIKE '%KISHAN DAS%')
+    GROUP BY sp.cycle_code, spd.dealer_type
+  `);
+  console.log('Kishan Das (2026-10) Visits Breakdown:');
+  console.table(kishanAudit);
+
   const dur = ((Date.now() - startTime) / 1000).toFixed(2);
   console.log(`\nFix completed successfully in ${dur}s.`);
 }
@@ -230,3 +305,4 @@ if (process.argv[1]?.endsWith('fix-october-plans.js')) {
     process.exit(1);
   });
 }
+

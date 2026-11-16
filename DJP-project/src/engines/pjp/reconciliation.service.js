@@ -161,32 +161,34 @@ export async function reconcileUniverse(options = {}) {
 
   for (const d of rawDealers) {
     const sfaUpper = String(d.sfa_code || '').trim().toUpperCase();
-    const isProspect = Boolean(
-      d.dealer_type === 'PROSPECTIVE' ||
-      d.dealer_type === 'PROSPECT' ||
-      d.dealer_type === 'NON STAR' ||
-      d.dealer_type === 'NON-STAR' ||
-      d.dealer_type === 'NON_STAR' ||
+    const sapUpper = String(d.sap_code || '').trim().toUpperCase();
+    const dTypeUpper = String(d.dealer_type || '').trim().toUpperCase();
+    const nameUpper = String(d.dealer_name || '').trim().toUpperCase();
+
+    const isDealer = sapUpper.startsWith('100') || dTypeUpper === 'DEALER';
+    const isRsar = !isDealer && Boolean(
+      dTypeUpper === 'RSAR' ||
+      dTypeUpper === 'SUB-DEALER' ||
+      dTypeUpper === 'SUB DEALER' ||
+      dTypeUpper.includes('SUB') ||
+      d.rssd_code ||
+      sapUpper.startsWith('150') ||
+      nameUpper.includes('(RSD') ||
+      nameUpper.includes('(RSAR') ||
+      (d.linked_dealer_code && d.linked_dealer_code !== '-' && d.linked_dealer_code !== 'NA') ||
+      salesByCode.has(normalizeCode(d.sap_code)) ||
+      salesByCode.has(normalizeCode(d.linked_dealer_code))
+    );
+    const isProspect = !isDealer && !isRsar && Boolean(
+      dTypeUpper === 'PROSPECTIVE' ||
+      dTypeUpper === 'PROSPECT' ||
+      dTypeUpper === 'NON STAR' ||
+      dTypeUpper === 'NON-STAR' ||
+      dTypeUpper === 'NON_STAR' ||
       d.prospect_status === 'PROSPECT_MATCHED' ||
-      String(d.doa || '').trim().toUpperCase() === 'NEW' ||
       sfaUpper.startsWith('NSRE') ||
       sfaUpper.startsWith('WBS') ||
-      String(d.sap_code || '').startsWith('NS')
-    );
-    const isRsar = Boolean(
-      !isProspect && (
-        d.dealer_type === 'RSAR' ||
-        d.dealer_type === 'SUB-DEALER' ||
-        d.dealer_type === 'SUB DEALER' ||
-        String(d.dealer_type || '').toUpperCase().includes('SUB') ||
-        d.rssd_code ||
-        String(d.sap_code || '').startsWith('150') ||
-        String(d.dealer_name || '').toUpperCase().includes('(RSD') ||
-        String(d.dealer_name || '').toUpperCase().includes('(RSAR') ||
-        (d.linked_dealer_code && d.linked_dealer_code !== '-' && d.linked_dealer_code !== 'NA') ||
-        salesByCode.has(normalizeCode(d.sap_code)) ||
-        salesByCode.has(normalizeCode(d.linked_dealer_code))
-      )
+      sapUpper.startsWith('NS')
     );
     const fallbackCode = isProspect ? `PROSPECT_${d.id}` : `DLR_${d.id}`;
     const code = normalizeCode(d.sap_code || d.sfa_code || fallbackCode);
@@ -355,10 +357,10 @@ export async function reconcileUniverse(options = {}) {
       sfa_code: d.sfa_code,
       dealer_name: d.dealer_name,
       dealerName: d.dealer_name,
-      dealer_type: isProspect ? 'NON STAR' : (isRsar ? 'RSAR' : (d.dealer_type || 'DEALER')),
-      dealerType: isProspect ? 'NON STAR' : (isRsar ? 'RSAR' : (d.dealer_type || 'DEALER')),
-      cust_type: isProspect ? 'NON STAR' : (isRsar ? 'RSAR' : (d.dealer_type || 'DEALER')),
-      custType: isProspect ? 'NON STAR' : (isRsar ? 'RSAR' : (d.dealer_type || 'DEALER')),
+      dealer_type: isDealer ? 'DEALER' : (isRsar ? 'RSAR' : 'NON STAR'),
+      dealerType: isDealer ? 'DEALER' : (isRsar ? 'RSAR' : 'NON STAR'),
+      cust_type: isDealer ? 'DEALER' : (isRsar ? 'RSAR' : 'NON STAR'),
+      custType: isDealer ? 'DEALER' : (isRsar ? 'RSAR' : 'NON STAR'),
       status: d.status || 'ACTIVE',
       prospect_status: d.prospect_status || (isProspect ? 'PROSPECT_MATCHED' : null),
       doa: d.doa,

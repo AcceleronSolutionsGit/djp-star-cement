@@ -137,7 +137,16 @@ export class AutoPlanGenerator {
         AND (dvt.cycle_code = ? OR dvt.cycle_code IS NULL OR dvt.cycle_code = '')
         AND dvt.${visitCol} > 0
         AND (md.status IS NULL OR UPPER(TRIM(md.status)) NOT LIKE 'INACT%')
-      ORDER BY block ASC, dvt.category ASC, dvt.dealer_name ASC
+      ORDER BY 
+        CASE 
+          WHEN dvt.cust_type = 'DEALER' OR md.dealer_type = 'DEALER' OR dvt.sap_code LIKE '100%' THEN 1
+          WHEN dvt.cust_type IN ('NON STAR', 'NON_STAR') OR md.dealer_type IN ('PROSPECTIVE', 'NON STAR') OR dvt.sap_code LIKE 'NS%' THEN 2
+          ELSE 3
+        END ASC,
+        block ASC, 
+        dvt.category ASC, 
+        dvt.priority DESC, 
+        dvt.dealer_name ASC
     `;
 
     const rawRows = await dbAll(sql, [empCode, empCode, `%${empCode}%`, targetPeriod, cycleCode]);
@@ -178,7 +187,7 @@ export class AutoPlanGenerator {
 
     // Verify employee is active in employee_master (or configured ZH in master_zone_zh_mapping)
     const emCheck = await dbGet(`
-      SELECT em.emp_code, em.emp_name, em.acedns, em.app_access, zh.id as is_zh
+      SELECT em.emp_code, em.dns_emp_code, em.emp_name, em.acedns, em.sale_access, em.designation, em.app_access, zh.id as is_zh
       FROM employee_master em
       LEFT JOIN master_zone_zh_mapping zh ON (em.emp_code = zh.emp_code OR em.dns_emp_code = zh.zh_code)
       WHERE em.emp_code = ? OR em.dns_emp_code = ?
@@ -190,6 +199,18 @@ export class AutoPlanGenerator {
       if (emCheck.acedns === 'N' && !isConfiguredZh) {
         console.warn(`[AutoPlanGen] Skipping plan generation for inactive employee: "${cleanCode}" (${emCheck.emp_name}) [acedns=N]`);
         return { planId: null, totalVisitsScheduled: 0, skipped: true, reason: 'inactive' };
+      }
+
+      // Strict Sales Employee Filter: Only sales employees can have a plan (no dump incharge, vendor emp, branding, mis, accounts)
+      const nonSalesDesigs = ['VENDOR EMP', 'DUMP INCHARGE', 'MIS', 'ACCOUNTS', 'Branding verification', 'SURVEY', 'LOGISTICS'];
+      const desigUpper = String(emCheck.designation || '').toUpperCase();
+      const saleAccessUpper = String(emCheck.sale_access || '').toUpperCase();
+      const isNonSalesDesig = nonSalesDesigs.some(d => desigUpper.includes(d.toUpperCase()));
+      const isNonSalesAccess = saleAccessUpper && !saleAccessUpper.includes('PRIMARY') && !isConfiguredZh;
+
+      if (isNonSalesDesig || isNonSalesAccess) {
+        console.warn(`[AutoPlanGen] Skipping non-sales employee: "${cleanCode}" (${emCheck.emp_name}) [desig=${emCheck.designation}, sale_access=${emCheck.sale_access}]`);
+        return { planId: null, totalVisitsScheduled: 0, skipped: true, reason: 'non-sales' };
       }
     }
 
@@ -270,10 +291,22 @@ export class AutoPlanGenerator {
       const freq = d.required_visits;
       let count = 0;
 
-      if (freq >= 1) {
-        count = Math.round(freq);
+      // The required_visits in dealer_visit_targets is the monthly visit target (e.g. 2 visits/month for SO, 0.5-3 for ASM).
+      // Each cycle (C1: days 1-15, C2: days 16-31) represents one fortnight of the month.
+      if (freq >= 2) {
+        // e.g. 2 visits/month -> 1 visit in C1, 1 visit in C2
+        // e.g. 3 visits/month -> 2 visits in C1, 1 visit in C2
+        // e.g. 4 visits/month -> 2 visits in C1, 2 visits in C2
+        const base = Math.floor(freq / 2);
+        const rem = freq % 2;
+        count = base + (rem > 0 && cycleCode === 'C1' ? 1 : 0);
+      } else if (freq === 1) {
+        // 1 visit/month -> alternate between C1 and C2 (or schedule in C1 if small dealer set)
+        halfVisitCounter++;
+        count = (cycleCode === 'C1' ? (halfVisitCounter % 2 === 1) : (halfVisitCounter % 2 === 0)) ? 1 : 0;
+        if (count === 0 && targetDealers.length <= 20) count = 1;
       } else if (freq > 0 && freq < 1) {
-        // 0.5 Cadence: allocate in cycle C1 for odd index, or allocate 1 visit
+        // 0.5 Cadence: allocate in cycle C1 for odd index, C2 for even index
         halfVisitCounter++;
         if (cycleCode === 'C1' ? (halfVisitCounter % 2 === 1) : (halfVisitCounter % 2 === 0)) {
           count = 1;
@@ -293,13 +326,21 @@ export class AutoPlanGenerator {
     }
 
     // Group visits geographically by Block/Area for route continuity.
-    // For C2 with SFA adherence: missed C1 dealers sort first (priority boost).
+    // DIRECT DEALERS TAKE PRIORITY: DEALER (1) > NON STAR (2) > RSAR (3)
     visitItems.sort((a, b) => {
-      const aCode = (a.sap_code || a.sfa_code || `DLR_${a.dealer_id}` || '').toUpperCase();
-      const bCode = (b.sap_code || b.sfa_code || `DLR_${b.dealer_id}` || '').toUpperCase();
+      const typeRank = t => {
+        const u = String(t || '').toUpperCase();
+        if (u === 'DEALER') return 1;
+        if (u === 'NON STAR' || u === 'NON-STAR' || u === 'NON_STAR') return 2;
+        return 3;
+      };
+      const rDiff = typeRank(a.dealer_type) - typeRank(b.dealer_type);
+      if (rDiff !== 0) return rDiff;
 
       // Missed dealers in C1 → sort to front of C2 schedule
       if (cycleCode === 'C2' && missedDealerCodes.size > 0) {
+        const aCode = (a.sap_code || a.sfa_code || `DLR_${a.dealer_id}` || '').toUpperCase();
+        const bCode = (b.sap_code || b.sfa_code || `DLR_${b.dealer_id}` || '').toUpperCase();
         const aMissed = missedDealerCodes.has(aCode);
         const bMissed = missedDealerCodes.has(bCode);
         if (aMissed && !bMissed) return -1;

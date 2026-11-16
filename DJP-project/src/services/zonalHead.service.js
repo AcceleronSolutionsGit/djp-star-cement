@@ -422,7 +422,9 @@ export async function refreshDynamicZonalHeadCache(force = false) {
     const emRows = await dbAll(`
       SELECT emp_code, dns_emp_code, emp_name, designation, level, zone, state
       FROM employee_master
-      WHERE designation NOT IN ('MIS', 'ACCOUNTS', 'Branding verification', 'PROJECT LOTUS ADMIN', 'SFA TEAM')
+      WHERE designation NOT IN ('MIS', 'ACCOUNTS', 'Branding verification', 'PROJECT LOTUS ADMIN', 'SFA TEAM', 'VENDOR EMP', 'DUMP INCHARGE')
+        AND (sale_access IS NULL OR UPPER(sale_access) = 'PRIMARY')
+        AND (level IS NULL OR level != 'branding')
         AND emp_name NOT LIKE '%TEST%'
         AND (
           designation LIKE '%ZH%' OR designation LIKE '%ZONAL%' OR designation LIKE '%HEAD%'

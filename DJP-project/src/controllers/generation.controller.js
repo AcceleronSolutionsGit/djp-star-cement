@@ -47,12 +47,23 @@ export async function generatePlansForAllRoles(periodMonth, cycleCode, planOptio
 
   for (const { role, codeCol } of ROLES) {
     const people = await dbAll(
-      `SELECT DISTINCT ${codeCol} AS emp_code FROM dealer_visit_targets
-       WHERE period_month = ? AND cycle_code = ?
-         AND ${codeCol} IS NOT NULL 
-         AND TRIM(${codeCol}) != ''
-         AND TRIM(${codeCol}) NOT IN ('-', 'NA', 'N/A', 'NONE', 'NULL', 'VACANT')
-         AND UPPER(TRIM(${codeCol})) NOT LIKE 'VACANT%'`,
+      `SELECT DISTINCT dvt.${codeCol} AS emp_code 
+       FROM dealer_visit_targets dvt
+       LEFT JOIN employee_master em ON (dvt.${codeCol} = em.emp_code OR dvt.${codeCol} = em.dns_emp_code)
+       LEFT JOIN master_zone_zh_mapping zh ON (dvt.${codeCol} = zh.emp_code OR dvt.${codeCol} = zh.zh_code)
+       WHERE dvt.period_month = ? AND dvt.cycle_code = ?
+         AND dvt.${codeCol} IS NOT NULL 
+         AND TRIM(dvt.${codeCol}) != ''
+         AND TRIM(dvt.${codeCol}) NOT IN ('-', 'NA', 'N/A', 'NONE', 'NULL', 'VACANT')
+         AND UPPER(TRIM(dvt.${codeCol})) NOT LIKE 'VACANT%'
+         AND (
+           em.id IS NULL 
+           OR (
+             (em.acedns = 'Y' OR '${role}' = 'ZH' OR zh.id IS NOT NULL)
+             AND (em.sale_access IS NULL OR UPPER(em.sale_access) = 'PRIMARY' OR '${role}' = 'ZH' OR zh.id IS NOT NULL)
+             AND (em.designation IS NULL OR UPPER(em.designation) NOT IN ('VENDOR EMP', 'DUMP INCHARGE', 'MIS', 'ACCOUNTS', 'BRANDING VERIFICATION'))
+           )
+         )`,
       [periodMonth, cycleCode]
     );
 

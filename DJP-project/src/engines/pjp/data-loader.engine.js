@@ -150,17 +150,16 @@ export async function loadDealersWithMappings(options = {}) {
     const sfaUpper = String(d.sfa_code || d.dm_sfa_code || '').toUpperCase();
     const sapUpper = String(d.sap_code || d.dm_sap_code || '').toUpperCase();
     const nameUpper = String(d.dealer_name || '').toUpperCase();
-    const isProspect = Boolean(
+    const isDealer = sapUpper.startsWith('100') || dTypeUpper === 'DEALER';
+    const isRsar = !isDealer && Boolean(
+      dTypeUpper === 'RSAR' || dTypeUpper.includes('SUB') || (d.linked_dealer_code && d.linked_dealer_code !== '-') || d.rssd_code ||
+      sapUpper.startsWith('150') || nameUpper.includes('(RSD') || nameUpper.includes('(RSAR')
+    );
+    const isProspect = !isDealer && !isRsar && Boolean(
       dTypeUpper === 'PROSPECTIVE' || dTypeUpper === 'PROSPECT' || dTypeUpper === 'NON_STAR' || dTypeUpper === 'NON-STAR' || dTypeUpper === 'NON STAR' ||
-      d.prospect_status === 'PROSPECT_MATCHED' || sfaUpper.startsWith('NSRE') || sfaUpper.startsWith('WBS') || sapUpper.startsWith('NS') || String(d.doa || '').trim().toUpperCase() === 'NEW'
+      d.prospect_status === 'PROSPECT_MATCHED' || sfaUpper.startsWith('NSRE') || sfaUpper.startsWith('WBS') || sapUpper.startsWith('NS')
     );
-    const isRsar = Boolean(
-      !isProspect && (
-        dTypeUpper === 'RSAR' || dTypeUpper.includes('SUB') || (d.linked_dealer_code && d.linked_dealer_code !== '-') || d.rssd_code ||
-        sapUpper.startsWith('150') || nameUpper.includes('(RSD') || nameUpper.includes('(RSAR')
-      )
-    );
-    const custType = isProspect ? 'NON STAR' : (isRsar ? 'RSAR' : 'DEALER');
+    const custType = isDealer ? 'DEALER' : (isRsar ? 'RSAR' : 'NON STAR');
 
     let zhName = d.zh_name;
     let zhCode = d.zh_code;
