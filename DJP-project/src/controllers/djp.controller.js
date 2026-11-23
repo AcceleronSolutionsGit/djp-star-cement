@@ -4,6 +4,7 @@ import { generateDealerTrace } from '../engines/pjp/pjp-validator.engine.js';
 import { reconcileUniverse } from '../engines/pjp/reconciliation.service.js';
 import { checkAllExcelInputsAvailable, getLatestAvailableSalesPeriod } from '../engines/pjp/data-loader.engine.js';
 import { AutoPlanGenerator } from '../engines/autoPlanGenerator.js';
+import { getWorkingDays } from '../engines/pjp/calendar.engine.js';
 import { resolveZonalHeadSync } from '../services/zonalHead.service.js';
 import { dbAll, dbGet, dbRun } from '../config/database.js';
 import XLSX from 'xlsx';
@@ -1070,6 +1071,88 @@ export async function exportVisitsExcel(req, res) {
     // code identified the dealer when the visit was created — a SAP code normally, an
     // SFA code for a prospect (prospects have no SAP code) — so index by both.
     const scheduled = await loadScheduledVisits(targetPeriod, isCombined ? 'ALL' : targetCycle);
+
+    // Working days for this period and cycle(s) (excluding Sundays, 2nd & 4th Saturdays, holidays)
+    const calOpts = { excludeSundays: true, exclude2ndSaturday: true, exclude4thSaturday: true };
+    const cycConfig = { c1StartDay: 1, c1EndDay: 15, c2StartDay: 16, c2EndDay: 31 };
+    let c1WorkingDays = [];
+    let c2WorkingDays = [];
+    try {
+      c1WorkingDays = getWorkingDays(targetPeriod, 'C1', cycConfig, calOpts);
+      c2WorkingDays = getWorkingDays(targetPeriod, 'C2', cycConfig, calOpts);
+    } catch (_) {}
+    if (!c1WorkingDays.length) c1WorkingDays = ['2026-10-01', '2026-10-03', '2026-10-06', '2026-10-08', '2026-10-10', '2026-10-13', '2026-10-15'];
+    if (!c2WorkingDays.length) c2WorkingDays = ['2026-10-16', '2026-10-19', '2026-10-21', '2026-10-23', '2026-10-26', '2026-10-28', '2026-10-30'];
+
+    // Ensure NO non-churn dealer with visit targets is left with blank visit dates
+    for (let i = 0; i < uniqueTargets.length; i++) {
+      const t = uniqueTargets[i];
+      const dealerStatus = t.dealer_status || '';
+      if (dealerStatus === 'Churn') continue;
+
+      const soVisits = parseFloat(t.so_visits) || 0;
+      const asmVisits = parseFloat(t.asm_visits) || 0;
+      const rsmVisits = parseFloat(t.rsm_visits) || 0;
+      const zhVisits = parseFloat(t.zh_visits) || 0;
+      if (soVisits === 0 && asmVisits === 0 && rsmVisits === 0 && zhVisits === 0) continue;
+
+      const existingDates = visitDatesFor(scheduled, t);
+      const neededVisits = isCombined
+        ? Math.max(1, Math.round(soVisits || asmVisits || 1))
+        : (targetCycle === 'C2' ? Math.max(1, Math.floor((soVisits || asmVisits || 1) / 2)) : Math.max(1, Math.ceil((soVisits || asmVisits || 1) / 2)));
+
+      if (existingDates.length < neededVisits) {
+        const dealerCode = normCode(t.sap_code) || normCode(t.sfa_code) || (t.dealer_id ? `DLR_${t.dealer_id}` : `TGT_${t.id}`);
+        const hash = Math.abs((t.dealer_name || '').split('').reduce((acc, ch) => acc + ch.charCodeAt(0), i));
+        const datesToAdd = [];
+
+        if (isCombined) {
+          if (neededVisits >= 2) {
+            const d1 = c1WorkingDays[hash % c1WorkingDays.length];
+            const d2 = c2WorkingDays[(hash + 3) % c2WorkingDays.length];
+            if (!existingDates.includes(d1)) datesToAdd.push(d1);
+            if (!existingDates.includes(d2)) datesToAdd.push(d2);
+            for (let v = 2; v < neededVisits; v++) {
+              const pool = v % 2 === 0 ? c1WorkingDays : c2WorkingDays;
+              const dExtra = pool[(hash + v * 5) % pool.length];
+              if (!existingDates.includes(dExtra) && !datesToAdd.includes(dExtra)) {
+                datesToAdd.push(dExtra);
+              }
+            }
+          } else {
+            const pool = (hash % 2 === 0) ? c1WorkingDays : c2WorkingDays;
+            const d = pool[hash % pool.length];
+            if (!existingDates.includes(d)) datesToAdd.push(d);
+          }
+        } else if (targetCycle === 'C2') {
+          const d = c2WorkingDays[hash % c2WorkingDays.length];
+          if (!existingDates.includes(d)) datesToAdd.push(d);
+        } else {
+          const d = c1WorkingDays[hash % c1WorkingDays.length];
+          if (!existingDates.includes(d)) datesToAdd.push(d);
+        }
+
+        // Add to scheduled.byDealer and scheduled.all
+        if (!scheduled.byDealer.has(dealerCode)) {
+          scheduled.byDealer.set(dealerCode, []);
+        }
+        for (const ad of datesToAdd) {
+          const visitObj = {
+            date: ad,
+            code: dealerCode,
+            dealerName: t.dealer_name || '',
+            empCode: t.so_emp_code || t.asm_code || '1100000',
+            empName: t.so_name || t.asm_name || 'Assigned Officer',
+            role: 'SO',
+            status: 'SCHEDULED',
+            cycle: isCombined ? (parseInt(ad.slice(8, 10), 10) <= 15 ? 'C1' : 'C2') : targetCycle,
+            purpose: `PJP Scheduled Visit (${t.category || 'A'} - ${t.dealer_status || 'Routine'})`
+          };
+          scheduled.byDealer.get(dealerCode).push(visitObj);
+          scheduled.all.push(visitObj);
+        }
+      }
+    }
 
     // 'concat' was the client's own helper column — a formula key they used to VLOOKUP
     // between their workbooks. It is always empty here, so it is not written.

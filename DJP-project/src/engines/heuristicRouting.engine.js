@@ -379,6 +379,32 @@ export function clusterAndScheduleHeuristicRoutes(visitItems, workingDays, daily
     }
   }
 
+  // Secondary pass: ensure all dealers are scheduled and none left unallocated
+  if (unallocated.length > 0) {
+    const overflowItems = [...unallocated];
+    unallocated.length = 0;
+    for (const item of overflowItems) {
+      const dKey = (item.dealer_code || item.dealerCode || item.sap_code || item.sfa_code || item.dealer_name || 'ITEM').toUpperCase();
+      let bestDay = null;
+      let minVisits = Infinity;
+      for (const d of workingDays) {
+        const hasSame = dayDealers.get(d).has(dKey);
+        const count = dayAllocations.get(d).length;
+        if (!hasSame && count < minVisits) {
+          minVisits = count;
+          bestDay = d;
+        }
+      }
+      if (!bestDay) {
+        bestDay = workingDays.reduce((minD, d) => 
+          dayAllocations.get(d).length < dayAllocations.get(minD).length ? d : minD, workingDays[0]
+        );
+      }
+      dayAllocations.get(bestDay).push(item);
+      dayDealers.get(bestDay).add(dKey);
+    }
+  }
+
   // Now, for every day that has visits, optimize the intra-day sequence and compute route map!
   const dayRouteMaps = new Map();
 
