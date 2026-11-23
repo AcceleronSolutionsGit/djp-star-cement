@@ -2,6 +2,54 @@ import { dbGet } from '../config/database.js';
 import { resolveZonalHead } from './zonalHead.service.js';
 
 /**
+ * Authoritatively resolve an active L5 Sales Zonal Head for an employee or RSM
+ * using the reporting_to chain in employee_master.
+ *
+ * @param {string} empCode
+ * @returns {Promise<{ zh_name: string|null, zh_code: string|null, emp_code: string|null, zone: string|null }|null>}
+ */
+export async function resolveZonalHeadFromReportingTo(empCode) {
+  if (!empCode) return null;
+  const cleanCode = String(empCode).trim();
+  if (!cleanCode || cleanCode === '-' || cleanCode === 'VACANT') return null;
+
+  try {
+    const em = await dbGet(
+      `SELECT emp_code, dns_emp_code, emp_name, reporting_to, zone FROM employee_master WHERE emp_code = ? OR dns_emp_code = ? LIMIT 1`,
+      [cleanCode, cleanCode]
+    );
+    if (!em?.reporting_to) return null;
+
+    const bosses = em.reporting_to.split(',').map(s => s.trim()).filter(Boolean);
+    if (bosses.length === 0) return null;
+
+    const zhBoss = await dbGet(
+      `SELECT emp_code, dns_emp_code, emp_name, designation, level, zone, sale_access 
+       FROM employee_master 
+       WHERE (emp_code IN (${bosses.map(() => '?').join(',')}) OR dns_emp_code IN (${bosses.map(() => '?').join(',')}))
+         AND acedns = 'Y'
+         AND (sale_access IS NULL OR UPPER(sale_access) = 'PRIMARY')
+         AND (level IN ('L5', 'L6', 'L7') OR designation LIKE '%GM%' OR designation LIKE '%ZH%')
+       ORDER BY CASE WHEN level = 'L5' THEN 0 ELSE 1 END
+       LIMIT 1`,
+      [...bosses, ...bosses]
+    );
+
+    if (zhBoss) {
+      return {
+        zh_name: zhBoss.emp_name,
+        zh_code: zhBoss.dns_emp_code || zhBoss.emp_code,
+        emp_code: zhBoss.emp_code,
+        zone: zhBoss.zone
+      };
+    }
+  } catch (err) {
+    // Non-fatal
+  }
+  return null;
+}
+
+/**
  * Resolve Upper Hierarchy (ZH, RSM, and ASM) for a Prospective Dealer.
  *
  * @param {Object} params
@@ -206,14 +254,28 @@ export async function resolveProspectHierarchy({ soEmpCode, soName, area, zone, 
       if (rsm) { rsm_name = rsm.rsm_name; rsm_code = rsm.rsm_code; }
     } catch (e) {}
   }
+
+  // Check if RSM reporting line directly determines Zonal Head
+  if (rsm_code || rsm_name) {
+    try {
+      const zhFromRsm = await resolveZonalHeadFromReportingTo(rsm_code || rsm_name);
+      if (zhFromRsm?.zh_name) {
+        zh_name = zhFromRsm.zh_name;
+        zh_code = zhFromRsm.zh_code;
+      }
+    } catch (e) {}
+  }
+
   // Authoritative dynamic Zonal Head resolution for zone / area
-  try {
-    const zhRes = await resolveZonalHead({ zone: cleanZone, region, area: cleanArea });
-    if (zhRes?.zh_name) {
-      zh_name = zhRes.zh_name;
-      zh_code = zhRes.zh_code;
-    }
-  } catch (e) {}
+  if (!zh_name) {
+    try {
+      const zhRes = await resolveZonalHead({ zone: cleanZone, region, area: cleanArea });
+      if (zhRes?.zh_name) {
+        zh_name = zhRes.zh_name;
+        zh_code = zhRes.zh_code;
+      }
+    } catch (e) {}
+  }
 
   // Resolve missing asm_code if asm_name is known
   if (asm_name && !asm_code) {

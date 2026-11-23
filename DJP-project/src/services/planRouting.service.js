@@ -183,6 +183,43 @@ export async function resolveEmployeeName(empCode, role = null) {
  */
 export async function resolveL1Approver(empCode, role) {
   const roleName = (role || 'SO').toUpperCase();
+
+  // For RSM, authoritatively resolve their active L5 Sales Zonal Head from employee_master.reporting_to
+  if (roleName === 'RSM' && empCode) {
+    try {
+      const em = await dbGet(
+        `SELECT emp_code, dns_emp_code, reporting_to FROM employee_master WHERE emp_code = ? OR dns_emp_code = ? LIMIT 1`,
+        [empCode, empCode]
+      );
+      if (em?.reporting_to) {
+        const bosses = em.reporting_to.split(',').map(s => s.trim()).filter(Boolean);
+        if (bosses.length > 0) {
+          const zhBoss = await dbGet(
+            `SELECT emp_code, dns_emp_code, emp_name, designation, level 
+             FROM employee_master 
+             WHERE (emp_code IN (${bosses.map(() => '?').join(',')}) OR dns_emp_code IN (${bosses.map(() => '?').join(',')}))
+               AND acedns = 'Y'
+               AND (sale_access IS NULL OR UPPER(sale_access) = 'PRIMARY')
+               AND (level IN ('L5', 'L6', 'L7') OR designation LIKE '%GM%' OR designation LIKE '%ZH%')
+             ORDER BY CASE WHEN level = 'L5' THEN 0 ELSE 1 END
+             LIMIT 1`,
+            [...bosses, ...bosses]
+          );
+          if (zhBoss) {
+            return {
+              empCode: zhBoss.dns_emp_code || zhBoss.emp_code,
+              name: zhBoss.emp_name,
+              role: 'ZH',
+              source: 'employee_master_reporting_to'
+            };
+          }
+        }
+      }
+    } catch (e) {
+      // Fallback
+    }
+  }
+
   const ownCol = ROLE_CODE_COLUMN[roleName];
   
   let startIndex = 0;

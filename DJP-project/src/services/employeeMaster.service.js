@@ -212,7 +212,22 @@ export async function syncMasterEmployeesFromEmployeeMaster() {
         me.emp_name = COALESCE(NULLIF(em.emp_name, ''), me.emp_name),
         me.designation = COALESCE(NULLIF(em.designation, ''), me.designation),
         me.zone = COALESCE(NULLIF(em.zone, ''), me.zone),
-        me.region = COALESCE(NULLIF(em.region, ''), me.region)
+        me.region = COALESCE(NULLIF(em.region, ''), me.region),
+        me.role = CASE
+          WHEN (em.level IN ('L5', 'L6', 'L7') OR UPPER(em.designation) IN ('GENERAL MANAGER', 'GM', 'ZONAL HEAD', 'ZH')) 
+               AND (em.sale_access IS NULL OR UPPER(em.sale_access) = 'PRIMARY') THEN 'ZH'
+          WHEN em.level = 'L4' 
+               OR UPPER(em.designation) LIKE '%RSM%' 
+               OR UPPER(em.designation) LIKE '%REGIONAL%' 
+               OR (UPPER(em.designation) LIKE '%AGM%' AND em.level != 'L5') THEN 'RSM'
+          WHEN em.level = 'L3' 
+               OR UPPER(em.designation) LIKE '%ASM%' 
+               OR UPPER(em.designation) LIKE '%AREA%' THEN 'ASM'
+          WHEN UPPER(em.designation) LIKE '%SO%' 
+               OR UPPER(em.designation) LIKE '%OFFICER%' 
+               OR UPPER(em.designation) LIKE '%ENGINEER%' THEN 'SO'
+          ELSE 'SO'
+        END
     `);
 
     // 2. Insert ONLY ACTIVE sales & field employees from employee_master into master_employees if not already present
@@ -225,10 +240,18 @@ export async function syncMasterEmployeesFromEmployeeMaster() {
         em.zone,
         em.region,
         CASE
-          WHEN UPPER(em.designation) LIKE '%RSM%' OR UPPER(em.designation) LIKE '%REGIONAL%' THEN 'RSM'
-          WHEN UPPER(em.designation) LIKE '%ASM%' OR UPPER(em.designation) LIKE '%AREA%' THEN 'ASM'
-          WHEN UPPER(em.designation) LIKE '%SO%' OR UPPER(em.designation) LIKE '%OFFICER%' OR UPPER(em.designation) LIKE '%ENGINEER%' THEN 'SO'
-          WHEN UPPER(em.designation) LIKE '%ZH%' OR UPPER(em.designation) LIKE '%ZONAL%' OR UPPER(em.designation) LIKE '%GM%' THEN 'ZH'
+          WHEN (em.level IN ('L5', 'L6', 'L7') OR UPPER(em.designation) IN ('GENERAL MANAGER', 'GM', 'ZONAL HEAD', 'ZH')) 
+               AND (em.sale_access IS NULL OR UPPER(em.sale_access) = 'PRIMARY') THEN 'ZH'
+          WHEN em.level = 'L4' 
+               OR UPPER(em.designation) LIKE '%RSM%' 
+               OR UPPER(em.designation) LIKE '%REGIONAL%' 
+               OR (UPPER(em.designation) LIKE '%AGM%' AND em.level != 'L5') THEN 'RSM'
+          WHEN em.level = 'L3' 
+               OR UPPER(em.designation) LIKE '%ASM%' 
+               OR UPPER(em.designation) LIKE '%AREA%' THEN 'ASM'
+          WHEN UPPER(em.designation) LIKE '%SO%' 
+               OR UPPER(em.designation) LIKE '%OFFICER%' 
+               OR UPPER(em.designation) LIKE '%ENGINEER%' THEN 'SO'
           ELSE 'SO'
         END as role,
         1 as is_active,

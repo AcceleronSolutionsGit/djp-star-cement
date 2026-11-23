@@ -426,13 +426,13 @@ export async function refreshDynamicZonalHeadCache(force = false) {
         AND (sale_access IS NULL OR UPPER(sale_access) = 'PRIMARY')
         AND (level IS NULL OR level != 'branding')
         AND emp_name NOT LIKE '%TEST%'
+        AND acedns = 'Y'
         AND (
           designation LIKE '%ZH%' OR designation LIKE '%ZONAL%' OR designation LIKE '%HEAD%'
           OR designation IN ('General Manager', 'GM', 'GENERAL MANAGER', 'SR. GM', 'SR General Manager', 'Senior General Manager', 'AVP', 'VP')
           OR level IN ('L5', 'L6', 'L7')
         )
       ORDER BY 
-        CASE WHEN acedns = 'Y' THEN 0 ELSE 1 END,
         CASE 
           WHEN designation LIKE '%ZH%' OR designation LIKE '%ZONAL HEAD%' THEN 1
           WHEN designation IN ('General Manager', 'GM', 'GENERAL MANAGER') THEN 2
@@ -484,7 +484,7 @@ const DEFAULT_CANONICAL_ZH = {
   'NE2': { zone: 'NE2', zh_name: 'BRIJESH SINGH', zh_code: '11001891', emp_code: 'E1720', designation: 'General Manager', level: 'L5' },
   'NB1': { zone: 'NB1', zh_name: 'GIRIDHARI MUKHERJEE', zh_code: '11002257', emp_code: 'E2352', designation: 'General Manager', level: 'L5' },
   'NB2': { zone: 'NB2', zh_name: 'GIRIDHARI MUKHERJEE', zh_code: '11002257', emp_code: 'E2352', designation: 'General Manager', level: 'L5' },
-  'BIHAR': { zone: 'BIHAR', zh_name: 'RAJESH SRIVASTAVA', zh_code: '1100067', emp_code: 'E0003', designation: 'GM', level: 'L5' },
+  'BIHAR': { zone: 'BIHAR', zh_name: 'GIRIDHARI MUKHERJEE', zh_code: '11002257', emp_code: 'E2352', designation: 'General Manager', level: 'L5' },
   'SOUTH BENGAL': { zone: 'SOUTH BENGAL', zh_name: 'ATANU BANERJEE', zh_code: '1100144', emp_code: 'E0002', designation: 'GM', level: 'L5' },
   'NT': { zone: 'NT', zh_name: 'ABHISHEK JOSHI', zh_code: '11001694', emp_code: 'E1277', designation: 'GM', level: 'NT' }
 };
@@ -602,13 +602,14 @@ export async function resolveZonalHead({ zone, region, area, dmArea, state, bran
     WHERE (zone = ? OR state = ?)
       AND designation NOT IN ('MIS', 'ACCOUNTS', 'Branding verification', 'PROJECT LOTUS ADMIN', 'SFA TEAM')
       AND emp_name NOT LIKE '%TEST%'
+      AND acedns = 'Y'
+      AND (sale_access IS NULL OR UPPER(sale_access) = 'PRIMARY')
       AND (
         designation LIKE '%ZH%' OR designation LIKE '%ZONAL%' OR designation LIKE '%HEAD%'
         OR designation IN ('General Manager', 'GM', 'GENERAL MANAGER', 'SR. GM', 'SR General Manager', 'Senior General Manager', 'AVP', 'VP')
         OR level IN ('L5', 'L6', 'L7')
       )
     ORDER BY 
-      CASE WHEN acedns = 'Y' THEN 0 ELSE 1 END,
       CASE 
         WHEN designation LIKE '%ZH%' OR designation LIKE '%ZONAL HEAD%' THEN 1
         WHEN designation IN ('General Manager', 'GM', 'GENERAL MANAGER') THEN 2
@@ -780,6 +781,8 @@ export async function healAllMissingZonalHeads() {
         FROM employee_master
         WHERE (designation LIKE '%ZH%' OR designation LIKE '%ZONAL%' OR designation LIKE '%HEAD%' OR designation LIKE '%GM%')
           AND zone IS NOT NULL AND zone != ''
+          AND acedns = 'Y'
+          AND (sale_access IS NULL OR UPPER(sale_access) = 'PRIMARY')
       ) ranked
       WHERE rn = 1
     ) em ON UPPER(TRIM(d.zone)) = UPPER(TRIM(em.zone))
@@ -858,6 +861,8 @@ export async function healAllMissingZonalHeads() {
         FROM employee_master
         WHERE (designation LIKE '%ZH%' OR designation LIKE '%ZONAL%' OR designation LIKE '%HEAD%' OR designation LIKE '%GM%')
           AND zone IS NOT NULL AND zone != ''
+          AND acedns = 'Y'
+          AND (sale_access IS NULL OR UPPER(sale_access) = 'PRIMARY')
       ) ranked
       WHERE rn = 1
     ) em ON UPPER(TRIM(m.zone)) = UPPER(TRIM(em.zone))
@@ -949,6 +954,8 @@ export async function healAllMissingZonalHeads() {
         FROM employee_master
         WHERE (designation LIKE '%ZH%' OR designation LIKE '%ZONAL%' OR designation LIKE '%HEAD%' OR designation LIKE '%GM%')
           AND zone IS NOT NULL AND zone != ''
+          AND acedns = 'Y'
+          AND (sale_access IS NULL OR UPPER(sale_access) = 'PRIMARY')
       ) ranked
       WHERE rn = 1
     ) em ON UPPER(TRIM(t.zone)) = UPPER(TRIM(em.zone))
@@ -962,6 +969,26 @@ export async function healAllMissingZonalHeads() {
     JOIN (SELECT zh_name, zh_code FROM master_zone_zh_mapping WHERE zone_code = 'NE1' LIMIT 1) hq ON 1=1
     SET t.zh_name = hq.zh_name, t.zh_code = hq.zh_code
     WHERE t.zh_name IS NULL OR t.zh_name = '' OR t.zh_name = '-' OR t.zh_name LIKE 'Zonal Head%'
+  `);
+
+  // 4e. Heal NE2 RSM: where rsm_name is VACANT, NONE, or rsm_code = '1329', assign SAURABH KUMAR (11001892)
+  await dbRun(`
+    UPDATE dealer_visit_targets
+    SET rsm_name = 'SAURABH KUMAR', rsm_code = '11001892'
+    WHERE zone = 'NE2'
+      AND (rsm_name IS NULL OR rsm_name = '' OR rsm_name = 'VACANT' OR rsm_name = 'NONE' OR rsm_code = '1329' OR rsm_code = 'VACANT')
+  `);
+  await dbRun(`
+    UPDATE master_dealers
+    SET rsm_name = 'SAURABH KUMAR', rsm_code = '11001892'
+    WHERE zone = 'NE2'
+      AND (rsm_name IS NULL OR rsm_name = '' OR rsm_name = 'VACANT' OR rsm_name = 'NONE' OR rsm_code = '1329' OR rsm_code = 'VACANT')
+  `);
+  await dbRun(`
+    UPDATE master_dealer_so_mapping
+    SET rsm_name = 'SAURABH KUMAR', rsm_code = '11001892'
+    WHERE zone = 'NE2'
+      AND (rsm_name IS NULL OR rsm_name = '' OR rsm_name = 'VACANT' OR rsm_name = 'NONE' OR rsm_code = '1329' OR rsm_code = 'VACANT')
   `);
 
   // 5. Also update master_employees role for Zonal Heads

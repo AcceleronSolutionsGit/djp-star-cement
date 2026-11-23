@@ -249,7 +249,14 @@ export function buildRow(t, index, soAsmMap = null) {
     branch: s(t.branch)
   });
   const zoneName = zhInfo.zone || s(t.zone);
-  const zhName = zhInfo.zh_name || s(t.zh_name);
+  const zhName = (s(t.zh_name) && !s(t.zh_name).includes('RAJESH SRIVASTAVA') && !s(t.zh_name).includes('DIBYAJYOTI GUHA'))
+    ? (zhInfo.zh_name || s(t.zh_name))
+    : (zhInfo.zh_name || 'GIRIDHARI MUKHERJEE');
+
+  const rsmRaw = s(t.rsm_name);
+  const rsmName = (zoneName === 'NE2' && (!rsmRaw || rsmRaw === 'VACANT' || rsmRaw === '-' || rsmRaw === 'NONE'))
+    ? 'SAURABH KUMAR'
+    : rsmRaw;
 
   return {
     id:              t.id,
@@ -257,7 +264,7 @@ export function buildRow(t, index, soAsmMap = null) {
     sl_no:           index + 1,
     zone:            zoneName,
     zh_name:         zhName,
-    rsm_name:        s(t.rsm_name),
+    rsm_name:        rsmName,
     asm_name:        asmName,
     area:            s(t.dm_area || t.area),
     area_strategy:   '',

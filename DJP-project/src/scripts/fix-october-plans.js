@@ -310,25 +310,55 @@ export async function fixOctoberPlans() {
        OR emp_code = 'E0259'
   `);
   await dbRun(`
+    UPDATE master_zone_zh_mapping
+    SET 
+      zh_name = 'GIRIDHARI MUKHERJEE',
+      zh_code = '11002257',
+      emp_code = 'E2352',
+      designation = 'General Manager',
+      level = 'L5',
+      updated_at = NOW()
+    WHERE zone_code IN ('BIHAR', 'BH', 'BH1', 'BH2', 'BH-1', 'BH-2')
+       OR zh_name LIKE '%RAJESH SRIVASTAVA%' 
+       OR zh_code = '1100067' 
+       OR emp_code = 'E0003'
+  `);
+  await dbRun(`
     UPDATE master_dealers
     SET zh_name = 'GIRIDHARI MUKHERJEE', zh_code = '11002257'
-    WHERE zone IN ('NB1', 'NB2') OR zh_name LIKE '%DIBYAJYOTI%' OR zh_code = '1100380'
+    WHERE zone IN ('NB1', 'NB2', 'BIHAR') OR zh_name LIKE '%DIBYAJYOTI%' OR zh_code = '1100380' OR zh_name LIKE '%RAJESH SRIVASTAVA%' OR zh_code = '1100067'
+  `);
+  await dbRun(`
+    UPDATE master_dealers
+    SET rsm_name = 'SAURABH KUMAR', rsm_code = '11001892'
+    WHERE zone = 'NE2' AND (rsm_name IS NULL OR rsm_name = '' OR rsm_name = 'VACANT' OR rsm_code = '1329')
   `);
   await dbRun(`
     UPDATE master_dealer_so_mapping
     SET zh_name = 'GIRIDHARI MUKHERJEE', zh_code = '11002257'
-    WHERE zone IN ('NB1', 'NB2') OR zh_name LIKE '%DIBYAJYOTI%' OR zh_code = '1100380'
+    WHERE zone IN ('NB1', 'NB2', 'BIHAR') OR zh_name LIKE '%DIBYAJYOTI%' OR zh_code = '1100380' OR zh_name LIKE '%RAJESH SRIVASTAVA%' OR zh_code = '1100067'
+  `);
+  await dbRun(`
+    UPDATE master_dealer_so_mapping
+    SET rsm_name = 'SAURABH KUMAR', rsm_code = '11001892'
+    WHERE zone = 'NE2' AND (rsm_name IS NULL OR rsm_name = '' OR rsm_name = 'VACANT' OR rsm_code = '1329')
   `);
   await dbRun(`
     UPDATE dealer_visit_targets
     SET zh_name = 'GIRIDHARI MUKHERJEE', zh_code = '11002257'
-    WHERE (zone IN ('NB1', 'NB2') OR zh_name LIKE '%DIBYAJYOTI%' OR zh_code = '1100380')
+    WHERE (zone IN ('NB1', 'NB2', 'BIHAR') OR zh_name LIKE '%DIBYAJYOTI%' OR zh_code = '1100380' OR zh_name LIKE '%RAJESH SRIVASTAVA%' OR zh_code = '1100067')
       AND period_month = '2026-10'
   `);
   await dbRun(`
     UPDATE dealer_visit_targets
     SET zh_name = 'BRIJESH SINGH', zh_code = '11001891'
     WHERE zone = 'NE2' AND period_month = '2026-10'
+  `);
+  await dbRun(`
+    UPDATE dealer_visit_targets
+    SET rsm_name = 'SAURABH KUMAR', rsm_code = '11001892'
+    WHERE zone = 'NE2' AND period_month = '2026-10'
+      AND (rsm_name IS NULL OR rsm_name = '' OR rsm_name = 'VACANT' OR rsm_code = '1329')
   `);
 
   // 9. Remove non-sales employees from plans (vendor emp, branding, inactive)

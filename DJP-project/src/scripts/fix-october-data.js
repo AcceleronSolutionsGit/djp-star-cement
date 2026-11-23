@@ -1,6 +1,7 @@
 import { dbAll, dbGet, dbRun, pool } from '../config/database.js';
 import { healAllMissingZonalHeads, refreshDynamicZonalHeadCache } from '../services/zonalHead.service.js';
 import { buildAdherenceWorkbook } from '../services/adherenceExport.service.js';
+import { syncMasterEmployeesFromEmployeeMaster } from '../services/employeeMaster.service.js';
 
 export async function fixOctoberData() {
   const startTime = Date.now();
@@ -47,6 +48,21 @@ export async function fixOctoberData() {
       level = 'L5',
       updated_at = NOW()
     WHERE zone_code IN ('NE1', 'NE 1', 'NE-1')
+  `);
+
+  await dbRun(`
+    UPDATE master_zone_zh_mapping
+    SET 
+      zh_name = 'GIRIDHARI MUKHERJEE',
+      zh_code = '11002257',
+      emp_code = 'E2352',
+      designation = 'General Manager',
+      level = 'L5',
+      updated_at = NOW()
+    WHERE zone_code IN ('BIHAR', 'BH', 'BH1', 'BH2', 'BH-1', 'BH-2')
+       OR zh_name LIKE '%RAJESH SRIVASTAVA%'
+       OR zh_code = '1100067'
+       OR emp_code = 'E0003'
   `);
 
   // [2] Heal zone assignments in dealer_visit_targets from branch/area
@@ -112,22 +128,65 @@ export async function fixOctoberData() {
   `);
   console.log(`    Updated NE1 targets to Tarak Nath Ghosh: ${resNe1.affectedRows || resNe1.changes || 0} rows`);
 
-  // BIHAR -> Rajesh Srivastava
+  // BIHAR -> Giridhari Mukherjee (replacing inactive Rajesh Srivastava)
   const resBh = await dbRun(`
     UPDATE dealer_visit_targets
     SET 
-      zh_name = 'RAJESH SRIVASTAVA',
-      zh_code = '1100067'
+      zh_name = 'GIRIDHARI MUKHERJEE',
+      zh_code = '11002257'
     WHERE period_month = '2026-10'
-      AND zone = 'BIHAR'
+      AND (zone = 'BIHAR' OR zh_name LIKE '%RAJESH SRIVASTAVA%' OR zh_code = '1100067')
   `);
-  console.log(`    Updated BIHAR targets to Rajesh Srivastava: ${resBh.affectedRows || resBh.changes || 0} rows`);
+  console.log(`    Updated BIHAR targets to Giridhari Mukherjee: ${resBh.affectedRows || resBh.changes || 0} rows`);
+
+  // NE2 RSM -> Saurabh Kumar (replacing VACANT / 1329)
+  const resRsmNe2 = await dbRun(`
+    UPDATE dealer_visit_targets
+    SET 
+      rsm_name = 'SAURABH KUMAR',
+      rsm_code = '11001892'
+    WHERE period_month = '2026-10'
+      AND zone = 'NE2'
+      AND (rsm_name IS NULL OR rsm_name = '' OR rsm_name = 'VACANT' OR rsm_name = 'NONE' OR rsm_code = '1329' OR rsm_code = 'VACANT')
+  `);
+  console.log(`    Updated NE2 targets RSM to Saurabh Kumar: ${resRsmNe2.affectedRows || resRsmNe2.changes || 0} rows`);
 
   // [4] Run universal healing across master tables
   console.log('\n[4] Running universal healing across master_dealers, master_dealer_so_mapping, dealer_visit_targets...');
   await refreshDynamicZonalHeadCache(true);
   const healResult = await healAllMissingZonalHeads();
   console.log(`    Universal heal result:`, healResult);
+
+  // [4b] Synchronize employee roles in master_employees from employee_master
+  console.log('\n[4b] Synchronizing employee roles in master_employees...');
+  await syncMasterEmployeesFromEmployeeMaster();
+
+  // [4c] Heal sales_plans L1 Approvers for RSMs to their active L5 Sales Heads
+  console.log('\n[4c] Healing sales_plans L1 Approvers for RSMs...');
+  // Saurabh Kumar -> Brijesh Singh
+  await dbRun(`
+    UPDATE sales_plans
+    SET l1_approver_emp_code = '11001891', l1_approver_name = 'BRIJESH SINGH', l1_approver_role = 'ZH'
+    WHERE emp_code = '11001892'
+  `);
+  // Ritwick Chatterjee, Prakriti Ranjan Sikdar, Ram Raj Singh, Shashi Kant Mishra -> Giridhari Mukherjee
+  await dbRun(`
+    UPDATE sales_plans
+    SET l1_approver_emp_code = '11002257', l1_approver_name = 'GIRIDHARI MUKHERJEE', l1_approver_role = 'ZH'
+    WHERE emp_code IN ('11001813', '1101157', '11002396', '11001478')
+  `);
+  // Basudev Roy, Divy Pandey, Subhasish Bhowmik, Vikash Kumar -> Tarak Nath Ghosh
+  await dbRun(`
+    UPDATE sales_plans
+    SET l1_approver_emp_code = '1100077', l1_approver_name = 'TARAK NATH GHOSH', l1_approver_role = 'ZH'
+    WHERE emp_code IN ('1100126', '2500198', '11002241', '11001902')
+  `);
+  // Update any sales_plans for Rajesh Srivastava to Giridhari Mukherjee
+  await dbRun(`
+    UPDATE sales_plans
+    SET emp_code = '11002257', emp_name = 'GIRIDHARI MUKHERJEE'
+    WHERE emp_code = '1100067'
+  `);
 
   // [5] Audit & Verification
   console.log('\n[5] Auditing October 2026 Data...');
