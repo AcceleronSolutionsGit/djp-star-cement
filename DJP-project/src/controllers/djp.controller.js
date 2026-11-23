@@ -5,7 +5,7 @@ import { reconcileUniverse } from '../engines/pjp/reconciliation.service.js';
 import { checkAllExcelInputsAvailable, getLatestAvailableSalesPeriod } from '../engines/pjp/data-loader.engine.js';
 import { AutoPlanGenerator } from '../engines/autoPlanGenerator.js';
 import { getWorkingDays } from '../engines/pjp/calendar.engine.js';
-import { resolveZonalHeadSync } from '../services/zonalHead.service.js';
+import { resolveZonalHeadSync, refreshDynamicZonalHeadCache } from '../services/zonalHead.service.js';
 import { dbAll, dbGet, dbRun } from '../config/database.js';
 import XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
@@ -941,6 +941,7 @@ async function buildVisitsWorkbook({ headers, rows, scheduled, targets, targetPe
  */
 export async function exportVisitsExcel(req, res) {
   try {
+    await refreshDynamicZonalHeadCache().catch(() => {});
     const { periodMonth, cycleCode } = req.query;
     const isCombined = !cycleCode || cycleCode === 'ALL' || cycleCode === 'COMBINED' || cycleCode === 'C1_C2' || cycleCode === 'BOTH' || cycleCode === 'Whole_Month' || cycleCode === 'WHOLE_MONTH';
     let targetPeriod = periodMonth && periodMonth !== 'ALL' ? periodMonth : null;
@@ -1122,14 +1123,21 @@ export async function exportVisitsExcel(req, res) {
 
       const priority = t.priority || 0;
 
+      const zhInfo = resolveZonalHeadSync({
+        zone: t.zone,
+        region: t.region,
+        area: t.dm_area || t.area,
+        branch: t.branch
+      });
+      const effectiveZone = zhInfo.zone || t.zone || '';
+      const effectiveZh = zhInfo.zh_name || t.zh_name || '';
+
       reportRows.push([
-        t.zone || '',
+        effectiveZone,
         custType,
         t.dm_area || t.area || '',
         t.sbg_block || t.block || '',
-        ((t.zh_name && t.zh_name !== '-' && !t.zh_name.startsWith('Zonal Head'))
-          ? t.zh_name
-          : (resolveZonalHeadSync({ zone: t.zone, region: t.region, area: t.dm_area || t.area, branch: t.branch })?.zh_name || '')),
+        effectiveZh,
         t.rsm_name || '',
         t.asm_name || '',
         t.so_name || '',

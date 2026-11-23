@@ -241,19 +241,15 @@ export function buildRow(t, index, soAsmMap = null) {
     ? Number(t.counter_share)
     : (hasPotential ? currentSales / potential : 0);
 
-  // Resolve Zonal Head if missing on row
-  let zhName = s(t.zh_name);
-  let zoneName = s(t.zone);
-  if (!zhName || zhName === '-' || zhName.startsWith('Zonal Head')) {
-    const resolvedZh = resolveZonalHeadSync({
-      zone: zoneName,
-      region: s(t.region),
-      area: s(t.dm_area || t.area),
-      branch: s(t.branch)
-    });
-    zhName = resolvedZh?.zh_name || '';
-    if (!zoneName || zoneName === '-') zoneName = resolvedZh.zone;
-  }
+  // Resolve Zonal Head and canonical Zone
+  const zhInfo = resolveZonalHeadSync({
+    zone: s(t.zone),
+    region: s(t.region),
+    area: s(t.dm_area || t.area),
+    branch: s(t.branch)
+  });
+  const zoneName = zhInfo.zone || s(t.zone);
+  const zhName = zhInfo.zh_name || s(t.zh_name);
 
   return {
     id:              t.id,

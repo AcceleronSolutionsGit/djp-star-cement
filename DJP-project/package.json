@@ -22,7 +22,8 @@
     "benchmark:mapping": "node src/scripts/test-fast-dealer-mapping.js",
     "dev:frontend": "npm run dev --prefix frontend",
     "build:frontend": "npm run build --prefix frontend",
-    "fix:oct-plans": "node src/scripts/fix-october-plans.js"
+    "fix:oct-plans": "node src/scripts/fix-october-plans.js",
+    "fix:oct-data": "node src/scripts/fix-october-data.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

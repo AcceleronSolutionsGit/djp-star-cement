@@ -70,7 +70,16 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', as
   summarySheet.getRow(1).eachCell(cell => applyHeaderStyle(cell, COLOR_BLUE));
 
   // Role rollups
-  summarySheet.addRow(['Overall Total', a.totals.dealers, a.totals.planned, Math.round(a.totals.mtd_planned * 10) / 10, a.totals.adhered, a.totals.adhered_capped, Math.round(a.totals.adherence_pct * 1000) / 10 + '%', Math.round(a.totals.pending * 10) / 10]);
+  summarySheet.addRow([
+    'Overall Total',
+    a.totals.dealers || 0,
+    a.totals.planned || 0,
+    Math.round((a.totals.mtd_planned || a.totals.mtd_due || 0) * 10) / 10,
+    a.totals.adhered || 0,
+    a.totals.adhered_capped || 0,
+    Math.round((a.totals.adherence_pct || 0) * 1000) / 10 + '%',
+    Math.round((a.totals.pending || 0) * 10) / 10
+  ]);
   summarySheet.addRow([]);
   summarySheet.addRow(['Role Breakdown', '', '', '', '', '', '', '']);
   summarySheet.lastRow.font = { bold: true };
@@ -79,13 +88,13 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', as
     const roleData = a.byRole[r] || { dealers: 0, planned: 0, mtd_planned: 0, adhered: 0, adhered_capped: 0, adherence_pct: 0, pending: 0 };
     summarySheet.addRow([
       r,
-      roleData.dealers,
-      roleData.planned,
-      Math.round(roleData.mtd_planned * 10) / 10,
-      roleData.adhered,
-      roleData.adhered_capped,
-      Math.round(roleData.adherence_pct * 1000) / 10 + '%',
-      Math.round(roleData.pending * 10) / 10
+      roleData.dealers || 0,
+      roleData.planned || 0,
+      Math.round((roleData.mtd_planned || roleData.mtd_due || 0) * 10) / 10,
+      roleData.adhered || 0,
+      roleData.adhered_capped || 0,
+      Math.round((roleData.adherence_pct || 0) * 1000) / 10 + '%',
+      Math.round((roleData.pending || 0) * 10) / 10
     ]);
   }
 
@@ -147,14 +156,21 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', as
     // Populate Right Table: Summary of Officers
     let sRowIdx = 5;
     for (const off of roleOfficers) {
+      const planned = Number(off.planned ?? off.planned_visits ?? 0);
+      const mtdPlanned = Number(off.mtd_planned ?? off.mtd_due ?? 0);
+      const adhered = Number(off.adhered ?? 0);
+      const pending = Number(off.pending ?? (mtdPlanned - adhered));
+      const pctVal = Number.isFinite(off.adherence_pct)
+        ? off.adherence_pct
+        : (mtdPlanned > 0 ? adhered / (mtdPlanned < 1 ? (planned || 1) : mtdPlanned) : 0);
+
       const r = sheet.getRow(sRowIdx);
       r.getCell(12).value = off.emp_name || off.emp_code;
-      r.getCell(13).value = off.planned_visits;
-      r.getCell(14).value = off.mtd_due;
-      r.getCell(15).value = off.adhered;
-      const pctVal = off.mtd_due > 0 ? off.adhered / (off.mtd_due < 1 ? off.planned_visits : off.mtd_due) : 0;
+      r.getCell(13).value = planned;
+      r.getCell(14).value = Math.round(mtdPlanned * 10) / 10;
+      r.getCell(15).value = adhered;
       r.getCell(16).value = Math.round(pctVal * 100) + '%';
-      r.getCell(17).value = Math.round((off.mtd_due - off.adhered) * 10) / 10;
+      r.getCell(17).value = Math.round(pending * 10) / 10;
 
       applyDataStyle(r.getCell(12));
       applyDataStyle(r.getCell(13), true, '#,##0');
@@ -173,8 +189,7 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', as
       }
 
       // Conditional formatting on pending
-      const pend = off.mtd_due - off.adhered;
-      if (pend > 0) {
+      if (pending > 0) {
         r.getCell(17).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_RED_FILL } };
         r.getCell(17).font = { color: { argb: COLOR_RED_TEXT }, size: 9 };
       }
@@ -225,21 +240,28 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', as
         let catPlanned = 0, catMtd = 0, catAdhered = 0;
 
         for (const dl of cDealers) {
+          const planned = Number(dl.planned ?? dl.planned_visits ?? 0);
+          const mtdPlanned = Number(dl.mtd_planned ?? dl.mtd_due ?? 0);
+          const adhered = Number(dl.adhered ?? 0);
+          const pending = Number(dl.pending ?? (mtdPlanned - adhered));
+          const dlPct = Number.isFinite(dl.adherence_pct)
+            ? dl.adherence_pct
+            : (mtdPlanned > 0 ? adhered / (mtdPlanned < 1 ? (planned || 1) : mtdPlanned) : 0);
+
           const r = sheet.getRow(dRowIdx);
           r.getCell(2).value = officerName;
           r.getCell(3).value = catName;
           r.getCell(4).value = dl.area || '';
           r.getCell(5).value = dl.dealer_name;
-          r.getCell(6).value = dl.planned;
-          r.getCell(7).value = Math.round(dl.mtd_due * 10) / 10;
-          r.getCell(8).value = dl.adhered;
-          const dlPct = dl.mtd_due > 0 ? dl.adhered / (dl.mtd_due < 1 ? dl.planned : dl.mtd_due) : 0;
+          r.getCell(6).value = planned;
+          r.getCell(7).value = Math.round(mtdPlanned * 10) / 10;
+          r.getCell(8).value = adhered;
           r.getCell(9).value = Math.round(dlPct * 100) + '%';
-          r.getCell(10).value = Math.round(dl.pending * 10) / 10;
+          r.getCell(10).value = Math.round(pending * 10) / 10;
 
-          catPlanned += dl.planned;
-          catMtd += dl.mtd_due;
-          catAdhered += dl.adhered;
+          catPlanned += planned;
+          catMtd += mtdPlanned;
+          catAdhered += adhered;
 
           applyDataStyle(r.getCell(2));
           applyDataStyle(r.getCell(3));
@@ -259,7 +281,7 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', as
             r.getCell(9).font = { color: { argb: COLOR_GREEN_TEXT }, size: 9 };
           }
 
-          if (dl.pending > 0) {
+          if (pending > 0) {
             r.getCell(10).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_RED_FILL } };
             r.getCell(10).font = { color: { argb: COLOR_RED_TEXT }, size: 9 };
           }
@@ -273,7 +295,7 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', as
         subRow.getCell(6).value = catPlanned;
         subRow.getCell(7).value = Math.round(catMtd * 10) / 10;
         subRow.getCell(8).value = catAdhered;
-        const subPct = catMtd > 0 ? catAdhered / (catMtd < 1 ? catPlanned : catMtd) : 0;
+        const subPct = catMtd > 0 ? catAdhered / (catMtd < 1 ? (catPlanned || 1) : catMtd) : 0;
         subRow.getCell(9).value = Math.round(subPct * 100) + '%';
         subRow.getCell(10).value = Math.round((catMtd - catAdhered) * 10) / 10;
 

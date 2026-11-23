@@ -304,7 +304,31 @@ export async function fixOctoberPlans() {
       designation = 'General Manager',
       level = 'L5',
       updated_at = NOW()
-    WHERE zh_name LIKE '%DIBYAJYOTI GUHA%' OR zh_code = '1100380' OR emp_code = 'E0259'
+    WHERE zone_code IN ('NB1', 'NB2') 
+       OR zh_name LIKE '%DIBYAJYOTI GUHA%' 
+       OR zh_code = '1100380' 
+       OR emp_code = 'E0259'
+  `);
+  await dbRun(`
+    UPDATE master_dealers
+    SET zh_name = 'GIRIDHARI MUKHERJEE', zh_code = '11002257'
+    WHERE zone IN ('NB1', 'NB2') OR zh_name LIKE '%DIBYAJYOTI%' OR zh_code = '1100380'
+  `);
+  await dbRun(`
+    UPDATE master_dealer_so_mapping
+    SET zh_name = 'GIRIDHARI MUKHERJEE', zh_code = '11002257'
+    WHERE zone IN ('NB1', 'NB2') OR zh_name LIKE '%DIBYAJYOTI%' OR zh_code = '1100380'
+  `);
+  await dbRun(`
+    UPDATE dealer_visit_targets
+    SET zh_name = 'GIRIDHARI MUKHERJEE', zh_code = '11002257'
+    WHERE (zone IN ('NB1', 'NB2') OR zh_name LIKE '%DIBYAJYOTI%' OR zh_code = '1100380')
+      AND period_month = '2026-10'
+  `);
+  await dbRun(`
+    UPDATE dealer_visit_targets
+    SET zh_name = 'BRIJESH SINGH', zh_code = '11001891'
+    WHERE zone = 'NE2' AND period_month = '2026-10'
   `);
 
   // 9. Remove non-sales employees from plans (vendor emp, branding, inactive)

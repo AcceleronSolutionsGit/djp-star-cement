@@ -479,31 +479,41 @@ export async function refreshDynamicZonalHeadCache(force = false) {
  * @param {string} [params.state]
  * @returns {{ zone: string, zh_name: string|null, zh_code: string|null, emp_code: string|null, designation: string|null, level: string|null, resolvedBy: string }}
  */
+const DEFAULT_CANONICAL_ZH = {
+  'NE1': { zone: 'NE1', zh_name: 'TARAK NATH GHOSH', zh_code: '1100077', emp_code: 'E0174', designation: 'General Manager', level: 'L5' },
+  'NE2': { zone: 'NE2', zh_name: 'BRIJESH SINGH', zh_code: '11001891', emp_code: 'E1720', designation: 'General Manager', level: 'L5' },
+  'NB1': { zone: 'NB1', zh_name: 'GIRIDHARI MUKHERJEE', zh_code: '11002257', emp_code: 'E2352', designation: 'General Manager', level: 'L5' },
+  'NB2': { zone: 'NB2', zh_name: 'GIRIDHARI MUKHERJEE', zh_code: '11002257', emp_code: 'E2352', designation: 'General Manager', level: 'L5' },
+  'BIHAR': { zone: 'BIHAR', zh_name: 'RAJESH SRIVASTAVA', zh_code: '1100067', emp_code: 'E0003', designation: 'GM', level: 'L5' },
+  'SOUTH BENGAL': { zone: 'SOUTH BENGAL', zh_name: 'ATANU BANERJEE', zh_code: '1100144', emp_code: 'E0002', designation: 'GM', level: 'L5' },
+  'NT': { zone: 'NT', zh_name: 'ABHISHEK JOSHI', zh_code: '11001694', emp_code: 'E1277', designation: 'GM', level: 'NT' }
+};
+
 export function resolveZonalHeadSync({ zone, region, area, dmArea, branch, state } = {}) {
   let resolvedZone = normalizeZone(zone || region);
   let resolvedBy = 'NONE';
 
-  if (resolvedZone && dynamicZhMap.has(resolvedZone)) {
-    resolvedBy = 'EXPLICIT_ZONE';
-  } else {
-    // Check branch, dmArea, area against BRANCH_ZONE_MAP
-    const candidates = [branch, dmArea, area].filter(Boolean);
-    for (const c of candidates) {
-      const clean = String(c).trim().toUpperCase();
-      if (BRANCH_ZONE_MAP[clean]) {
-        resolvedZone = BRANCH_ZONE_MAP[clean];
-        resolvedBy = 'INFERRED_FROM_BRANCH_AREA';
+  // Check branch, dmArea, area against BRANCH_ZONE_MAP if zone is missing or generic
+  const candidates = [branch, dmArea, area].filter(Boolean);
+  for (const c of candidates) {
+    const clean = String(c).trim().toUpperCase();
+    if (BRANCH_ZONE_MAP[clean]) {
+      resolvedZone = BRANCH_ZONE_MAP[clean];
+      resolvedBy = 'INFERRED_FROM_BRANCH_AREA';
+      break;
+    }
+    for (const [k, z] of Object.entries(BRANCH_ZONE_MAP)) {
+      if (clean === k || clean.includes(k) || k.includes(clean)) {
+        resolvedZone = z;
+        resolvedBy = 'PARTIAL_MATCH_BRANCH_AREA';
         break;
       }
-      for (const [k, z] of Object.entries(BRANCH_ZONE_MAP)) {
-        if (clean === k || clean.includes(k) || k.includes(clean)) {
-          resolvedZone = z;
-          resolvedBy = 'PARTIAL_MATCH_BRANCH_AREA';
-          break;
-        }
-      }
-      if (resolvedZone) break;
     }
+    if (resolvedZone && resolvedBy !== 'NONE') break;
+  }
+
+  if (resolvedBy === 'NONE' && resolvedZone) {
+    resolvedBy = 'EXPLICIT_ZONE';
   }
 
   // Fallback to NE1 (corporate HQ default zone) if still unresolved
@@ -513,7 +523,9 @@ export function resolveZonalHeadSync({ zone, region, area, dmArea, branch, state
   }
 
   const zh = dynamicZhMap.get(resolvedZone) || 
+             DEFAULT_CANONICAL_ZH[resolvedZone] ||
              dynamicZhMap.get('NE1') || 
+             DEFAULT_CANONICAL_ZH['NE1'] ||
              (dynamicZhMap.size > 0 ? dynamicZhMap.values().next().value : null) || 
              { zone: resolvedZone, zh_name: null, zh_code: null, emp_code: null, designation: null, level: null };
 
@@ -646,9 +658,9 @@ export async function healAllMissingZonalHeads() {
   try {
     const unhealed = await dbGet(`
       SELECT 
-        (SELECT COUNT(*) FROM master_dealers WHERE zh_name IS NULL OR zh_name = '' OR zh_name = '-' OR zh_name LIKE 'Zonal Head%' OR zh_code = 'ZH001' OR zone IS NULL OR zone = '' OR (UPPER(TRIM(branch)) IN ('AGARTALA', 'SILCHAR', 'TRIPURA') AND zone = 'NE1')) as dealers,
-        (SELECT COUNT(*) FROM master_dealer_so_mapping WHERE zh_name IS NULL OR zh_name = '' OR zh_name = '-' OR zh_name LIKE 'Zonal Head%' OR zh_code = 'ZH001' OR zone IS NULL OR zone = '' OR (UPPER(TRIM(branch)) IN ('AGARTALA', 'SILCHAR', 'TRIPURA') AND zone = 'NE1')) as mappings,
-        (SELECT COUNT(*) FROM dealer_visit_targets WHERE zh_name IS NULL OR zh_name = '' OR zh_name = '-' OR zh_name LIKE 'Zonal Head%' OR zh_code = 'ZH001' OR zone IS NULL OR zone = '' OR (UPPER(TRIM(branch)) IN ('AGARTALA', 'SILCHAR', 'TRIPURA') AND zone = 'NE1')) as targets
+        (SELECT COUNT(*) FROM master_dealers d LEFT JOIN master_zone_zh_mapping z ON UPPER(TRIM(d.zone)) = UPPER(TRIM(z.zone_code)) WHERE d.zh_name IS NULL OR d.zh_name = '' OR d.zh_name = '-' OR d.zh_name LIKE 'Zonal Head%' OR d.zh_code = 'ZH001' OR d.zone IS NULL OR d.zone = '' OR (z.zh_name IS NOT NULL AND d.zh_name != z.zh_name)) as dealers,
+        (SELECT COUNT(*) FROM master_dealer_so_mapping m LEFT JOIN master_zone_zh_mapping z ON UPPER(TRIM(m.zone)) = UPPER(TRIM(z.zone_code)) WHERE m.zh_name IS NULL OR m.zh_name = '' OR m.zh_name = '-' OR m.zh_name LIKE 'Zonal Head%' OR m.zh_code = 'ZH001' OR m.zone IS NULL OR m.zone = '' OR (z.zh_name IS NOT NULL AND m.zh_name != z.zh_name)) as mappings,
+        (SELECT COUNT(*) FROM dealer_visit_targets t LEFT JOIN master_zone_zh_mapping z ON UPPER(TRIM(t.zone)) = UPPER(TRIM(z.zone_code)) WHERE t.zh_name IS NULL OR t.zh_name = '' OR t.zh_name = '-' OR t.zh_name LIKE 'Zonal Head%' OR t.zh_code = 'ZH001' OR t.zone IS NULL OR t.zone = '' OR (z.zh_name IS NOT NULL AND t.zh_name != z.zh_name)) as targets
     `);
 
     if ((!unhealed?.dealers || unhealed.dealers === 0) &&
@@ -895,19 +907,26 @@ export async function healAllMissingZonalHeads() {
     SET
       t.zh_name = d.zh_name,
       t.zh_code = d.zh_code,
-      t.zone = COALESCE(NULLIF(t.zone, ''), d.zone)
-    WHERE (t.zh_name IS NULL OR t.zh_name = '' OR t.zh_name = '-' OR t.zh_name LIKE 'Zonal Head%' OR t.zh_code = 'ZH001')
+      t.zone = COALESCE(NULLIF(d.zone, ''), t.zone)
+    WHERE (t.zh_name != d.zh_name OR t.zh_code != d.zh_code OR t.zh_name IS NULL OR t.zh_name = '' OR t.zh_name = '-' OR t.zh_name LIKE 'Zonal Head%' OR t.zh_code = 'ZH001')
       AND d.zh_name IS NOT NULL AND d.zh_name != '' AND d.zh_name != '-' AND d.zh_name NOT LIKE 'Zonal Head%'
   `);
 
-  // 4b. Direct join master_zone_zh_mapping for any still missing
+  // 4b. Direct join master_zone_zh_mapping for any still missing or mismatched
   const resTargetsFromMapping = await dbRun(`
     UPDATE dealer_visit_targets t
     JOIN master_zone_zh_mapping z ON UPPER(TRIM(t.zone)) = UPPER(TRIM(z.zone_code))
     SET
       t.zh_name = z.zh_name,
       t.zh_code = z.zh_code
-    WHERE t.zh_name IS NULL OR t.zh_name = '' OR t.zh_name = '-' OR t.zh_name LIKE 'Zonal Head%' OR t.zh_code = 'ZH001' OR t.zh_code LIKE 'ZH%'
+    WHERE t.zh_name != z.zh_name 
+       OR t.zh_code != z.zh_code
+       OR t.zh_name IS NULL 
+       OR t.zh_name = '' 
+       OR t.zh_name = '-' 
+       OR t.zh_name LIKE 'Zonal Head%' 
+       OR t.zh_code = 'ZH001' 
+       OR t.zh_code LIKE 'ZH%'
   `);
 
   // 4c. Dynamic fallback for dealer_visit_targets from employee_master by zone

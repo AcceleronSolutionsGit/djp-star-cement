@@ -374,7 +374,9 @@ export async function analyseAdherence(opts = {}) {
     byDealer.push({
       ...row,
       planned_dates: [...new Set(row.planned_dates)].sort(),
+      planned_visits: row.planned,
       mtd_planned: mtdPlanned,
+      mtd_due: mtdPlanned,
       adhered: adheredRaw,
       adhered_capped: adheredCapped,
       adhered_days: adheredDays,
@@ -388,17 +390,19 @@ export async function analyseAdherence(opts = {}) {
 
   // ── 6. roll up ────────────────────────────────────────────────────────────
   const rollup = (rows) => {
-    const planned      = rows.reduce((s, r) => s + r.planned, 0);
-    const mtdPlanned   = rows.reduce((s, r) => s + r.mtd_planned, 0);
-    const adhered      = rows.reduce((s, r) => s + r.adhered, 0);
-    const adheredCap   = rows.reduce((s, r) => s + r.adhered_capped, 0);
+    const planned      = rows.reduce((s, r) => s + (r.planned || 0), 0);
+    const mtdPlanned   = rows.reduce((s, r) => s + (r.mtd_planned || 0), 0);
+    const adhered      = rows.reduce((s, r) => s + (r.adhered || 0), 0);
+    const adheredCap   = rows.reduce((s, r) => s + (r.adhered_capped || 0), 0);
     const denominator  = mtdPlanned < 1 ? planned : mtdPlanned;
     return {
       dealers: rows.length,
       dealers_visited: rows.filter(r => r.visited).length,
       dealers_missed:  rows.filter(r => !r.visited).length,
       planned,
+      planned_visits: planned,
       mtd_planned: mtdPlanned,
+      mtd_due: mtdPlanned,
       adhered,
       adhered_capped: adheredCap,
       adherence_pct:        denominator > 0 ? adhered / denominator : 0,
