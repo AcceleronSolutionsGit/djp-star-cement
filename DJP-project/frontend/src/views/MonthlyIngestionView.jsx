@@ -354,15 +354,26 @@ export default function MonthlyIngestionView({
               <span>Download Masters Excel (Whole Month)</span>
             </a>
             <a
-              href={`${API_BASE}/djp/export-visits`}
+              href={`${API_BASE}/djp/export-visits?periodMonth=${encodeURIComponent(selectedPeriod || '2026-10')}&cycleCode=ALL`}
+              className="btn btn-outline"
+              target="_blank"
+              rel="noreferrer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#7c3aed', borderColor: '#7c3aed', fontWeight: 600, background: '#faf5ff' }}
+              title="Download Visits Planned Excel for Whole Month (C1 + C2 Combined)"
+            >
+              <FileSpreadsheet size={16} />
+              <span>Visits Excel (Whole Month - C1+C2)</span>
+            </a>
+            <a
+              href={`${API_BASE}/djp/export-visits${selectedPeriod ? `?periodMonth=${encodeURIComponent(selectedPeriod)}&cycleCode=${encodeURIComponent(selectedCycle || 'C1')}` : ''}`}
               className="btn btn-outline"
               target="_blank"
               rel="noreferrer"
               style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#2563eb', borderColor: '#2563eb', fontWeight: 600 }}
-              title="Download Visits Planned Excel"
+              title={`Download Visits Planned Excel (${selectedCycle || 'C1'})`}
             >
               <FileSpreadsheet size={16} />
-              <span>Download Visits Planned</span>
+              <span>Download Visits Planned ({selectedCycle || 'C1'})</span>
             </a>
             <a
               href={`${API_BASE}/djp/export-sfa-logs`}

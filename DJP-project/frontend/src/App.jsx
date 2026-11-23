@@ -204,9 +204,10 @@ export default function App() {
   // Visits Planned Export
   const handleExportVisits = async () => {
     try {
-      showToast('Preparing Visits Planned Report Excel file...', 'info');
       const period = selectedPeriod || '2026-10';
       const cycle = selectedCycle || 'C1';
+      const isCombined = cycle === 'ALL' || cycle === 'COMBINED' || cycle === 'C1_C2' || cycle === 'Whole_Month';
+      showToast(`Preparing Visits Planned Report Excel file (${isCombined ? 'Whole Month' : cycle})...`, 'info');
       const res = await fetch(`${API_BASE}/djp/export-visits?periodMonth=${encodeURIComponent(period)}&cycleCode=${encodeURIComponent(cycle)}`);
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
@@ -216,12 +217,12 @@ export default function App() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `visits-To_Be_Achieved_${period}_${cycle}.xlsx`);
+      link.setAttribute('download', `visits-To_Be_Achieved_${period}_${isCombined ? 'Whole_Month' : cycle}.xlsx`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      showToast('Visits Planned Excel downloaded successfully!', 'success');
+      showToast(`Visits Planned Excel (${isCombined ? 'Whole Month' : cycle}) downloaded successfully!`, 'success');
     } catch (err) {
       showToast(err.message || 'Failed to download Visits Planned Excel', 'error');
     }

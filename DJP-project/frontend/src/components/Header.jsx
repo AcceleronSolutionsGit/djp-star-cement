@@ -94,10 +94,11 @@ export default function Header({
               background: '#fff',
               height: '26px'
             }}
-            title="Select Plan Cycle (C1: 1–15, C2: 16–End)"
+            title="Select Plan Cycle (C1: 1–15, C2: 16–End, or Whole Month)"
           >
-            <option value="C1">C1</option>
-            <option value="C2">C2</option>
+            <option value="C1">C1 (1–15)</option>
+            <option value="C2">C2 (16–End)</option>
+            <option value="ALL">Whole Month (C1+C2)</option>
           </select>
         </div>
 

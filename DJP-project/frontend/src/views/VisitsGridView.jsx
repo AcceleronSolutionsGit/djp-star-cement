@@ -386,6 +386,7 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
               value={filters.cycleCode}
               onChange={(e) => setFilters({ ...filters, cycleCode: e.target.value })}
             >
+              <option value="ALL">Whole Month (C1 + C2)</option>
               <option value="C1">Cycle 1: 1st – 15th</option>
               <option value="C2">Cycle 2: 16th – EOM</option>
             </select>
@@ -450,15 +451,26 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
               <span>Masters Excel (Whole Month)</span>
             </a>
             <a
-              href={`${API_BASE}/djp/export-visits${filters.periodMonth && filters.periodMonth !== 'ALL' ? `?periodMonth=${encodeURIComponent(filters.periodMonth)}&cycleCode=${encodeURIComponent(filters.cycleCode || 'C1')}` : ''}`}
+              href={`${API_BASE}/djp/export-visits?periodMonth=${encodeURIComponent(filters.periodMonth && filters.periodMonth !== 'ALL' ? filters.periodMonth : '2026-10')}&cycleCode=ALL`}
               className="btn btn-outline"
-              style={{ padding: '5px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', color: '#2563eb', borderColor: '#2563eb', fontWeight: 600 }}
-              title="Download Visits Planned Excel"
+              style={{ padding: '5px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', color: '#7c3aed', borderColor: '#7c3aed', fontWeight: 600, background: '#faf5ff' }}
+              title="Download Visits Planned Excel for Whole Month (C1 + C2 Combined)"
               target="_blank"
               rel="noreferrer"
             >
               <FileSpreadsheet size={15} />
-              <span>Visits Planned</span>
+              <span>Visits Excel (Whole Month - C1+C2)</span>
+            </a>
+            <a
+              href={`${API_BASE}/djp/export-visits${filters.periodMonth && filters.periodMonth !== 'ALL' ? `?periodMonth=${encodeURIComponent(filters.periodMonth)}&cycleCode=${encodeURIComponent(filters.cycleCode || 'C1')}` : ''}`}
+              className="btn btn-outline"
+              style={{ padding: '5px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', color: '#2563eb', borderColor: '#2563eb', fontWeight: 600 }}
+              title={`Download Visits Planned Excel (${filters.cycleCode === 'ALL' ? 'Whole Month' : filters.cycleCode || 'C1'})`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <FileSpreadsheet size={15} />
+              <span>Visits Planned ({filters.cycleCode === 'ALL' ? 'Whole Month' : filters.cycleCode || 'C1'})</span>
             </a>
             <button
               className="btn btn-success"

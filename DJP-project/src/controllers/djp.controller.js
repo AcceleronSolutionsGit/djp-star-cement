@@ -728,29 +728,42 @@ const isoDay   = v => (v instanceof Date ? v.toISOString() : String(v ?? '')).sl
  */
 async function loadScheduledVisits(periodMonth, cycleCode) {
   let rows = [];
-  try {
-    rows = await dbAll(
-      `SELECT d.visit_date, d.dealer_sap_code, d.dealer_name, d.sequence, d.purpose_of_visit,
+  const isCombined = !cycleCode || cycleCode === 'ALL' || cycleCode === 'COMBINED' || cycleCode === 'C1_C2' || cycleCode === 'BOTH' || cycleCode === 'Whole_Month' || cycleCode === 'WHOLE_MONTH';
+  const query = isCombined
+    ? `SELECT d.visit_date, d.dealer_sap_code, d.dealer_name, d.sequence, d.purpose_of_visit,
+              p.emp_code, p.emp_name, p.emp_role, p.status, p.cycle_code
+         FROM sales_plan_details d
+         JOIN sales_plans p ON p.id = d.plan_id
+        WHERE p.period_month = ?
+        ORDER BY d.visit_date ASC, p.emp_code ASC, d.sequence ASC`
+    : `SELECT d.visit_date, d.dealer_sap_code, d.dealer_name, d.sequence, d.purpose_of_visit,
               p.emp_code, p.emp_name, p.emp_role, p.status, p.cycle_code
          FROM sales_plan_details d
          JOIN sales_plans p ON p.id = d.plan_id
         WHERE p.period_month = ? AND p.cycle_code = ?
-        ORDER BY d.visit_date ASC, p.emp_code ASC, d.sequence ASC`,
-      [periodMonth, cycleCode]
-    );
+        ORDER BY d.visit_date ASC, p.emp_code ASC, d.sequence ASC`;
+  const params = isCombined ? [periodMonth] : [periodMonth, cycleCode];
+
+  try {
+    rows = await dbAll(query, params);
   } catch (e) {
     // emp_role arrives with migrate-app-plan-workflow.js. Without it the plans are
     // still readable — the role is simply unknown, and every visit lands under SO.
     console.warn('[exportVisits] full plan read failed, falling back:', e.message);
-    rows = await dbAll(
-      `SELECT d.visit_date, d.dealer_sap_code, d.dealer_name, d.sequence, d.purpose_of_visit,
-              p.emp_code, p.emp_name, p.status, p.cycle_code
-         FROM sales_plan_details d
-         JOIN sales_plans p ON p.id = d.plan_id
-        WHERE p.period_month = ? AND p.cycle_code = ?
-        ORDER BY d.visit_date ASC, p.emp_code ASC, d.sequence ASC`,
-      [periodMonth, cycleCode]
-    ).catch(() => []);
+    const fallbackQuery = isCombined
+      ? `SELECT d.visit_date, d.dealer_sap_code, d.dealer_name, d.sequence, d.purpose_of_visit,
+                p.emp_code, p.emp_name, p.status, p.cycle_code
+           FROM sales_plan_details d
+           JOIN sales_plans p ON p.id = d.plan_id
+          WHERE p.period_month = ?
+          ORDER BY d.visit_date ASC, p.emp_code ASC, d.sequence ASC`
+      : `SELECT d.visit_date, d.dealer_sap_code, d.dealer_name, d.sequence, d.purpose_of_visit,
+                p.emp_code, p.emp_name, p.status, p.cycle_code
+           FROM sales_plan_details d
+           JOIN sales_plans p ON p.id = d.plan_id
+          WHERE p.period_month = ? AND p.cycle_code = ?
+          ORDER BY d.visit_date ASC, p.emp_code ASC, d.sequence ASC`;
+    rows = await dbAll(fallbackQuery, params).catch(() => []);
   }
 
   const all = rows.map(r => ({
@@ -761,7 +774,7 @@ async function loadScheduledVisits(periodMonth, cycleCode) {
     empName: r.emp_name || '',
     role: String(r.emp_role || 'SO').toUpperCase(),
     status: r.status || '',
-    cycle: r.cycle_code || cycleCode,
+    cycle: r.cycle_code || (isCombined ? 'Whole_Month' : cycleCode),
     purpose: r.purpose_of_visit || ''
   }));
 
@@ -999,23 +1012,32 @@ async function buildVisitsWorkbook({ headers, rows, scheduled, targets, targetPe
 export async function exportVisitsExcel(req, res) {
   try {
     const { periodMonth, cycleCode } = req.query;
+    const isCombined = !cycleCode || cycleCode === 'ALL' || cycleCode === 'COMBINED' || cycleCode === 'C1_C2' || cycleCode === 'BOTH' || cycleCode === 'Whole_Month' || cycleCode === 'WHOLE_MONTH';
     let targetPeriod = periodMonth && periodMonth !== 'ALL' ? periodMonth : null;
-    let targetCycle = cycleCode && cycleCode !== 'ALL' ? cycleCode : 'C1';
+    let targetCycle = isCombined ? 'Whole_Month' : (cycleCode || 'C1');
 
     if (!targetPeriod) {
       const latest = await dbGet('SELECT period_month, cycle_code FROM dealer_visit_targets WHERE period_month IS NOT NULL ORDER BY period_month DESC LIMIT 1');
       if (latest) {
         targetPeriod = latest.period_month;
-        if (latest.cycle_code) targetCycle = latest.cycle_code;
+        if (!isCombined && latest.cycle_code) targetCycle = latest.cycle_code;
       } else {
         targetPeriod = '2026-06';
       }
     }
 
-    let targets = await dbAll(
-      'SELECT * FROM dealer_visit_targets WHERE period_month = ? AND cycle_code = ? ORDER BY zone ASC, area ASC, so_name ASC, dealer_name ASC',
-      [targetPeriod, targetCycle]
-    );
+    let targets;
+    if (isCombined) {
+      targets = await dbAll(
+        'SELECT * FROM dealer_visit_targets WHERE period_month = ? ORDER BY zone ASC, area ASC, so_name ASC, dealer_name ASC',
+        [targetPeriod]
+      );
+    } else {
+      targets = await dbAll(
+        'SELECT * FROM dealer_visit_targets WHERE period_month = ? AND cycle_code = ? ORDER BY zone ASC, area ASC, so_name ASC, dealer_name ASC',
+        [targetPeriod, targetCycle]
+      );
+    }
 
     if (!targets || targets.length === 0) {
       targets = await dbAll(
@@ -1031,14 +1053,23 @@ export async function exportVisitsExcel(req, res) {
     const uniqueTargetsMap = new Map();
     for (const t of targets) {
       const code = t.sap_code || t.sfa_code || (t.dealer_id ? `DLR_${t.dealer_id}` : `TGT_${t.id}`);
-      if (code) uniqueTargetsMap.set(code, t);
+      if (!code) continue;
+      if (!uniqueTargetsMap.has(code)) {
+        uniqueTargetsMap.set(code, { ...t });
+      } else {
+        const existing = uniqueTargetsMap.get(code);
+        if ((!existing.so_visits || existing.so_visits === 0) && t.so_visits > 0) existing.so_visits = t.so_visits;
+        if ((!existing.asm_visits || existing.asm_visits === 0) && t.asm_visits > 0) existing.asm_visits = t.asm_visits;
+        if ((!existing.rsm_visits || existing.rsm_visits === 0) && t.rsm_visits > 0) existing.rsm_visits = t.rsm_visits;
+        if ((!existing.zh_visits || existing.zh_visits === 0) && t.zh_visits > 0) existing.zh_visits = t.zh_visits;
+      }
     }
     const uniqueTargets = [...uniqueTargetsMap.values()];
 
     // What was actually scheduled. sales_plan_details.dealer_sap_code holds whichever
     // code identified the dealer when the visit was created — a SAP code normally, an
     // SFA code for a prospect (prospects have no SAP code) — so index by both.
-    const scheduled = await loadScheduledVisits(targetPeriod, targetCycle);
+    const scheduled = await loadScheduledVisits(targetPeriod, isCombined ? 'ALL' : targetCycle);
 
     // 'concat' was the client's own helper column — a formula key they used to VLOOKUP
     // between their workbooks. It is always empty here, so it is not written.
