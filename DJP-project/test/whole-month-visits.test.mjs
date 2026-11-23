@@ -46,8 +46,8 @@ async function runTests() {
   const wsSfa = wbAll.getWorksheet('SFA Report');
 
   assert.ok(wsVisits, "Sheet 'Visits' missing");
-  assert.ok(wsSfa, "Sheet 'SFA Report' missing");
-  console.log(`  ✓ Sheets found: ['Visits', 'SFA Report']`);
+  assert.equal(wsSfa, undefined, "Sheet 'SFA Report' should NOT be present in Visits Planned export");
+  console.log(`  ✓ Sheets verified: only ['Visits'] present, 'SFA Report' removed as requested`);
 
   // Fixed headers check
   const FIXED_HEADERS = [
@@ -86,33 +86,23 @@ async function runTests() {
   assert.ok(c1DatesCount > 0, 'No C1 dates found on Visits sheet');
   assert.ok(c2DatesCount > 0, 'No C2 dates found on Visits sheet');
 
-  // Sheet 2 checks
-  console.log(`  ✓ Sheet 'SFA Report' has ${wsSfa.rowCount - 1} scheduled visit rows across both cycles`);
-  assert.ok(wsSfa.rowCount > 20000, `Expected >20000 SFA visit rows, got ${wsSfa.rowCount}`);
-
-  const sfaHeaders = [
-    'Date of Visit', 'Customer Code', 'Customer Name', 'Type', 'Route', 'Branch',
-    'Employee Code', 'Employee Name', 'Check In Time', 'Check Out Time', 'Duration',
-    'Visit Status(Productive / Non productive)', 'Purpose Of Visit', 'Remarks'
-  ];
-  assert.deepEqual(wsSfa.getRow(1).values.slice(1), sfaHeaders, 'SFA Report headers mismatch');
-  console.log(`  ✓ Sheet 'SFA Report' exactly matches official 14-column uploadable diary format`);
-
   // Test 2: Cycle 1 standalone
   console.log('\n[Test 2] Testing C1 export with cycleCode="C1"...');
   const { wb: wbC1, headers: hC1 } = await driveExport('2026-10', 'C1');
   assert.ok(hC1['Content-Disposition'].includes('visits-To_Be_Achieved_2026-10_C1.xlsx'));
-  const wsSfaC1 = wbC1.getWorksheet('SFA Report');
-  console.log(`  ✓ C1 export produced ${wsSfaC1.rowCount - 1} visits in SFA Report`);
-  assert.ok(wsSfaC1.rowCount > 10000, 'Expected >10000 visits in C1');
+  const wsVisitsC1 = wbC1.getWorksheet('Visits');
+  assert.ok(wsVisitsC1, "Sheet 'Visits' missing in C1");
+  assert.equal(wbC1.getWorksheet('SFA Report'), undefined, "Sheet 'SFA Report' should not be present in C1");
+  console.log(`  ✓ C1 export produced ${wsVisitsC1.rowCount - 2} dealer rows with ONLY 'Visits' sheet`);
 
   // Test 3: Cycle 2 standalone
   console.log('\n[Test 3] Testing C2 export with cycleCode="C2"...');
   const { wb: wbC2, headers: hC2 } = await driveExport('2026-10', 'C2');
   assert.ok(hC2['Content-Disposition'].includes('visits-To_Be_Achieved_2026-10_C2.xlsx'));
-  const wsSfaC2 = wbC2.getWorksheet('SFA Report');
-  console.log(`  ✓ C2 export produced ${wsSfaC2.rowCount - 1} visits in SFA Report`);
-  assert.ok(wsSfaC2.rowCount > 5000, 'Expected >5000 visits in C2');
+  const wsVisitsC2 = wbC2.getWorksheet('Visits');
+  assert.ok(wsVisitsC2, "Sheet 'Visits' missing in C2");
+  assert.equal(wbC2.getWorksheet('SFA Report'), undefined, "Sheet 'SFA Report' should not be present in C2");
+  console.log(`  ✓ C2 export produced ${wsVisitsC2.rowCount - 2} dealer rows with ONLY 'Visits' sheet`);
 
   console.log('\n================================================================');
   console.log('✓ ALL TESTS PASSED: Whole Month & Cycle Exports 100% Verified!');
