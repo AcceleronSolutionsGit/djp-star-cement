@@ -13,6 +13,7 @@ import { runCoordinateMigrations } from './migrate-customer-coordinates.js';
 import { runEmployeeMasterMigration } from './migrate-employee-master.js';
 import { runZonalHeadMigration } from './migrate-zonal-heads.js';
 import { runPlanEnhancementsMigration } from './migrate-plan-enhancements.js';
+import { runFixUtDinajpurRsmMigration } from './migrate-fix-ut-dinajpur-rsm.js';
 import { healAllMissingZonalHeads } from '../services/zonalHead.service.js';
 import { syncEmployeeMasterFromApi } from '../services/employeeMaster.service.js';
 import { syncCustomerCoordinatesFromApi, updateMasterDealersFromCoordinates } from '../services/customerCoordinates.service.js';
@@ -57,6 +58,9 @@ async function runAllMigrations() {
 
     const coordProp = await updateMasterDealersFromCoordinates();
     console.log(`  ✓ Coordinates & counter types propagated: ${coordProp.affectedRows} dealers updated`);
+
+    const rsmFix = await runFixUtDinajpurRsmMigration();
+    console.log(`  ✓ Uttar Dinajpur RSM hierarchy fixed: ${rsmFix.dealersUpdated} dealers, ${rsmFix.mappingsUpdated} mappings, ${rsmFix.targetsUpdated} targets`);
 
     console.log('\n====================================================');
     console.log('  ALL DATABASE MIGRATIONS COMPLETED SUCCESSFULLY');
