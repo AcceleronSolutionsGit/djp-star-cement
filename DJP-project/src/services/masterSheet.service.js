@@ -241,12 +241,17 @@ export function buildRow(t, index, soAsmMap = null) {
     ? Number(t.counter_share)
     : (hasPotential ? currentSales / potential : 0);
 
-  // Resolve Zonal Head and canonical Zone
+  // Resolve Zonal Head and canonical Zone from SFA data and hierarchy
   const zhInfo = resolveZonalHeadSync({
     zone: s(t.zone),
     region: s(t.region),
     area: s(t.dm_area || t.area),
-    branch: s(t.branch)
+    branch: s(t.branch),
+    block: s(t.sbg_block || t.block),
+    customerCode: s(t.sap_code || t.sfa_code || t.customer_code),
+    sapCode: s(t.sap_code),
+    sfaCode: s(t.sfa_code),
+    empCode: s(t.so_emp_code || t.so_code)
   });
   const zoneName = zhInfo.zone || s(t.zone);
   const zhName = (s(t.zh_name) && !s(t.zh_name).includes('RAJESH SRIVASTAVA') && !s(t.zh_name).includes('DIBYAJYOTI GUHA'))

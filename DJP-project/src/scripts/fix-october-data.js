@@ -65,8 +65,27 @@ export async function fixOctoberData() {
        OR emp_code = 'E0003'
   `);
 
-  // [2] Heal zone assignments in dealer_visit_targets from branch/area
+  // [2] Heal zone assignments in dealer_visit_targets from SFA data, branch/area
   console.log('[2] Normalizing Zones across dealer_visit_targets (2026-10)...');
+
+  // 2a. Sync zone from SFA Customer Coordinates
+  await dbRun(`
+    UPDATE dealer_visit_targets t
+    JOIN master_customer_coordinates c ON (t.sap_code = c.dns_customer_code OR t.sfa_code = c.dns_customer_code OR t.sfa_code = c.display_code)
+    SET t.zone = c.zone
+    WHERE c.zone IS NOT NULL AND c.zone != '' AND (t.zone IS NULL OR t.zone = '' OR t.zone = '-' OR (t.zone = 'NE1' AND c.zone != 'NE1'))
+      AND t.period_month = '2026-10'
+  `);
+
+  // 2b. Sync zone from SFA Employee Master
+  await dbRun(`
+    UPDATE dealer_visit_targets t
+    JOIN employee_master em ON (t.so_emp_code = em.dns_emp_code OR t.so_emp_code = em.emp_code)
+    SET t.zone = em.zone
+    WHERE em.zone IS NOT NULL AND em.zone != '' AND (t.zone IS NULL OR t.zone = '' OR t.zone = '-' OR (t.zone = 'NE1' AND em.zone != 'NE1'))
+      AND t.period_month = '2026-10'
+  `);
+
   await dbRun(`
     UPDATE dealer_visit_targets
     SET zone = CASE
@@ -82,7 +101,12 @@ export async function fixOctoberData() {
         'DARJEELING HILLS', 'DARJEELING PLAINS', 'SIKKIM', 'MANGAN'
       ) THEN 'NB1'
       WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN ('MALDA', 'DAKSHIN DINAJPUR', 'UTTAR DINAJPUR', 'BALURGHAT', 'CHANCHAL', 'GAZOLE') THEN 'NB2'
-      WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN ('PATNA', 'MUZAFFARPUR', 'BHAGALPUR', 'PURNIA', 'KATIHAR', 'KISHANGANJ', 'SUPAUL', 'KAHALGAON') THEN 'BIHAR'
+      WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN (
+        'PATNA', 'MUZAFFARPUR', 'BHAGALPUR', 'PURNIA', 'KATIHAR', 'KISHANGANJ', 'SUPAUL', 'KAHALGAON',
+        'WARSALIGANJ', 'WARISALIGANJ', 'WARSLIGANJ', 'NAWADA', 'CHHOTKI NAWADA', 'RAJAULI', 'RAJAULI BUS STAND',
+        'HULASGANJ', 'GOBINDPUR', 'GOVINDPUR', 'GONAWA', 'HISUA', 'PAWAPURI', 'SHEIKHPURA', 'LAKHISARAI', 'JAMUI',
+        'DHARAUT', 'MORGAW', 'SAHPUR MORE', 'NAI BAZAR', 'JEHANABAD TOWN', 'PAKRIWARABA', 'PAKRIWARABA BAZAR'
+      ) THEN 'BIHAR'
       WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN ('KOLKATA', 'HOWRAH', 'HOOGHLY', 'BURDWAN', 'DURGAPUR') THEN 'SOUTH BENGAL'
       ELSE COALESCE(NULLIF(zone, ''), 'NE1')
     END

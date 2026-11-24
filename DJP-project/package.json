@@ -23,7 +23,8 @@
     "dev:frontend": "npm run dev --prefix frontend",
     "build:frontend": "npm run build --prefix frontend",
     "fix:oct-plans": "node src/scripts/fix-october-plans.js",
-    "fix:oct-data": "node src/scripts/fix-october-data.js"
+    "fix:oct-data": "node src/scripts/fix-october-data.js",
+    "sync:zones": "node src/scripts/sync-all-zones.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

@@ -488,14 +488,27 @@ export async function exportPjpTradeExcel(req, res) {
       const rsmVisits = parseFloat(t.rsm_visits) || 0;
       const zhVisits = parseFloat(t.zh_visits) || 0;
 
+      const zhInfo = resolveZonalHeadSync({
+        zone: t.zone,
+        region: t.region,
+        area: area,
+        branch: t.branch,
+        block: block,
+        customerCode: custCode,
+        sapCode: t.sap_code,
+        sfaCode: t.sfa_code,
+        empCode: t.so_emp_code || t.so_code
+      });
+      const resolvedZone = zhInfo.zone || t.zone || '-';
+
       return {
-        'Zone': t.zone || '-',
+        'Zone': resolvedZone,
         'Cust Type': custType,
         'Area': area,
         'Block': block,
         'ZONAL HEAD': (t.zh_name && t.zh_name !== '-' && !t.zh_name.startsWith('Zonal Head') && !t.zh_name.includes('RAJESH SRIVASTAVA') && !t.zh_name.includes('DIBYAJYOTI GUHA')) 
-          ? t.zh_name 
-          : (resolveZonalHeadSync({ zone: t.zone, region: t.region, area: area, branch: t.branch })?.zh_name || '-'),
+          ? (zhInfo.zh_name || t.zh_name) 
+          : (zhInfo.zh_name || '-'),
         'RSM': (t.zone === 'NE2' && (!t.rsm_name || t.rsm_name === 'VACANT' || t.rsm_name === '-' || t.rsm_name === 'NONE'))
           ? 'SAURABH KUMAR'
           : (t.rsm_name || '-'),
@@ -1129,7 +1142,12 @@ export async function exportVisitsExcel(req, res) {
         zone: t.zone,
         region: t.region,
         area: t.dm_area || t.area,
-        branch: t.branch
+        branch: t.branch,
+        block: t.sbg_block || t.block || t.md_block,
+        customerCode,
+        sapCode: t.sap_code,
+        sfaCode: t.sfa_code,
+        empCode: t.so_emp_code || t.so_code
       });
       const effectiveZone = zhInfo.zone || t.zone || '';
       const effectiveZh = (t.zh_name && !t.zh_name.includes('RAJESH SRIVASTAVA') && !t.zh_name.includes('DIBYAJYOTI GUHA'))

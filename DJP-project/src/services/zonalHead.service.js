@@ -244,6 +244,29 @@ export const BRANCH_ZONE_MAP = {
   'KURHANI': 'BIHAR',
   'RUNNISAIDPUR': 'BIHAR',
   'MUSHAHARI': 'BIHAR',
+  'WARSALIGANJ': 'BIHAR',
+  'WARISALIGANJ': 'BIHAR',
+  'WARSLIGANJ': 'BIHAR',
+  'NAWADA': 'BIHAR',
+  'CHHOTKI NAWADA': 'BIHAR',
+  'RAJAULI': 'BIHAR',
+  'RAJAULI BUS STAND': 'BIHAR',
+  'HULASGANJ': 'BIHAR',
+  'GOBINDPUR': 'BIHAR',
+  'GOVINDPUR': 'BIHAR',
+  'GONAWA': 'BIHAR',
+  'HISUA': 'BIHAR',
+  'PAWAPURI': 'BIHAR',
+  'SHEIKHPURA': 'BIHAR',
+  'LAKHISARAI': 'BIHAR',
+  'JAMUI': 'BIHAR',
+  'DHARAUT': 'BIHAR',
+  'MORGAW': 'BIHAR',
+  'SAHPUR MORE': 'BIHAR',
+  'NAI BAZAR': 'BIHAR',
+  'JEHANABAD TOWN': 'BIHAR',
+  'PAKRIWARABA': 'BIHAR',
+  'PAKRIWARABA BAZAR': 'BIHAR',
 
   // --- Zone SOUTH BENGAL -> ATANU BANERJEE ---
   'KOLKATA': 'SOUTH BENGAL',
@@ -382,17 +405,21 @@ export async function findZoneByArea(area, state = '') {
 }
 
 /**
- * Dynamic In-Memory Cache for Zonal Head mappings.
- * Automatically populated from master_zone_zh_mapping and employee_master database tables.
+ * Dynamic In-Memory Cache for Zonal Head mappings & SFA ground truth.
+ * Automatically populated from master_zone_zh_mapping, employee_master,
+ * and master_customer_coordinates database tables.
  * Refreshes periodically or on-demand when mappings are updated.
  */
 let dynamicZhMap = new Map();
+let sfaCustomerZoneMap = new Map();
+let sfaRouteZoneMap = new Map();
+let sfaEmployeeZoneMap = new Map();
 let lastCacheTime = 0;
 const CACHE_TTL_MS = 60 * 1000; // 1 minute auto-refresh or on demand
 
 /**
- * Refresh the dynamic in-memory Zonal Head cache from master_zone_zh_mapping and employee_master.
- * No hardcoded person names — entirely driven by database records.
+ * Refresh the dynamic in-memory Zonal Head cache from master_zone_zh_mapping, employee_master,
+ * and master_customer_coordinates (SFA authoritative data).
  *
  * @param {boolean} [force=false]
  * @returns {Promise<Map<string, Object>>}
@@ -454,6 +481,55 @@ export async function refreshDynamicZonalHeadCache(force = false) {
       }
     }
 
+    // Enrich SFA Customer Data (customer code / display code -> Zone)
+    const custRows = await dbAll(`
+      SELECT UPPER(TRIM(dns_customer_code)) as code, UPPER(TRIM(customer_code)) as cust_code, UPPER(TRIM(display_code)) as disp_code, UPPER(TRIM(zone)) as zone
+      FROM master_customer_coordinates
+      WHERE zone IS NOT NULL AND zone != ''
+    `).catch(() => []);
+    const newCustMap = new Map();
+    for (const c of custRows) {
+      const zNorm = normalizeZone(c.zone);
+      if (zNorm) {
+        if (c.code) newCustMap.set(c.code, zNorm);
+        if (c.cust_code) newCustMap.set(c.cust_code, zNorm);
+        if (c.disp_code) newCustMap.set(c.disp_code, zNorm);
+      }
+    }
+    sfaCustomerZoneMap = newCustMap;
+
+    // Enrich SFA Route Data (route_name -> Zone)
+    const routeRows = await dbAll(`
+      SELECT UPPER(TRIM(route_name)) as route, UPPER(TRIM(zone)) as zone
+      FROM master_customer_coordinates
+      WHERE route_name IS NOT NULL AND zone IS NOT NULL AND zone != ''
+      GROUP BY UPPER(TRIM(route_name)), UPPER(TRIM(zone))
+    `).catch(() => []);
+    const newRouteMap = new Map();
+    for (const r of routeRows) {
+      const zNorm = normalizeZone(r.zone);
+      if (zNorm && r.route) {
+        newRouteMap.set(r.route, zNorm);
+      }
+    }
+    sfaRouteZoneMap = newRouteMap;
+
+    // Enrich SFA Employee Data (dns_emp_code / emp_code -> Zone)
+    const empRows = await dbAll(`
+      SELECT UPPER(TRIM(dns_emp_code)) as dns_code, UPPER(TRIM(emp_code)) as emp_code, UPPER(TRIM(zone)) as zone
+      FROM employee_master
+      WHERE zone IS NOT NULL AND zone != ''
+    `).catch(() => []);
+    const newEmpMap = new Map();
+    for (const e of empRows) {
+      const zNorm = normalizeZone(e.zone);
+      if (zNorm) {
+        if (e.dns_code) newEmpMap.set(e.dns_code, zNorm);
+        if (e.emp_code) newEmpMap.set(e.emp_code, zNorm);
+      }
+    }
+    sfaEmployeeZoneMap = newEmpMap;
+
     if (newMap.size > 0) {
       dynamicZhMap = newMap;
       lastCacheTime = Date.now();
@@ -467,8 +543,14 @@ export async function refreshDynamicZonalHeadCache(force = false) {
 
 /**
  * Synchronous resolver for Zonal Head — guarantees an immediate, dynamic answer
- * using the database-driven dynamicZhMap cache.
- * Completely dynamic: no hardcoded person names.
+ * using the database-driven dynamicZhMap cache and SFA ground truth.
+ *
+ * Precedence:
+ * 1. SFA Customer Data (dns_customer_code, sfa_code, sap_code)
+ * 2. Geographic Match: branch, dmArea, area, sbgBlock, block against SFA Routes & BRANCH_ZONE_MAP
+ * 3. SFA Employee Data (so_emp_code, so_code)
+ * 4. Explicit valid canonical zone
+ * 5. Default Fallback ('NE1')
  *
  * @param {Object} params
  * @param {string} [params.zone]
@@ -476,7 +558,14 @@ export async function refreshDynamicZonalHeadCache(force = false) {
  * @param {string} [params.area]
  * @param {string} [params.dmArea]
  * @param {string} [params.branch]
+ * @param {string} [params.block]
+ * @param {string} [params.sbgBlock]
  * @param {string} [params.state]
+ * @param {string} [params.customerCode]
+ * @param {string} [params.sapCode]
+ * @param {string} [params.sfaCode]
+ * @param {string} [params.empCode]
+ * @param {string} [params.soCode]
  * @returns {{ zone: string, zh_name: string|null, zh_code: string|null, emp_code: string|null, designation: string|null, level: string|null, resolvedBy: string }}
  */
 const DEFAULT_CANONICAL_ZH = {
@@ -489,34 +578,84 @@ const DEFAULT_CANONICAL_ZH = {
   'NT': { zone: 'NT', zh_name: 'ABHISHEK JOSHI', zh_code: '11001694', emp_code: 'E1277', designation: 'GM', level: 'NT' }
 };
 
-export function resolveZonalHeadSync({ zone, region, area, dmArea, branch, state } = {}) {
-  let resolvedZone = normalizeZone(zone || region);
+export function resolveZonalHeadSync({
+  zone,
+  region,
+  area,
+  dmArea,
+  branch,
+  block,
+  sbgBlock,
+  state,
+  customerCode,
+  sapCode,
+  sfaCode,
+  empCode,
+  soCode
+} = {}) {
+  let resolvedZone = null;
   let resolvedBy = 'NONE';
 
-  // Check branch, dmArea, area against BRANCH_ZONE_MAP if zone is missing or generic
-  const candidates = [branch, dmArea, area].filter(Boolean);
-  for (const c of candidates) {
-    const clean = String(c).trim().toUpperCase();
-    if (BRANCH_ZONE_MAP[clean]) {
-      resolvedZone = BRANCH_ZONE_MAP[clean];
-      resolvedBy = 'INFERRED_FROM_BRANCH_AREA';
+  // 1. SFA Customer Data lookup (most authoritative for dealer/customer)
+  const custCandidates = [sapCode, sfaCode, customerCode].filter(Boolean);
+  for (const cc of custCandidates) {
+    const clean = String(cc).trim().toUpperCase();
+    if (sfaCustomerZoneMap.has(clean)) {
+      resolvedZone = sfaCustomerZoneMap.get(clean);
+      resolvedBy = 'SFA_CUSTOMER_DATA';
       break;
     }
-    for (const [k, z] of Object.entries(BRANCH_ZONE_MAP)) {
-      if (clean === k || clean.includes(k) || k.includes(clean)) {
-        resolvedZone = z;
-        resolvedBy = 'PARTIAL_MATCH_BRANCH_AREA';
+  }
+
+  // 2. Geographic candidates: branch, dmArea, area, sbgBlock, block against SFA Routes & BRANCH_ZONE_MAP
+  if (!resolvedZone) {
+    const geoCandidates = [branch, dmArea, area, sbgBlock, block].filter(Boolean);
+    for (const c of geoCandidates) {
+      const clean = String(c).trim().toUpperCase();
+      if (sfaRouteZoneMap.has(clean)) {
+        resolvedZone = sfaRouteZoneMap.get(clean);
+        resolvedBy = 'SFA_ROUTE_DATA';
+        break;
+      }
+      if (BRANCH_ZONE_MAP[clean]) {
+        resolvedZone = BRANCH_ZONE_MAP[clean];
+        resolvedBy = 'INFERRED_FROM_BRANCH_AREA';
+        break;
+      }
+      for (const [k, z] of Object.entries(BRANCH_ZONE_MAP)) {
+        if (clean === k || clean.includes(k) || k.includes(clean)) {
+          resolvedZone = z;
+          resolvedBy = 'PARTIAL_MATCH_BRANCH_AREA';
+          break;
+        }
+      }
+      if (resolvedZone) break;
+    }
+  }
+
+  // 3. SFA Employee Data lookup (SO / SE zone)
+  if (!resolvedZone) {
+    const empCandidates = [empCode, soCode].filter(Boolean);
+    for (const ec of empCandidates) {
+      const clean = String(ec).trim().toUpperCase();
+      if (sfaEmployeeZoneMap.has(clean)) {
+        resolvedZone = sfaEmployeeZoneMap.get(clean);
+        resolvedBy = 'SFA_EMPLOYEE_DATA';
         break;
       }
     }
-    if (resolvedZone && resolvedBy !== 'NONE') break;
   }
 
-  if (resolvedBy === 'NONE' && resolvedZone) {
-    resolvedBy = 'EXPLICIT_ZONE';
+  // 4. Explicit zone passed in (only if valid canonical zone)
+  if (!resolvedZone) {
+    const explicit = normalizeZone(zone || region);
+    if (explicit) {
+      resolvedZone = explicit;
+      resolvedBy = 'EXPLICIT_ZONE';
+    }
   }
 
-  // Fallback to NE1 (corporate HQ default zone) if still unresolved
+  // 5. Fallback to NE1 (corporate HQ default zone) if still unresolved
   if (!resolvedZone) {
     resolvedZone = 'NE1';
     resolvedBy = 'DEFAULT_FALLBACK';
@@ -676,6 +815,28 @@ export async function healAllMissingZonalHeads() {
 
   console.log('[ZonalHeadService] Healing missing Zonal Heads across all tables...');
 
+  // 0a. SFA Customer Data Ground Truth: Populate/Correct zone on master_dealers directly from SFA customer coordinates
+  await dbRun(`
+    UPDATE master_dealers d
+    JOIN master_customer_coordinates c ON d.sap_code = c.dns_customer_code
+    SET d.zone = c.zone
+    WHERE c.zone IS NOT NULL AND c.zone != '' AND (d.zone IS NULL OR d.zone = '' OR d.zone = '-' OR (d.zone = 'NE1' AND c.zone != 'NE1'))
+  `);
+  await dbRun(`
+    UPDATE master_dealers d
+    JOIN master_customer_coordinates c ON d.sfa_code = c.dns_customer_code
+    SET d.zone = c.zone
+    WHERE c.zone IS NOT NULL AND c.zone != '' AND (d.zone IS NULL OR d.zone = '' OR d.zone = '-' OR (d.zone = 'NE1' AND c.zone != 'NE1'))
+  `);
+
+  // 0b. SFA Employee Data Ground Truth: Populate/Correct zone on master_dealers from SFA assigned Sales Officer
+  await dbRun(`
+    UPDATE master_dealers d
+    JOIN employee_master em ON d.so_emp_code = em.dns_emp_code
+    SET d.zone = em.zone
+    WHERE em.zone IS NOT NULL AND em.zone != '' AND (d.zone IS NULL OR d.zone = '' OR d.zone = '-' OR (d.zone = 'NE1' AND em.zone != 'NE1'))
+  `);
+
   // 1. Populate/Normalize zone on master_dealers
   await dbRun(`
     UPDATE master_dealers
@@ -721,7 +882,7 @@ export async function healAllMissingZonalHeads() {
         'CHANCHAL-I', 'CHANCHAL-II', 'GAZOLE', 'HARISCHANDRAPUR', 'SAMSI'
       ) THEN 'NB2'
 
-      -- BIHAR Branches / Areas
+      -- BIHAR Branches / Areas (including Nawada, Warsaliganj, Warisaliganj cluster)
       WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN (
         'PATNA', 'MUZAFFARPUR', 'BHAGALPUR', 'PURNIA', 'BEGUSARAI', 'DARBHANGA', 'GAYA',
         'KATIHAR', 'KISHANGANJ', 'ARARIA', 'SAHARSA', 'SUPAUL', 'MADHEPURA', 'SAMASTIPUR',
@@ -729,7 +890,10 @@ export async function healAllMissingZonalHeads() {
         'KAHALGAON', 'PRANPUR', 'SAHEBPUR KAMAL', 'SHAHKUND', 'PURNIA EAST', 'KOCHADHAMAN', 'AMDABAD',
         'AMARPUR', 'BAHADURGANJ', 'KASBA', 'NARPATGANJ', 'PATNA SADAR', 'DIDARGANJ',
         'PATNA SADAR - DIDARGANJ', 'TANKUPPA', 'MANPUR', 'MAKHDUMPUR', 'JEHANABAD', 'FATEHPUR',
-        'IMAMGANJ', 'MANER', 'BIHTA', 'KURHANI', 'RUNNISAIDPUR', 'MUSHAHARI'
+        'IMAMGANJ', 'MANER', 'BIHTA', 'KURHANI', 'RUNNISAIDPUR', 'MUSHAHARI',
+        'WARSALIGANJ', 'WARISALIGANJ', 'WARSLIGANJ', 'NAWADA', 'CHHOTKI NAWADA', 'RAJAULI', 'RAJAULI BUS STAND',
+        'HULASGANJ', 'GOBINDPUR', 'GOVINDPUR', 'GONAWA', 'HISUA', 'PAWAPURI', 'SHEIKHPURA', 'LAKHISARAI', 'JAMUI',
+        'DHARAUT', 'MORGAW', 'SAHPUR MORE', 'NAI BAZAR', 'JEHANABAD TOWN', 'PAKRIWARABA', 'PAKRIWARABA BAZAR'
       ) THEN 'BIHAR'
 
       -- SOUTH BENGAL Branches / Areas
@@ -799,6 +963,22 @@ export async function healAllMissingZonalHeads() {
   `);
 
   // 3. Heal master_dealer_so_mapping zone & ZH
+  // 3a0. SFA Customer Data Ground Truth for mappings
+  await dbRun(`
+    UPDATE master_dealer_so_mapping m
+    JOIN master_customer_coordinates c ON (m.sap_code = c.dns_customer_code OR m.linked_dealer_code = c.dns_customer_code OR m.linked_dealer_code = c.display_code)
+    SET m.zone = c.zone
+    WHERE c.zone IS NOT NULL AND c.zone != '' AND (m.zone IS NULL OR m.zone = '' OR m.zone = '-' OR (m.zone = 'NE1' AND c.zone != 'NE1'))
+  `);
+
+  // 3a1. SFA Employee Data Ground Truth for mappings
+  await dbRun(`
+    UPDATE master_dealer_so_mapping m
+    JOIN employee_master em ON (m.so_emp_code = em.dns_emp_code OR m.so_emp_code = em.emp_code)
+    SET m.zone = em.zone
+    WHERE em.zone IS NOT NULL AND em.zone != '' AND (m.zone IS NULL OR m.zone = '' OR m.zone = '-' OR (m.zone = 'NE1' AND em.zone != 'NE1'))
+  `);
+
   await dbRun(`
     UPDATE master_dealer_so_mapping
     SET zone = CASE
@@ -818,7 +998,12 @@ export async function healAllMissingZonalHeads() {
         'SILIGURI', 'JALPAIGURI', 'COOCHBEHAR', 'COOCH BEHAR', 'ALIPURDUAR', 'DARJEELING HILLS', 'DARJEELING PLAINS', 'SIKKIM', 'MANGAN'
       ) THEN 'NB1'
       WHEN UPPER(TRIM(COALESCE(branch, area, ''))) IN ('MALDA', 'DAKSHIN DINAJPUR', 'UTTAR DINAJPUR', 'BALURGHAT', 'CHANCHAL', 'GAZOLE') THEN 'NB2'
-      WHEN UPPER(TRIM(COALESCE(branch, area, ''))) IN ('PATNA', 'MUZAFFARPUR', 'BHAGALPUR', 'PURNIA', 'KATIHAR', 'KISHANGANJ', 'SUPAUL', 'KAHALGAON') THEN 'BIHAR'
+      WHEN UPPER(TRIM(COALESCE(branch, area, ''))) IN (
+        'PATNA', 'MUZAFFARPUR', 'BHAGALPUR', 'PURNIA', 'KATIHAR', 'KISHANGANJ', 'SUPAUL', 'KAHALGAON',
+        'WARSALIGANJ', 'WARISALIGANJ', 'WARSLIGANJ', 'NAWADA', 'CHHOTKI NAWADA', 'RAJAULI', 'RAJAULI BUS STAND',
+        'HULASGANJ', 'GOBINDPUR', 'GOVINDPUR', 'GONAWA', 'HISUA', 'PAWAPURI', 'SHEIKHPURA', 'LAKHISARAI', 'JAMUI',
+        'DHARAUT', 'MORGAW', 'SAHPUR MORE', 'NAI BAZAR', 'JEHANABAD TOWN', 'PAKRIWARABA', 'PAKRIWARABA BAZAR'
+      ) THEN 'BIHAR'
       WHEN UPPER(TRIM(COALESCE(branch, area, ''))) IN ('KOLKATA', 'HOWRAH', 'HOOGHLY', 'BURDWAN', 'DURGAPUR') THEN 'SOUTH BENGAL'
       ELSE 'NE1'
     END
@@ -878,7 +1063,23 @@ export async function healAllMissingZonalHeads() {
     WHERE m.zh_name IS NULL OR m.zh_name = '' OR m.zh_name = '-' OR m.zh_name LIKE 'Zonal Head%'
   `);
 
-  // 4. Heal dealer_visit_targets: sync from master_dealers, then master_zone_zh_mapping, then fallback
+  // 4. Heal dealer_visit_targets: sync from SFA, master_dealers, then master_zone_zh_mapping, then fallback
+  // 4a0. SFA Customer Data Ground Truth for targets
+  await dbRun(`
+    UPDATE dealer_visit_targets t
+    JOIN master_customer_coordinates c ON (t.sap_code = c.dns_customer_code OR t.sfa_code = c.dns_customer_code OR t.sfa_code = c.display_code)
+    SET t.zone = c.zone
+    WHERE c.zone IS NOT NULL AND c.zone != '' AND (t.zone IS NULL OR t.zone = '' OR t.zone = '-' OR (t.zone = 'NE1' AND c.zone != 'NE1'))
+  `);
+
+  // 4a1. SFA Employee Data Ground Truth for targets
+  await dbRun(`
+    UPDATE dealer_visit_targets t
+    JOIN employee_master em ON (t.so_emp_code = em.dns_emp_code OR t.so_emp_code = em.emp_code)
+    SET t.zone = em.zone
+    WHERE em.zone IS NOT NULL AND em.zone != '' AND (t.zone IS NULL OR t.zone = '' OR t.zone = '-' OR (t.zone = 'NE1' AND em.zone != 'NE1'))
+  `);
+
   await dbRun(`
     UPDATE dealer_visit_targets t
     SET zone = CASE
@@ -898,7 +1099,12 @@ export async function healAllMissingZonalHeads() {
         'SILIGURI', 'JALPAIGURI', 'COOCHBEHAR', 'COOCH BEHAR', 'ALIPURDUAR', 'DARJEELING HILLS', 'DARJEELING PLAINS', 'SIKKIM', 'MANGAN'
       ) THEN 'NB1'
       WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN ('MALDA', 'DAKSHIN DINAJPUR', 'UTTAR DINAJPUR', 'BALURGHAT', 'CHANCHAL', 'GAZOLE') THEN 'NB2'
-      WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN ('PATNA', 'MUZAFFARPUR', 'BHAGALPUR', 'PURNIA', 'KATIHAR', 'KISHANGANJ', 'SUPAUL', 'KAHALGAON') THEN 'BIHAR'
+      WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN (
+        'PATNA', 'MUZAFFARPUR', 'BHAGALPUR', 'PURNIA', 'KATIHAR', 'KISHANGANJ', 'SUPAUL', 'KAHALGAON',
+        'WARSALIGANJ', 'WARISALIGANJ', 'WARSLIGANJ', 'NAWADA', 'CHHOTKI NAWADA', 'RAJAULI', 'RAJAULI BUS STAND',
+        'HULASGANJ', 'GOBINDPUR', 'GOVINDPUR', 'GONAWA', 'HISUA', 'PAWAPURI', 'SHEIKHPURA', 'LAKHISARAI', 'JAMUI',
+        'DHARAUT', 'MORGAW', 'SAHPUR MORE', 'NAI BAZAR', 'JEHANABAD TOWN', 'PAKRIWARABA', 'PAKRIWARABA BAZAR'
+      ) THEN 'BIHAR'
       WHEN UPPER(TRIM(COALESCE(branch, area, dm_area, ''))) IN ('KOLKATA', 'HOWRAH', 'HOOGHLY', 'BURDWAN', 'DURGAPUR') THEN 'SOUTH BENGAL'
       ELSE COALESCE(NULLIF(zone, ''), 'NE1')
     END
@@ -915,6 +1121,14 @@ export async function healAllMissingZonalHeads() {
       t.zone = COALESCE(NULLIF(d.zone, ''), t.zone)
     WHERE (t.zh_name != d.zh_name OR t.zh_code != d.zh_code OR t.zh_name IS NULL OR t.zh_name = '' OR t.zh_name = '-' OR t.zh_name LIKE 'Zonal Head%' OR t.zh_code = 'ZH001')
       AND d.zh_name IS NOT NULL AND d.zh_name != '' AND d.zh_name != '-' AND d.zh_name NOT LIKE 'Zonal Head%'
+  `);
+
+  // 4a2. Sync block from master_dealers where missing on target
+  await dbRun(`
+    UPDATE dealer_visit_targets t
+    JOIN master_dealers d ON t.dealer_id = d.id OR (t.sap_code IS NOT NULL AND t.sap_code = d.sap_code)
+    SET t.block = d.block
+    WHERE (t.block IS NULL OR t.block = '' OR t.block = '-') AND d.block IS NOT NULL AND d.block != ''
   `);
 
   // 4b. Direct join master_zone_zh_mapping for any still missing or mismatched
