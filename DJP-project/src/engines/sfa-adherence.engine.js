@@ -314,7 +314,15 @@ export async function analyseAdherence(opts = {}) {
 
   const dealerDims = new Map();
   for (const m of masterRows) {
-    const val = { area: m.area || '', zone: m.zone || '', category: 'New / Other' };
+    const sap = norm(m.sap_code);
+    const sfa = norm(m.sfa_code);
+    const val = {
+      sap_code: sap,
+      sfa_code: sfa,
+      area: m.area || '',
+      zone: m.zone || '',
+      category: 'New / Other'
+    };
     if (m.sap_code) dealerDims.set(key(m.sap_code), val);
     if (m.sfa_code) dealerDims.set(key(m.sfa_code), val);
   }
@@ -322,17 +330,23 @@ export async function analyseAdherence(opts = {}) {
     const cat = d.dealer_status || d.category || 'Other';
     const area = d.area || '';
     const zone = d.zone || '';
-    if (d.sap_code) {
-      const prev = dealerDims.get(key(d.sap_code)) || {};
-      dealerDims.set(key(d.sap_code), {
+    const sap = norm(d.sap_code);
+    const sfa = norm(d.sfa_code);
+    if (sap) {
+      const prev = dealerDims.get(key(sap)) || {};
+      dealerDims.set(key(sap), {
+        sap_code: sap || prev.sap_code || '',
+        sfa_code: sfa || prev.sfa_code || '',
         area: area || prev.area || '',
         zone: zone || prev.zone || '',
         category: cat
       });
     }
-    if (d.sfa_code) {
-      const prev = dealerDims.get(key(d.sfa_code)) || {};
-      dealerDims.set(key(d.sfa_code), {
+    if (sfa) {
+      const prev = dealerDims.get(key(sfa)) || {};
+      dealerDims.set(key(sfa), {
+        sap_code: sap || prev.sap_code || '',
+        sfa_code: sfa || prev.sfa_code || '',
         area: area || prev.area || '',
         zone: zone || prev.zone || '',
         category: cat
@@ -350,12 +364,20 @@ export async function analyseAdherence(opts = {}) {
       const dim = dealerDims.get(dealer) || (p.dealer_sap_code ? dealerDims.get(key(p.dealer_sap_code)) : null) || {};
       const empZone = empZoneMap.get(key(p.emp_code)) || empZoneMap.get(key(p.emp_name)) || '';
       const zone = dim.zone || empZone || '';
+      const sapCode = norm(p.dealer_sap_code) || dim.sap_code || (p.dealer_id ? `DLR_${p.dealer_id}` : '');
+      let sfaCode = dim.sfa_code || '';
+      if (!sfaCode && p.dealer_name) {
+        const match = String(p.dealer_name).match(/\((RSS[BD]?\w+|SD[A-Z0-9]+|[A-Z0-9_-]{4,})\)/i);
+        if (match) sfaCode = match[1];
+      }
       dealerRows.set(k, {
         cycle_code: p.cycle_code,
         role: p.emp_role,
         emp_code: p.emp_code,
         emp_name: p.emp_name,
-        dealer_sap_code: norm(p.dealer_sap_code) || (p.dealer_id ? `DLR_${p.dealer_id}` : ''),
+        dealer_sap_code: sapCode,
+        sap_code: sapCode,
+        sfa_code: sfaCode,
         dealer_name: p.dealer_name || 'Dealer',
         dealer_id: p.dealer_id,
         category: dim.category || 'Other',

@@ -155,6 +155,8 @@ export default function AdherenceReportView({
         if (!consolidatedMap.has(dKey)) {
           consolidatedMap.set(dKey, {
             ...dl,
+            sap_code: dl.sap_code || dl.dealer_sap_code || '',
+            sfa_code: dl.sfa_code || '',
             planned: Number(dl.planned ?? dl.planned_visits ?? 0),
             mtd_due: Number(dl.mtd_due ?? dl.mtd_planned ?? 0),
             adhered: Number(dl.adhered ?? 0),
@@ -162,6 +164,8 @@ export default function AdherenceReportView({
           });
         } else {
           const ex = consolidatedMap.get(dKey);
+          if (!ex.sfa_code && dl.sfa_code) ex.sfa_code = dl.sfa_code;
+          if (!ex.sap_code && (dl.sap_code || dl.dealer_sap_code)) ex.sap_code = dl.sap_code || dl.dealer_sap_code;
           ex.planned += Number(dl.planned ?? dl.planned_visits ?? 0);
           ex.mtd_due += Number(dl.mtd_due ?? dl.mtd_planned ?? 0);
           ex.adhered += Number(dl.adhered ?? 0);
@@ -182,7 +186,11 @@ export default function AdherenceReportView({
       });
     }
 
-    return list;
+    return list.map(dl => ({
+      ...dl,
+      sap_code: dl.sap_code || dl.dealer_sap_code || '',
+      sfa_code: dl.sfa_code || ''
+    }));
   }, [roleDealers, currentOfficer, cycle]);
 
   // Available categories & areas for current officer
@@ -209,6 +217,8 @@ export default function AdherenceReportView({
       const matchesSearch = !needle ||
         (d.dealer_name && d.dealer_name.toLowerCase().includes(needle)) ||
         (d.sap_code && d.sap_code.toLowerCase().includes(needle)) ||
+        (d.dealer_sap_code && d.dealer_sap_code.toLowerCase().includes(needle)) ||
+        (d.sfa_code && d.sfa_code.toLowerCase().includes(needle)) ||
         (d.area && d.area.toLowerCase().includes(needle));
 
       if (!matchesSearch) return false;
@@ -362,9 +372,9 @@ export default function AdherenceReportView({
           csv += `"${o.emp_name || o.emp_code}",${o.planned_visits || 0},${o.mtd_due || 0},${o.adhered || 0},${o.raw_pct || 0}%,${o.pending || 0}\n`;
         });
       } else {
-        csv = `${activeRole}/SE NAME,Category,Area,Dealer Name,SAP Code,Planned Visits,MTD Due Visits,Adhered Visits,MTD Adherence %,Pending Visits\n`;
+        csv = `${activeRole}/SE NAME,Category,Area,Dealer Name,SAP Code,SFA Code,Planned Visits,MTD Due Visits,Adhered Visits,MTD Adherence %,Pending Visits\n`;
         currentOfficerDealers.forEach(d => {
-          csv += `"${currentOfficer?.emp_name || currentOfficer?.emp_code}","${d.category || ''}","${d.area || ''}","${d.dealer_name || ''}","${d.sap_code || ''}",${d.planned || 0},${d.mtd_due || 0},${d.adhered || 0},${d.raw_pct || 0}%,${d.pending || 0}\n`;
+          csv += `"${currentOfficer?.emp_name || currentOfficer?.emp_code}","${d.category || ''}","${d.area || ''}","${d.dealer_name || ''}","${d.sap_code || d.dealer_sap_code || ''}","${d.sfa_code || ''}",${d.planned || 0},${d.mtd_due || 0},${d.adhered || 0},${d.raw_pct || 0}%,${d.pending || 0}\n`;
         });
       }
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -1175,7 +1185,7 @@ export default function AdherenceReportView({
             <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
             <input
               type="text"
-              placeholder="Search dealer name, SAP code..."
+              placeholder="Search dealer name, SAP code, SFA code..."
               className="form-control"
               value={detailSearch}
               onChange={e => setDetailSearch(e.target.value)}
@@ -1296,8 +1306,22 @@ export default function AdherenceReportView({
                           <div style={{ fontWeight: 600, color: '#0F172A' }}>
                             {dl.dealer_name}
                           </div>
-                          <div style={{ fontSize: '0.68rem', color: '#94A3B8', fontFamily: 'monospace' }}>
-                            SAP: {dl.sap_code} {dl.sfa_code ? `· SFA: ${dl.sfa_code}` : ''} {dl.visit_dates?.length > 0 && `· Visited: ${dl.visit_dates.join(', ')}`}
+                          <div style={{ fontSize: '0.72rem', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            {(dl.sap_code || dl.dealer_sap_code) && (
+                              <span style={{ background: '#EFF6FF', color: '#1D4ED8', padding: '1px 5px', borderRadius: 4, fontWeight: 700, fontSize: '0.69rem', fontFamily: 'monospace' }}>
+                                SAP: {dl.sap_code || dl.dealer_sap_code}
+                              </span>
+                            )}
+                            {dl.sfa_code && (
+                              <span style={{ background: '#F0FDF4', color: '#15803D', padding: '1px 5px', borderRadius: 4, fontWeight: 700, fontSize: '0.69rem', fontFamily: 'monospace' }}>
+                                SFA: {dl.sfa_code}
+                              </span>
+                            )}
+                            {dl.visit_dates?.length > 0 && (
+                              <span style={{ color: '#059669', fontSize: '0.69rem' }}>
+                                · Visited: {dl.visit_dates.join(', ')}
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td style={{ textAlign: 'right', fontWeight: 600 }}>

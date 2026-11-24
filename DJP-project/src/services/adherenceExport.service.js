@@ -204,44 +204,46 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'ALL', a
     const cycleLabel = isCombined ? 'Full Month' : (cycle || 'Full Month');
     sheet.getCell(2, 2).value = `Trade DJP - ${role} Adherence Report (${month} - ${cycleLabel})`;
     sheet.getCell(2, 2).font = { bold: true, size: 13, color: { argb: 'FF1E293B' } };
-    sheet.getCell(2, 13).value = `As on Date: ${a.asOnDate}`;
-    sheet.getCell(2, 13).font = { italic: true, size: 10, color: { argb: 'FF64748B' } };
+    sheet.getCell(2, 15).value = `As on Date: ${a.asOnDate}`;
+    sheet.getCell(2, 15).font = { italic: true, size: 10, color: { argb: 'FF64748B' } };
 
     // Row 3: Zone Filter context banner & Officers count summary
-    sheet.getCell(3, 2).value = `Zone Filter: All Zones (Use AutoFilter dropdowns on Row 4 headers below to filter by Zone, Area, Category, or Officer)`;
+    sheet.getCell(3, 2).value = `Zone Filter: All Zones (Use AutoFilter dropdowns on Row 4 headers below to filter by Zone, Area, Category, SAP Code, SFA Code, or Officer)`;
     sheet.getCell(3, 2).font = { bold: true, size: 9, color: { argb: 'FF1E40AF' } };
     sheet.getCell(3, 2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_BLUE } };
     sheet.getCell(3, 2).alignment = { vertical: 'middle', horizontal: 'left' };
     sheet.getRow(3).height = 24;
 
-    sheet.getCell(3, 13).value = `Total ${role} Officers: ${roleOfficers.length}`;
-    sheet.getCell(3, 13).font = { bold: true, size: 9.5, color: { argb: 'FF1E40AF' } };
-    sheet.getCell(3, 13).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_BLUE } };
-    sheet.getCell(3, 13).alignment = { vertical: 'middle', horizontal: 'center' };
+    sheet.getCell(3, 15).value = `Total ${role} Officers: ${roleOfficers.length}`;
+    sheet.getCell(3, 15).font = { bold: true, size: 9.5, color: { argb: 'FF1E40AF' } };
+    sheet.getCell(3, 15).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_BLUE } };
+    sheet.getCell(3, 15).alignment = { vertical: 'middle', horizontal: 'center' };
 
-    // Row 4 Detailed Headers (Cols B-K: cols 2-11)
+    // Row 4 Detailed Headers (Cols B-M: cols 2-13)
     const detailedHeaders = [
       { col: 2, text: `${role}/SE NAME`, bg: COLOR_PEACH },
       { col: 3, text: 'Zone', bg: COLOR_BLUE },
       { col: 4, text: 'Area', bg: COLOR_BLUE },
       { col: 5, text: 'Category', bg: COLOR_BLUE },
       { col: 6, text: 'DEALER NAME', bg: COLOR_BLUE },
-      { col: 7, text: `No. of visits Planned by ${role} in DJP`, bg: COLOR_YELLOW },
-      { col: 8, text: `MTD No: of visits Planned by ${role} in DJP`, bg: COLOR_YELLOW },
-      { col: 9, text: `No. of visits Adhered by ${role}`, bg: COLOR_GREEN },
-      { col: 10, text: `MTD ${role} % of Visit Adherence`, bg: COLOR_GREEN },
-      { col: 11, text: `${role} Pending to visit as per DJP`, bg: COLOR_SALMON }
+      { col: 7, text: 'SAP Code', bg: COLOR_BLUE },
+      { col: 8, text: 'SFA Code', bg: COLOR_BLUE },
+      { col: 9, text: `No. of visits Planned by ${role} in DJP`, bg: COLOR_YELLOW },
+      { col: 10, text: `MTD No: of visits Planned by ${role} in DJP`, bg: COLOR_YELLOW },
+      { col: 11, text: `No. of visits Adhered by ${role}`, bg: COLOR_GREEN },
+      { col: 12, text: `MTD ${role} % of Visit Adherence`, bg: COLOR_GREEN },
+      { col: 13, text: `${role} Pending to visit as per DJP`, bg: COLOR_SALMON }
     ];
 
-    // Row 4 Summary Headers (Cols M-S: cols 13-19)
+    // Row 4 Summary Headers (Cols O-U: cols 15-21)
     const summaryHeaders = [
-      { col: 13, text: `${role}/SE NAME`, bg: COLOR_PEACH },
-      { col: 14, text: 'Zone', bg: COLOR_BLUE },
-      { col: 15, text: `No. of visits Planned by ${role} in DJP`, bg: COLOR_YELLOW },
-      { col: 16, text: `MTD No: of visits Planned by ${role} in DJP`, bg: COLOR_YELLOW },
-      { col: 17, text: `No. of visits Adhered by ${role}`, bg: COLOR_GREEN },
-      { col: 18, text: `MTD ${role} % of Visit Adherence`, bg: COLOR_GREEN },
-      { col: 19, text: `${role} Pending to visit as per DJP`, bg: COLOR_SALMON }
+      { col: 15, text: `${role}/SE NAME`, bg: COLOR_PEACH },
+      { col: 16, text: 'Zone', bg: COLOR_BLUE },
+      { col: 17, text: `No. of visits Planned by ${role} in DJP`, bg: COLOR_YELLOW },
+      { col: 18, text: `MTD No: of visits Planned by ${role} in DJP`, bg: COLOR_YELLOW },
+      { col: 19, text: `No. of visits Adhered by ${role}`, bg: COLOR_GREEN },
+      { col: 20, text: `MTD ${role} % of Visit Adherence`, bg: COLOR_GREEN },
+      { col: 21, text: `${role} Pending to visit as per DJP`, bg: COLOR_SALMON }
     ];
 
     detailedHeaders.forEach(h => {
@@ -280,35 +282,35 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'ALL', a
       sumOffPending += pending;
 
       const r = sheet.getRow(sRowIdx);
-      r.getCell(13).value = off.emp_name || off.emp_code || '';
-      r.getCell(14).value = off.zone || 'ALL';
-      r.getCell(15).value = planned;
-      r.getCell(16).value = Math.round(mtdPlanned * 10) / 10;
-      r.getCell(17).value = adhered;
-      r.getCell(18).value = Math.round((pctVal || 0) * 100) + '%';
-      r.getCell(19).value = Math.round(pending * 10) / 10;
+      r.getCell(15).value = off.emp_name || off.emp_code || '';
+      r.getCell(16).value = off.zone || 'ALL';
+      r.getCell(17).value = planned;
+      r.getCell(18).value = Math.round(mtdPlanned * 10) / 10;
+      r.getCell(19).value = adhered;
+      r.getCell(20).value = Math.round((pctVal || 0) * 100) + '%';
+      r.getCell(21).value = Math.round(pending * 10) / 10;
 
-      applyDataStyle(r.getCell(13));
-      applyDataStyle(r.getCell(14));
-      applyDataStyle(r.getCell(15), true, '#,##0');
-      applyDataStyle(r.getCell(16), true, '#,##0.0');
+      applyDataStyle(r.getCell(15));
+      applyDataStyle(r.getCell(16));
       applyDataStyle(r.getCell(17), true, '#,##0');
-      applyDataStyle(r.getCell(18), true);
-      applyDataStyle(r.getCell(19), true, '#,##0.0');
+      applyDataStyle(r.getCell(18), true, '#,##0.0');
+      applyDataStyle(r.getCell(19), true, '#,##0');
+      applyDataStyle(r.getCell(20), true);
+      applyDataStyle(r.getCell(21), true, '#,##0.0');
 
       // Conditional formatting on %
       if (pctVal < 0.7) {
-        r.getCell(18).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_RED_FILL } };
-        r.getCell(18).font = { color: { argb: COLOR_RED_TEXT }, size: 9 };
+        r.getCell(20).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_RED_FILL } };
+        r.getCell(20).font = { color: { argb: COLOR_RED_TEXT }, size: 9 };
       } else if (pctVal >= 1.0) {
-        r.getCell(18).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_GREEN_FILL } };
-        r.getCell(18).font = { color: { argb: COLOR_GREEN_TEXT }, size: 9 };
+        r.getCell(20).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_GREEN_FILL } };
+        r.getCell(20).font = { color: { argb: COLOR_GREEN_TEXT }, size: 9 };
       }
 
       // Conditional formatting on pending
       if (pending > 0) {
-        r.getCell(19).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_RED_FILL } };
-        r.getCell(19).font = { color: { argb: COLOR_RED_TEXT }, size: 9 };
+        r.getCell(21).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_RED_FILL } };
+        r.getCell(21).font = { color: { argb: COLOR_RED_TEXT }, size: 9 };
       }
 
       sRowIdx++;
@@ -316,16 +318,16 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'ALL', a
 
     // Total Row with Descriptions for Summary Table (Right Side)
     const totSumRow = sheet.getRow(sRowIdx);
-    totSumRow.getCell(13).value = `${role} Total (${roleOfficers.length} Officers)`;
-    totSumRow.getCell(14).value = 'ALL';
-    totSumRow.getCell(15).value = sumOffPlanned;
-    totSumRow.getCell(16).value = Math.round(sumOffMtd * 10) / 10;
-    totSumRow.getCell(17).value = sumOffAdhered;
+    totSumRow.getCell(15).value = `${role} Total (${roleOfficers.length} Officers)`;
+    totSumRow.getCell(16).value = 'ALL';
+    totSumRow.getCell(17).value = sumOffPlanned;
+    totSumRow.getCell(18).value = Math.round(sumOffMtd * 10) / 10;
+    totSumRow.getCell(19).value = sumOffAdhered;
     const totOffPct = sumOffMtd > 0 ? (sumOffAdhered / sumOffMtd) : 0;
-    totSumRow.getCell(18).value = Math.round(totOffPct * 100) + '%';
-    totSumRow.getCell(19).value = Math.round(sumOffPending * 10) / 10;
+    totSumRow.getCell(20).value = Math.round(totOffPct * 100) + '%';
+    totSumRow.getCell(21).value = Math.round(sumOffPending * 10) / 10;
 
-    for (let col = 13; col <= 19; col++) {
+    for (let col = 15; col <= 21; col++) {
       const c = totSumRow.getCell(col);
       c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_BLUE } };
       c.font = { bold: true, size: 9, name: 'Calibri' };
@@ -335,7 +337,7 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'ALL', a
         left: { style: 'thin', color: { argb: 'FFE0E0E0' } },
         right: { style: 'thin', color: { argb: 'FFE0E0E0' } }
       };
-      if (col >= 15) c.alignment = { horizontal: 'right', vertical: 'middle' };
+      if (col >= 17) c.alignment = { horizontal: 'right', vertical: 'middle' };
     }
     sRowIdx++;
 
@@ -359,10 +361,12 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'ALL', a
       for (const [empKey, dList] of dealersByOfficer.entries()) {
         const consolidatedMap = new Map();
         for (const dl of dList) {
-          const dKey = `${dl.category || 'Other'}|${dl.dealer_sap_code || dl.dealer_name}`;
+          const dKey = `${dl.category || 'Other'}|${dl.sap_code || dl.dealer_sap_code || dl.dealer_name}`;
           if (!consolidatedMap.has(dKey)) {
             consolidatedMap.set(dKey, {
               ...dl,
+              sap_code: dl.sap_code || dl.dealer_sap_code || '',
+              sfa_code: dl.sfa_code || '',
               planned: Number(dl.planned ?? dl.planned_visits ?? 0),
               mtd_planned: Number(dl.mtd_planned ?? dl.mtd_due ?? 0),
               adhered: Number(dl.adhered ?? 0),
@@ -370,6 +374,8 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'ALL', a
             });
           } else {
             const existing = consolidatedMap.get(dKey);
+            if (!existing.sfa_code && dl.sfa_code) existing.sfa_code = dl.sfa_code;
+            if (!existing.sap_code && (dl.sap_code || dl.dealer_sap_code)) existing.sap_code = dl.sap_code || dl.dealer_sap_code;
             existing.planned += Number(dl.planned ?? dl.planned_visits ?? 0);
             existing.mtd_planned += Number(dl.mtd_planned ?? dl.mtd_due ?? 0);
             existing.adhered += Number(dl.adhered ?? 0);
@@ -465,34 +471,38 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'ALL', a
           r.getCell(4).value = dl.area || '';
           r.getCell(5).value = catName || 'Other';
           r.getCell(6).value = dl.dealer_name || dl.sap_code || '';
-          r.getCell(7).value = planned;
-          r.getCell(8).value = Math.round(mtdPlanned * 10) / 10;
-          r.getCell(9).value = adhered;
-          r.getCell(10).value = Math.round((dlPct || 0) * 100) + '%';
-          r.getCell(11).value = Math.round(pending * 10) / 10;
+          r.getCell(7).value = dl.sap_code || dl.dealer_sap_code || '';
+          r.getCell(8).value = dl.sfa_code || '';
+          r.getCell(9).value = planned;
+          r.getCell(10).value = Math.round(mtdPlanned * 10) / 10;
+          r.getCell(11).value = adhered;
+          r.getCell(12).value = Math.round((dlPct || 0) * 100) + '%';
+          r.getCell(13).value = Math.round(pending * 10) / 10;
 
           applyDataStyle(r.getCell(2));
           applyDataStyle(r.getCell(3));
           applyDataStyle(r.getCell(4));
           applyDataStyle(r.getCell(5));
           applyDataStyle(r.getCell(6));
-          applyDataStyle(r.getCell(7), true, '#,##0');
-          applyDataStyle(r.getCell(8), true, '#,##0.0');
+          applyDataStyle(r.getCell(7));
+          applyDataStyle(r.getCell(8));
           applyDataStyle(r.getCell(9), true, '#,##0');
-          applyDataStyle(r.getCell(10), true);
-          applyDataStyle(r.getCell(11), true, '#,##0.0');
+          applyDataStyle(r.getCell(10), true, '#,##0.0');
+          applyDataStyle(r.getCell(11), true, '#,##0');
+          applyDataStyle(r.getCell(12), true);
+          applyDataStyle(r.getCell(13), true, '#,##0.0');
 
           if (dlPct < 0.7) {
-            r.getCell(10).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_RED_FILL } };
-            r.getCell(10).font = { color: { argb: COLOR_RED_TEXT }, size: 9 };
+            r.getCell(12).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_RED_FILL } };
+            r.getCell(12).font = { color: { argb: COLOR_RED_TEXT }, size: 9 };
           } else if (dlPct >= 1.0) {
-            r.getCell(10).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_GREEN_FILL } };
-            r.getCell(10).font = { color: { argb: COLOR_GREEN_TEXT }, size: 9 };
+            r.getCell(12).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_GREEN_FILL } };
+            r.getCell(12).font = { color: { argb: COLOR_GREEN_TEXT }, size: 9 };
           }
 
           if (pending > 0) {
-            r.getCell(11).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_RED_FILL } };
-            r.getCell(11).font = { color: { argb: COLOR_RED_TEXT }, size: 9 };
+            r.getCell(13).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_RED_FILL } };
+            r.getCell(13).font = { color: { argb: COLOR_RED_TEXT }, size: 9 };
           }
 
           dRowIdx++;
@@ -505,14 +515,16 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'ALL', a
         subRow.getCell(4).value = '';
         subRow.getCell(5).value = `${catName} Total`;
         subRow.getCell(6).value = '';
-        subRow.getCell(7).value = catPlanned;
-        subRow.getCell(8).value = Math.round(catMtd * 10) / 10;
-        subRow.getCell(9).value = catAdhered;
+        subRow.getCell(7).value = '';
+        subRow.getCell(8).value = '';
+        subRow.getCell(9).value = catPlanned;
+        subRow.getCell(10).value = Math.round(catMtd * 10) / 10;
+        subRow.getCell(11).value = catAdhered;
         const subPct = catMtd > 0 ? catAdhered / (catMtd < 1 ? (catPlanned || 1) : catMtd) : 0;
-        subRow.getCell(10).value = Math.round((subPct || 0) * 100) + '%';
-        subRow.getCell(11).value = Math.round((catMtd - catAdhered) * 10) / 10;
+        subRow.getCell(12).value = Math.round((subPct || 0) * 100) + '%';
+        subRow.getCell(13).value = Math.round((catMtd - catAdhered) * 10) / 10;
 
-        for (let col = 2; col <= 11; col++) {
+        for (let col = 2; col <= 13; col++) {
           const c = subRow.getCell(col);
           c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_GRAY_BG } };
           c.font = { bold: true, size: 9, name: 'Calibri' };
@@ -520,7 +532,7 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'ALL', a
             top: { style: 'thin', color: { argb: 'FF94A3B8' } },
             bottom: { style: 'thin', color: { argb: 'FF94A3B8' } }
           };
-          if (col >= 7) c.alignment = { horizontal: 'right', vertical: 'middle' };
+          if (col >= 9) c.alignment = { horizontal: 'right', vertical: 'middle' };
         }
         dRowIdx++;
       }
@@ -532,15 +544,17 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'ALL', a
       offTotRow.getCell(4).value = '';
       offTotRow.getCell(5).value = 'Total';
       offTotRow.getCell(6).value = '';
-      offTotRow.getCell(7).value = offTotalPlanned;
-      offTotRow.getCell(8).value = Math.round(offTotalMtd * 10) / 10;
-      offTotRow.getCell(9).value = offTotalAdhered;
+      offTotRow.getCell(7).value = '';
+      offTotRow.getCell(8).value = '';
+      offTotRow.getCell(9).value = offTotalPlanned;
+      offTotRow.getCell(10).value = Math.round(offTotalMtd * 10) / 10;
+      offTotRow.getCell(11).value = offTotalAdhered;
       const offPct = offTotalMtd > 0 ? (offTotalAdhered / (offTotalMtd < 1 ? (offTotalPlanned || 1) : offTotalMtd)) : 0;
-      offTotRow.getCell(10).value = Math.round((offPct || 0) * 100) + '%';
+      offTotRow.getCell(12).value = Math.round((offPct || 0) * 100) + '%';
       const offPending = Math.round((offTotalMtd - offTotalAdhered) * 10) / 10;
-      offTotRow.getCell(11).value = offPending;
+      offTotRow.getCell(13).value = offPending;
 
-      for (let col = 2; col <= 11; col++) {
+      for (let col = 2; col <= 13; col++) {
         const c = offTotRow.getCell(col);
         c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_GRAY_BG } };
         c.font = { bold: true, size: 9, name: 'Calibri' };
@@ -548,20 +562,20 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'ALL', a
           top: { style: 'thin', color: { argb: 'FF94A3B8' } },
           bottom: { style: 'thin', color: { argb: 'FF0F172A' } }
         };
-        if (col >= 7) c.alignment = { horizontal: 'right', vertical: 'middle' };
+        if (col >= 9) c.alignment = { horizontal: 'right', vertical: 'middle' };
       }
 
       // Conditional formatting on % and pending matching the right side of the excel
       if (offPct < 0.7) {
-        offTotRow.getCell(10).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_RED_FILL } };
-        offTotRow.getCell(10).font = { color: { argb: COLOR_RED_TEXT }, size: 9, bold: true };
+        offTotRow.getCell(12).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_RED_FILL } };
+        offTotRow.getCell(12).font = { color: { argb: COLOR_RED_TEXT }, size: 9, bold: true };
       } else if (offPct >= 1.0) {
-        offTotRow.getCell(10).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_GREEN_FILL } };
-        offTotRow.getCell(10).font = { color: { argb: COLOR_GREEN_TEXT }, size: 9, bold: true };
+        offTotRow.getCell(12).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_GREEN_FILL } };
+        offTotRow.getCell(12).font = { color: { argb: COLOR_GREEN_TEXT }, size: 9, bold: true };
       }
       if (offPending > 0) {
-        offTotRow.getCell(11).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_RED_FILL } };
-        offTotRow.getCell(11).font = { color: { argb: COLOR_RED_TEXT }, size: 9, bold: true };
+        offTotRow.getCell(13).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_RED_FILL } };
+        offTotRow.getCell(13).font = { color: { argb: COLOR_RED_TEXT }, size: 9, bold: true };
       }
       dRowIdx++;
     }
@@ -573,14 +587,16 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'ALL', a
     totDlrRow.getCell(4).value = '';
     totDlrRow.getCell(5).value = `${role} Grand Total`;
     totDlrRow.getCell(6).value = `(${roleDealers.length} Dealer Visits)`;
-    totDlrRow.getCell(7).value = totDlrPlanned;
-    totDlrRow.getCell(8).value = Math.round(totDlrMtd * 10) / 10;
-    totDlrRow.getCell(9).value = totDlrAdhered;
+    totDlrRow.getCell(7).value = '';
+    totDlrRow.getCell(8).value = '';
+    totDlrRow.getCell(9).value = totDlrPlanned;
+    totDlrRow.getCell(10).value = Math.round(totDlrMtd * 10) / 10;
+    totDlrRow.getCell(11).value = totDlrAdhered;
     const totDlrPct = totDlrMtd > 0 ? (totDlrAdhered / totDlrMtd) : 0;
-    totDlrRow.getCell(10).value = Math.round(totDlrPct * 100) + '%';
-    totDlrRow.getCell(11).value = Math.round(totDlrPending * 10) / 10;
+    totDlrRow.getCell(12).value = Math.round(totDlrPct * 100) + '%';
+    totDlrRow.getCell(13).value = Math.round(totDlrPending * 10) / 10;
 
-    for (let col = 2; col <= 11; col++) {
+    for (let col = 2; col <= 13; col++) {
       const c = totDlrRow.getCell(col);
       c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_BLUE } };
       c.font = { bold: true, size: 9, name: 'Calibri' };
@@ -590,14 +606,14 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'ALL', a
         left: { style: 'thin', color: { argb: 'FFE0E0E0' } },
         right: { style: 'thin', color: { argb: 'FFE0E0E0' } }
       };
-      if (col >= 7) c.alignment = { horizontal: 'right', vertical: 'middle' };
+      if (col >= 9) c.alignment = { horizontal: 'right', vertical: 'middle' };
     }
     dRowIdx++;
 
     // AutoFilter on row 4 headers across both Detailed and Summary tables
     sheet.autoFilter = {
       from: 'B4',
-      to: 'S4'
+      to: 'U4'
     };
 
     // Balance empty cells between summary and detailed sides to eliminate nulls
@@ -605,7 +621,7 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'ALL', a
     for (let rIdx = 5; rIdx < maxRow; rIdx++) {
       const r = sheet.getRow(rIdx);
       if (rIdx >= dRowIdx) {
-        for (let col = 2; col <= 11; col++) {
+        for (let col = 2; col <= 13; col++) {
           const c = r.getCell(col);
           if (c.value === null || c.value === undefined) {
             c.value = '';
@@ -614,7 +630,7 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'ALL', a
         }
       }
       if (rIdx >= sRowIdx) {
-        for (let col = 13; col <= 19; col++) {
+        for (let col = 15; col <= 21; col++) {
           const c = r.getCell(col);
           if (c.value === null || c.value === undefined) {
             c.value = '';
@@ -630,20 +646,22 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'ALL', a
     sheet.getColumn(3).width = 12;  // Zone
     sheet.getColumn(4).width = 18;  // Area
     sheet.getColumn(5).width = 16;  // Category
-    sheet.getColumn(6).width = 32;  // Dealer Name
-    sheet.getColumn(7).width = 14;  // Planned
-    sheet.getColumn(8).width = 14;  // MTD Planned
-    sheet.getColumn(9).width = 14;  // Adhered
-    sheet.getColumn(10).width = 14; // MTD %
-    sheet.getColumn(11).width = 14; // Pending
-    sheet.getColumn(12).width = 4;   // Spacer between Detailed and Summary tables
-    sheet.getColumn(13).width = 24; // Officer Name (Summary)
-    sheet.getColumn(14).width = 12; // Zone (Summary)
-    sheet.getColumn(15).width = 14; // Planned (Summary)
-    sheet.getColumn(16).width = 14; // MTD Planned (Summary)
-    sheet.getColumn(17).width = 14; // Adhered (Summary)
-    sheet.getColumn(18).width = 14; // MTD % (Summary)
-    sheet.getColumn(19).width = 14; // Pending (Summary)
+    sheet.getColumn(6).width = 34;  // Dealer Name
+    sheet.getColumn(7).width = 15;  // SAP Code
+    sheet.getColumn(8).width = 15;  // SFA Code
+    sheet.getColumn(9).width = 14;  // Planned
+    sheet.getColumn(10).width = 14; // MTD Planned
+    sheet.getColumn(11).width = 14; // Adhered
+    sheet.getColumn(12).width = 14; // MTD %
+    sheet.getColumn(13).width = 14; // Pending
+    sheet.getColumn(14).width = 4;   // Spacer between Detailed and Summary tables
+    sheet.getColumn(15).width = 24; // Officer Name (Summary)
+    sheet.getColumn(16).width = 12; // Zone (Summary)
+    sheet.getColumn(17).width = 14; // Planned (Summary)
+    sheet.getColumn(18).width = 14; // MTD Planned (Summary)
+    sheet.getColumn(19).width = 14; // Adhered (Summary)
+    sheet.getColumn(20).width = 14; // MTD % (Summary)
+    sheet.getColumn(21).width = 14; // Pending (Summary)
   }
 
   return wb;
