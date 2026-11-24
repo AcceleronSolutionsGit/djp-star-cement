@@ -339,7 +339,7 @@ export default function App() {
               <AdherenceReportView
                 onShowToast={showToast}
                 selectedPeriod={selectedPeriod}
-                selectedCycle={selectedCycle}
+                selectedCycle="ALL"
               />
             )}
 

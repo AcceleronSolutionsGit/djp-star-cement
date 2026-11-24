@@ -17,12 +17,12 @@ const ROLES = [
 export default function AdherenceReportView({
   onShowToast,
   selectedPeriod,
-  selectedCycle,
+  selectedCycle = 'ALL',
   initialRole = 'SO'
 }) {
-  // Period & cycle controls
+  // Period & cycle controls — defaults to ALL (Full Month) for comprehensive adherence across C1 and C2
   const [month, setMonth] = useState(selectedPeriod || new Date().toISOString().slice(0, 7));
-  const [cycle, setCycle] = useState(selectedCycle || 'ALL');
+  const [cycle, setCycle] = useState('ALL');
   const [asOn, setAsOn] = useState('');
 
   // Sync props when changed by parent
@@ -31,7 +31,9 @@ export default function AdherenceReportView({
   }, [selectedPeriod]);
 
   useEffect(() => {
-    if (selectedCycle && selectedCycle !== cycle) setCycle(selectedCycle);
+    if (selectedCycle && selectedCycle !== 'C1' && selectedCycle !== cycle) {
+      setCycle(selectedCycle);
+    }
   }, [selectedCycle]);
 
   // Active Role: 'SO' | 'ASM' | 'RSM' | 'ZH'
@@ -345,13 +347,14 @@ export default function AdherenceReportView({
   };
 
   // Export Handlers
-  const handleExportExcel = async () => {
+  const handleExportExcel = async (exportCycle = null) => {
     try {
       setExporting(true);
-      onShowToast?.('Generating full zone-wise multi-tab Excel file...', 'info');
+      const effCycle = exportCycle || cycle || 'ALL';
+      onShowToast?.(`Generating ${effCycle === 'ALL' ? 'Full Month (C1+C2)' : effCycle} zone-wise multi-tab Excel file...`, 'info');
       await api.exportAdherenceExcel({
         periodMonth: month,
-        cycleCode: cycle,
+        cycleCode: effCycle,
         asOnDate: asOn || undefined
       });
       onShowToast?.('Excel file downloaded successfully!', 'success');
@@ -587,7 +590,7 @@ export default function AdherenceReportView({
               }}
             >
               <FileSpreadsheet size={15} className={exporting ? 'spin' : ''} />
-              {exporting ? 'Generating Excel…' : 'Export Full Excel'}
+              {exporting ? 'Generating Excel…' : (cycle === 'ALL' ? 'Export Full Month Excel (C1+C2)' : `Export ${cycle} Excel`)}
             </button>
             <button
               type="button"
