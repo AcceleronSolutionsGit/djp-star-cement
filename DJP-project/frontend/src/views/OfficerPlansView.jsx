@@ -168,7 +168,7 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
   const [tab, setTab] = useState('plans');
 
   // ── plans tab ──────────────────────────────────────────────────────────────
-  const [month, setMonth]   = useState(selectedPeriod || new Date().toISOString().slice(0, 7));
+  const [month, setMonth]   = useState(selectedPeriod || '2026-10');
   const [cycle, setCycle]   = useState(selectedCycle || 'ALL');
   const [status, setStatus] = useState('ALL');
   const [role, setRole]     = useState('ALL');

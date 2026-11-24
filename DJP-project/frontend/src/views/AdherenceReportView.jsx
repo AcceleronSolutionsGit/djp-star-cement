@@ -21,7 +21,7 @@ export default function AdherenceReportView({
   initialRole = 'SO'
 }) {
   // Period & cycle controls — defaults to ALL (Full Month) for comprehensive adherence across C1 and C2
-  const [month, setMonth] = useState(selectedPeriod || new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = useState(selectedPeriod || '2026-10');
   const [cycle, setCycle] = useState('ALL');
   const [asOn, setAsOn] = useState('');
 

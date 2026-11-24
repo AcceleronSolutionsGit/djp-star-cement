@@ -34,7 +34,7 @@ export default function App() {
   const [spinner, setSpinner] = useState({ visible: false, title: '', message: '' });
   const [reloadTrigger, setReloadTrigger] = useState(0);
   const [selectedPeriod, setSelectedPeriod] = useState(() => {
-    return localStorage.getItem('star_selected_period') || new Date().toISOString().slice(0, 7);
+    return localStorage.getItem('star_selected_period') || '2026-10';
   });
   const [selectedCycle, setSelectedCycle] = useState(() => {
     return localStorage.getItem('star_selected_cycle') || 'C1';

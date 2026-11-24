@@ -302,12 +302,22 @@ router.get('/djp/export-sfa-logs', exportSfaLogsExcel);
 router.get('/djp/export-adherence-report', async (req, res) => {
   try {
     const { buildAdherenceWorkbook } = await import('../services/adherenceExport.service.js');
-    const { periodMonth, cycleCode, asOnDate } = req.query;
+    const { dbGet } = await import('../config/database.js');
+    let { periodMonth, cycleCode, asOnDate } = req.query;
+
+    // Check if requested periodMonth has plans; if not, safely fall back to latest active period '2026-10'
+    let effectivePeriod = periodMonth && periodMonth !== 'undefined' && periodMonth !== 'null' ? periodMonth : '2026-10';
+    const planCheck = await dbGet('SELECT COUNT(*) as cnt FROM sales_plans WHERE period_month = ?', [effectivePeriod]).catch(() => ({ cnt: 0 }));
+    if (!planCheck || planCheck.cnt === 0) {
+      console.warn(`[exportAdherenceReport] No plans found for '${effectivePeriod}', falling back to '2026-10'`);
+      effectivePeriod = '2026-10';
+    }
+
     const isCombined = !cycleCode || cycleCode === 'ALL' || cycleCode === 'Whole_Month' || cycleCode === 'WHOLE_MONTH' || cycleCode === 'BOTH' || cycleCode === 'C1_C2' || cycleCode === 'COMBINED';
     const effectiveCycle = isCombined ? 'ALL' : cycleCode.toUpperCase();
-    const wb = await buildAdherenceWorkbook({ periodMonth, cycleCode: effectiveCycle, asOnDate });
+    const wb = await buildAdherenceWorkbook({ periodMonth: effectivePeriod, cycleCode: effectiveCycle, asOnDate });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=Trade_DJP_Adherence_${periodMonth || '2026-10'}_${effectiveCycle}.xlsx`);
+    res.setHeader('Content-Disposition', `attachment; filename=Trade_DJP_Adherence_${effectivePeriod}_${effectiveCycle}.xlsx`);
     await wb.xlsx.write(res);
     res.end();
   } catch (err) {

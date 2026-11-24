@@ -192,7 +192,7 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
       custType: 'ALL',
       so: 'ALL',
       asm: 'ALL',
-      periodMonth: new Date().toISOString().slice(0, 7),
+      periodMonth: '2026-10',
       cycleCode: 'C1',
       search: ''
     });
@@ -374,7 +374,7 @@ export default function VisitsGridView({ onShowToast, triggerReload, onOpenUploa
             <input
               type="month"
               className="form-control"
-              value={filters.periodMonth || new Date().toISOString().slice(0, 7)}
+              value={filters.periodMonth || '2026-10'}
               onChange={(e) => setFilters({ ...filters, periodMonth: e.target.value })}
             />
           </div>
