@@ -40,13 +40,14 @@ function applyDataStyle(cell, isNumber = false, format = null) {
   if (format) cell.numFmt = format;
 }
 
-export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', asOnDate = null }) {
-  const month = periodMonth || '2026-06';
-  const cycle = cycleCode && cycleCode !== 'ALL' ? cycleCode : null;
+export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'ALL', asOnDate = null }) {
+  const isCombined = !cycleCode || cycleCode === 'ALL' || cycleCode === 'Whole_Month' || cycleCode === 'WHOLE_MONTH' || cycleCode === 'BOTH' || cycleCode === 'C1_C2' || cycleCode === 'COMBINED';
+  const month = periodMonth || '2026-10';
+  const cycle = isCombined ? null : cycleCode;
 
   const a = await analyseAdherence({
     periodMonth: month,
-    cycleCode: cycle,
+    cycleCode: isCombined ? 'ALL' : cycle,
     asOnDate: asOnDate || null
   });
 
@@ -200,7 +201,8 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', as
     });
 
     // Row 2: Title / info header
-    sheet.getCell(2, 2).value = `Trade DJP - ${role} Adherence Report (${month} - ${cycle || 'Full Month'})`;
+    const cycleLabel = isCombined ? 'Full Month' : (cycle || 'Full Month');
+    sheet.getCell(2, 2).value = `Trade DJP - ${role} Adherence Report (${month} - ${cycleLabel})`;
     sheet.getCell(2, 2).font = { bold: true, size: 13, color: { argb: 'FF1E293B' } };
     sheet.getCell(2, 13).value = `As on Date: ${a.asOnDate}`;
     sheet.getCell(2, 13).font = { italic: true, size: 10, color: { argb: 'FF64748B' } };
@@ -350,6 +352,49 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', as
       const empKey = d.emp_name || d.emp_code || 'Unknown';
       if (!dealersByOfficer.has(empKey)) dealersByOfficer.set(empKey, []);
       dealersByOfficer.get(empKey).push(d);
+    }
+
+    // In combined/full-month mode, consolidate multiple cycle rows for the same dealer
+    if (isCombined) {
+      for (const [empKey, dList] of dealersByOfficer.entries()) {
+        const consolidatedMap = new Map();
+        for (const dl of dList) {
+          const dKey = `${dl.category || 'Other'}|${dl.dealer_sap_code || dl.dealer_name}`;
+          if (!consolidatedMap.has(dKey)) {
+            consolidatedMap.set(dKey, {
+              ...dl,
+              planned: Number(dl.planned ?? dl.planned_visits ?? 0),
+              mtd_planned: Number(dl.mtd_planned ?? dl.mtd_due ?? 0),
+              adhered: Number(dl.adhered ?? 0),
+              adhered_capped: Number(dl.adhered_capped ?? 0),
+            });
+          } else {
+            const existing = consolidatedMap.get(dKey);
+            existing.planned += Number(dl.planned ?? dl.planned_visits ?? 0);
+            existing.mtd_planned += Number(dl.mtd_planned ?? dl.mtd_due ?? 0);
+            existing.adhered += Number(dl.adhered ?? 0);
+            existing.adhered_capped += Number(dl.adhered_capped ?? 0);
+          }
+        }
+
+        const consolidatedList = Array.from(consolidatedMap.values()).map(dl => {
+          const mtdPlanned = dl.mtd_planned;
+          const planned = dl.planned;
+          const adhered = dl.adhered;
+          const pending = mtdPlanned - adhered;
+          const denominator = mtdPlanned < 1 ? (planned || 1) : mtdPlanned;
+          const adherence_pct = denominator > 0 ? adhered / denominator : 0;
+          return {
+            ...dl,
+            planned_visits: planned,
+            mtd_due: mtdPlanned,
+            pending,
+            adherence_pct
+          };
+        });
+
+        dealersByOfficer.set(empKey, consolidatedList);
+      }
     }
 
     for (const [officerName, dList] of dealersByOfficer.entries()) {

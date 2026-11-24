@@ -22,8 +22,17 @@ export default function AdherenceReportView({
 }) {
   // Period & cycle controls
   const [month, setMonth] = useState(selectedPeriod || new Date().toISOString().slice(0, 7));
-  const [cycle, setCycle] = useState(selectedCycle || 'C1');
+  const [cycle, setCycle] = useState(selectedCycle || 'ALL');
   const [asOn, setAsOn] = useState('');
+
+  // Sync props when changed by parent
+  useEffect(() => {
+    if (selectedPeriod && selectedPeriod !== month) setMonth(selectedPeriod);
+  }, [selectedPeriod]);
+
+  useEffect(() => {
+    if (selectedCycle && selectedCycle !== cycle) setCycle(selectedCycle);
+  }, [selectedCycle]);
 
   // Active Role: 'SO' | 'ASM' | 'RSM' | 'ZH'
   const [activeRole, setActiveRole] = useState(initialRole);
@@ -132,13 +141,49 @@ export default function AdherenceReportView({
   // Dealers belonging to current officer
   const currentOfficerDealers = useMemo(() => {
     if (!currentOfficer) return [];
-    return roleDealers.filter(d => {
+    const list = roleDealers.filter(d => {
       return (
         d.emp_code === currentOfficer.emp_code ||
         (d.emp_name && currentOfficer.emp_name && d.emp_name.toLowerCase() === currentOfficer.emp_name.toLowerCase())
       );
     });
-  }, [roleDealers, currentOfficer]);
+
+    if (cycle === 'ALL') {
+      const consolidatedMap = new Map();
+      for (const dl of list) {
+        const dKey = `${dl.category || 'Other'}|${dl.sap_code || dl.dealer_sap_code || dl.dealer_name}`;
+        if (!consolidatedMap.has(dKey)) {
+          consolidatedMap.set(dKey, {
+            ...dl,
+            planned: Number(dl.planned ?? dl.planned_visits ?? 0),
+            mtd_due: Number(dl.mtd_due ?? dl.mtd_planned ?? 0),
+            adhered: Number(dl.adhered ?? 0),
+            adhered_capped: Number(dl.adhered_capped ?? 0),
+          });
+        } else {
+          const ex = consolidatedMap.get(dKey);
+          ex.planned += Number(dl.planned ?? dl.planned_visits ?? 0);
+          ex.mtd_due += Number(dl.mtd_due ?? dl.mtd_planned ?? 0);
+          ex.adhered += Number(dl.adhered ?? 0);
+          ex.adhered_capped += Number(dl.adhered_capped ?? 0);
+        }
+      }
+      return Array.from(consolidatedMap.values()).map(dl => {
+        const mtdRound = Math.round(dl.mtd_due * 10) / 10;
+        const den = mtdRound < 1 ? dl.planned : mtdRound;
+        const pct = den > 0 ? Math.round((dl.adhered / den) * 100) : 0;
+        const pending = Math.round((mtdRound - dl.adhered) * 10) / 10;
+        return {
+          ...dl,
+          mtd_due: mtdRound,
+          raw_pct: pct,
+          pending
+        };
+      });
+    }
+
+    return list;
+  }, [roleDealers, currentOfficer, cycle]);
 
   // Available categories & areas for current officer
   const availableCategories = useMemo(() => {
@@ -326,7 +371,7 @@ export default function AdherenceReportView({
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `Adherence_${activeRole}_${activeSubTab}_${month}.csv`);
+      link.setAttribute('download', `Adherence_${activeRole}_${activeSubTab}_${month}_${cycle || 'ALL'}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -579,9 +624,9 @@ export default function AdherenceReportView({
               onChange={e => { setCycle(e.target.value); setAsOn(''); }}
               style={{ height: 34, fontSize: '0.82rem' }}
             >
+              <option value="ALL">Full Month · Days 1–End</option>
               <option value="C1">C1 · Days 1–15 (Feedback Window)</option>
               <option value="C2">C2 · Days 16–End (Amended Window)</option>
-              <option value="ALL">Full Month · Days 1–End</option>
             </select>
           </div>
 

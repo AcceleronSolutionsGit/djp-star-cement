@@ -303,9 +303,11 @@ router.get('/djp/export-adherence-report', async (req, res) => {
   try {
     const { buildAdherenceWorkbook } = await import('../services/adherenceExport.service.js');
     const { periodMonth, cycleCode, asOnDate } = req.query;
-    const wb = await buildAdherenceWorkbook({ periodMonth, cycleCode, asOnDate });
+    const isCombined = !cycleCode || cycleCode === 'ALL' || cycleCode === 'Whole_Month' || cycleCode === 'WHOLE_MONTH' || cycleCode === 'BOTH' || cycleCode === 'C1_C2' || cycleCode === 'COMBINED';
+    const effectiveCycle = isCombined ? 'ALL' : cycleCode.toUpperCase();
+    const wb = await buildAdherenceWorkbook({ periodMonth, cycleCode: effectiveCycle, asOnDate });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=Trade_DJP_Adherence_${periodMonth || '2026-06'}_${cycleCode || 'ALL'}.xlsx`);
+    res.setHeader('Content-Disposition', `attachment; filename=Trade_DJP_Adherence_${periodMonth || '2026-10'}_${effectiveCycle}.xlsx`);
     await wb.xlsx.write(res);
     res.end();
   } catch (err) {

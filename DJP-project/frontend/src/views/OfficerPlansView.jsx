@@ -187,7 +187,7 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
   const [regenLoading, setRegenLoading] = useState(false);
   const [regenResult, setRegenResult] = useState(null);
   const [expandedEmp, setExpandedEmp] = useState(null);
-  const [adhCycle, setAdhCycle] = useState('C1');
+  const [adhCycle, setAdhCycle] = useState('ALL');
   const [asOn, setAsOn] = useState('');   // blank = engine default (15th for C1, month end otherwise)
   const [showUnplanned, setShowUnplanned] = useState(false);
   const [adhViewMode, setAdhViewMode] = useState('officer'); // 'officer' | 'dealer'
@@ -1180,9 +1180,9 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
                 <label className="form-label">Cycle</label>
                 <select className="form-control" value={adhCycle}
                         onChange={e => { setAdhCycle(e.target.value); setAsOn(''); }}>
+                  <option value="ALL">Full cycle · days 1–end</option>
                   <option value="C1">C1 · days 1–15</option>
                   <option value="C2">C2 · days 16–end</option>
-                  <option value="ALL">Full cycle · days 1–end</option>
                 </select>
               </div>
               <div className="form-group">

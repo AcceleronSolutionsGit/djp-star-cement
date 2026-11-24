@@ -424,7 +424,8 @@ export const api = {
   exportAdherenceExcel: async ({ periodMonth, cycleCode, asOnDate } = {}) => {
     const q = new URLSearchParams();
     if (periodMonth) q.append('periodMonth', periodMonth);
-    if (cycleCode && cycleCode !== 'ALL') q.append('cycleCode', cycleCode);
+    const effCycle = cycleCode || 'ALL';
+    q.append('cycleCode', effCycle);
     if (asOnDate) q.append('asOnDate', asOnDate);
     const res = await fetchWithAuth(`${API_BASE}/djp/export-adherence-report?${q.toString()}`);
     if (!res.ok) {
@@ -435,7 +436,7 @@ export const api = {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Trade_DJP_Adherence_${periodMonth || '2026-06'}_${cycleCode || 'ALL'}.xlsx`;
+    a.download = `Trade_DJP_Adherence_${periodMonth || '2026-10'}_${effCycle}.xlsx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
