@@ -353,6 +353,11 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', as
     }
 
     for (const [officerName, dList] of dealersByOfficer.entries()) {
+      let isFirstRowForOfficer = true;
+      let offTotalPlanned = 0;
+      let offTotalMtd = 0;
+      let offTotalAdhered = 0;
+
       // Group by Category (with Need to Grow prioritized)
       const byCat = new Map();
       for (const d of dList) {
@@ -402,8 +407,15 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', as
           catMtd += mtdPlanned;
           catAdhered += adhered;
 
+          offTotalPlanned += planned;
+          offTotalMtd += mtdPlanned;
+          offTotalAdhered += adhered;
+
           const r = sheet.getRow(dRowIdx);
-          r.getCell(2).value = officerName || '';
+          // Show officer name ONCE ONLY on the first row of this officer
+          r.getCell(2).value = isFirstRowForOfficer ? (officerName || '') : '';
+          isFirstRowForOfficer = false;
+
           r.getCell(3).value = dl.zone || dl.emp_zone || '';
           r.getCell(4).value = dl.area || '';
           r.getCell(5).value = catName || 'Other';
@@ -443,7 +455,7 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', as
 
         // Category Subtotal Row
         const subRow = sheet.getRow(dRowIdx);
-        subRow.getCell(2).value = officerName || '';
+        subRow.getCell(2).value = ''; // Officer name shown once only
         subRow.getCell(3).value = '';
         subRow.getCell(4).value = '';
         subRow.getCell(5).value = `${catName} Total`;
@@ -467,15 +479,55 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', as
         }
         dRowIdx++;
       }
+
+      // Add another row to show total adherence like on the right side of the excel
+      const offTotRow = sheet.getRow(dRowIdx);
+      offTotRow.getCell(2).value = ''; // Officer name shown once only
+      offTotRow.getCell(3).value = '';
+      offTotRow.getCell(4).value = '';
+      offTotRow.getCell(5).value = 'Total';
+      offTotRow.getCell(6).value = '';
+      offTotRow.getCell(7).value = offTotalPlanned;
+      offTotRow.getCell(8).value = Math.round(offTotalMtd * 10) / 10;
+      offTotRow.getCell(9).value = offTotalAdhered;
+      const offPct = offTotalMtd > 0 ? (offTotalAdhered / (offTotalMtd < 1 ? (offTotalPlanned || 1) : offTotalMtd)) : 0;
+      offTotRow.getCell(10).value = Math.round((offPct || 0) * 100) + '%';
+      const offPending = Math.round((offTotalMtd - offTotalAdhered) * 10) / 10;
+      offTotRow.getCell(11).value = offPending;
+
+      for (let col = 2; col <= 11; col++) {
+        const c = offTotRow.getCell(col);
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_GRAY_BG } };
+        c.font = { bold: true, size: 9, name: 'Calibri' };
+        c.border = {
+          top: { style: 'thin', color: { argb: 'FF94A3B8' } },
+          bottom: { style: 'thin', color: { argb: 'FF0F172A' } }
+        };
+        if (col >= 7) c.alignment = { horizontal: 'right', vertical: 'middle' };
+      }
+
+      // Conditional formatting on % and pending matching the right side of the excel
+      if (offPct < 0.7) {
+        offTotRow.getCell(10).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_RED_FILL } };
+        offTotRow.getCell(10).font = { color: { argb: COLOR_RED_TEXT }, size: 9, bold: true };
+      } else if (offPct >= 1.0) {
+        offTotRow.getCell(10).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_GREEN_FILL } };
+        offTotRow.getCell(10).font = { color: { argb: COLOR_GREEN_TEXT }, size: 9, bold: true };
+      }
+      if (offPending > 0) {
+        offTotRow.getCell(11).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_RED_FILL } };
+        offTotRow.getCell(11).font = { color: { argb: COLOR_RED_TEXT }, size: 9, bold: true };
+      }
+      dRowIdx++;
     }
 
     // Grand Total Row with Descriptions for Detailed Table (Left Side)
     const totDlrRow = sheet.getRow(dRowIdx);
-    totDlrRow.getCell(2).value = `${role} Detailed Total (${roleDealers.length} Dealer Visits)`;
+    totDlrRow.getCell(2).value = '';
     totDlrRow.getCell(3).value = 'ALL';
     totDlrRow.getCell(4).value = '';
-    totDlrRow.getCell(5).value = 'Grand Total';
-    totDlrRow.getCell(6).value = '';
+    totDlrRow.getCell(5).value = `${role} Grand Total`;
+    totDlrRow.getCell(6).value = `(${roleDealers.length} Dealer Visits)`;
     totDlrRow.getCell(7).value = totDlrPlanned;
     totDlrRow.getCell(8).value = Math.round(totDlrMtd * 10) / 10;
     totDlrRow.getCell(9).value = totDlrAdhered;
