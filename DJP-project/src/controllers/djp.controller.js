@@ -838,8 +838,44 @@ function custTypeLabel(raw, sapCode = '', sfaCode = '') {
   return 'DEALER';
 }
 
-/** The minimum number of "Date of Visit" columns the sheet always carries. */
+/** The minimum and maximum number of "Date of Visit" columns the sheet carries. */
 export const MIN_VISIT_DATE_COLUMNS = 5;
+export const MAX_VISIT_DATE_COLUMNS = 5;
+
+/**
+ * Adjust and balance visit dates to keep up to 5 visits across cycles.
+ */
+export function adjustDatesForExport(allDates, maxVisits = 5) {
+  if (!allDates || allDates.length <= maxVisits) return allDates || [];
+
+  const c1 = allDates.filter(d => {
+    const day = parseInt(String(d).slice(8, 10), 10);
+    return !Number.isNaN(day) && day <= 15;
+  });
+  const c2 = allDates.filter(d => {
+    const day = parseInt(String(d).slice(8, 10), 10);
+    return !Number.isNaN(day) && day > 15;
+  });
+
+  if (c1.length > 0 && c2.length > 0) {
+    let k1 = Math.round((c1.length / allDates.length) * maxVisits);
+    k1 = Math.max(1, Math.min(k1, maxVisits - 1));
+    let k2 = maxVisits - k1;
+
+    if (k1 > c1.length) {
+      k1 = c1.length;
+      k2 = Math.min(c2.length, maxVisits - k1);
+    } else if (k2 > c2.length) {
+      k2 = c2.length;
+      k1 = Math.min(c1.length, maxVisits - k2);
+    }
+
+    const selected = [...c1.slice(0, k1), ...c2.slice(0, k2)];
+    return selected.sort();
+  }
+
+  return allDates.slice(0, maxVisits).sort();
+}
 
 /**
  * Every distinct day this dealer is scheduled to be visited, by ANY role, earliest
@@ -1043,8 +1079,8 @@ export async function exportVisitsExcel(req, res) {
 
       const existingDates = visitDatesFor(scheduled, t);
       const neededVisits = isCombined
-        ? Math.max(1, Math.round(soVisits || asmVisits || 1))
-        : (targetCycle === 'C2' ? Math.max(1, Math.floor((soVisits || asmVisits || 1) / 2)) : Math.max(1, Math.ceil((soVisits || asmVisits || 1) / 2)));
+        ? Math.max(1, Math.min(5, Math.round(soVisits || asmVisits || 1)))
+        : (targetCycle === 'C2' ? Math.max(1, Math.min(5, Math.floor((soVisits || asmVisits || 1) / 2))) : Math.max(1, Math.min(5, Math.ceil((soVisits || asmVisits || 1) / 2))));
 
       if (existingDates.length < neededVisits) {
         const dealerCode = normCode(t.sap_code) || normCode(t.sfa_code) || (t.dealer_id ? `DLR_${t.dealer_id}` : `TGT_${t.id}`);
@@ -1107,13 +1143,8 @@ export async function exportVisitsExcel(req, res) {
       'No. of visits by SO', 'No. of visits by ASM', 'Number of Visit by RSM', 'Number of Visit by ZH'
     ];
 
-    // Five date columns as standard. If any dealer in this cycle is scheduled on more
-    // than five days, the sheet widens to fit him rather than dropping the rest —
-    // "Date of Visit 6", "7", and so on. A truncated schedule is worse than a wide
-    // sheet, because nothing on the row says anything is missing.
-    const widest = uniqueTargets.reduce(
-      (m, t) => Math.max(m, visitDatesFor(scheduled, t).length), 0);
-    const DATE_COLUMNS = Math.max(MIN_VISIT_DATE_COLUMNS, widest);
+    // Exactly 5 date columns in Visits Excel
+    const DATE_COLUMNS = 5;
     const VISIT_HEADERS = [
       ...FIXED_HEADERS,
       ...Array.from({ length: DATE_COLUMNS }, (_, i) => `Date of Visit ${i + 1}`)
@@ -1131,6 +1162,27 @@ export async function exportVisitsExcel(req, res) {
       const zhVisits = parseFloat(t.zh_visits) || 0;
 
       if (soVisits === 0 && asmVisits === 0 && rsmVisits === 0 && zhVisits === 0) continue;
+
+      // Keep up to 5 visits: adjust role visit counts if their sum exceeds 5
+      let adjSo = soVisits;
+      let adjAsm = asmVisits;
+      let adjRsm = rsmVisits;
+      let adjZh = zhVisits;
+      const totalVisits = adjSo + adjAsm + adjRsm + adjZh;
+      if (totalVisits > 5) {
+        const scale = 5 / totalVisits;
+        adjSo = Math.round(adjSo * scale * 2) / 2;
+        adjAsm = Math.round(adjAsm * scale * 2) / 2;
+        adjRsm = Math.round(adjRsm * scale * 2) / 2;
+        adjZh = Math.round(adjZh * scale * 2) / 2;
+        while (adjSo + adjAsm + adjRsm + adjZh > 5) {
+          if (adjAsm > adjSo && adjAsm > 0.5) adjAsm -= 0.5;
+          else if (adjSo > 0.5) adjSo -= 0.5;
+          else if (adjRsm > 0.5) adjRsm -= 0.5;
+          else if (adjZh > 0.5) adjZh -= 0.5;
+          else break;
+        }
+      }
 
       const customerCode = t.sap_code || t.sfa_code || (t.dealer_id ? `DLR_${t.dealer_id}` : '-');
 
@@ -1157,6 +1209,10 @@ export async function exportVisitsExcel(req, res) {
         ? 'SAURABH KUMAR'
         : (t.rsm_name || '');
 
+      // Keep up to 5 dates: balanced across C1 & C2 if both exist, sorted chronologically
+      const rawDates = visitDatesFor(scheduled, t);
+      const adjustedDates = adjustDatesForExport(rawDates, DATE_COLUMNS);
+
       reportRows.push([
         effectiveZone,
         custType,
@@ -1170,11 +1226,11 @@ export async function exportVisitsExcel(req, res) {
         customerCode,
         priority,
         dealerStatus,
-        soVisits,
-        asmVisits,
-        rsmVisits,
-        zhVisits,
-        ...padDates(visitDatesFor(scheduled, t), DATE_COLUMNS)
+        adjSo,
+        adjAsm,
+        adjRsm,
+        adjZh,
+        ...padDates(adjustedDates, DATE_COLUMNS)
       ]);
     }
 

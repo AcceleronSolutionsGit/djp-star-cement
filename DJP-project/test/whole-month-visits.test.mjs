@@ -60,11 +60,11 @@ async function runTests() {
     assert.equal(row2[i], FIXED_HEADERS[i], `Header mismatch at col ${i + 1}`);
   }
   const dateColsCount = row2.length - FIXED_HEADERS.length;
-  assert.ok(dateColsCount >= 5, `Expected at least 5 date columns, got ${dateColsCount}`);
+  assert.equal(dateColsCount, 5, `Expected exactly 5 date columns, got ${dateColsCount}`);
   for (let i = 0; i < dateColsCount; i++) {
     assert.equal(row2[FIXED_HEADERS.length + i], `Date of Visit ${i + 1}`);
   }
-  console.log(`  ✓ Header layout verified: 16 fixed columns + ${dateColsCount} dynamic Date of Visit columns`);
+  console.log(`  ✓ Header layout verified: 16 fixed columns + ${dateColsCount} Date of Visit columns`);
 
   // Check visits spanning C1 and C2
   let c1DatesCount = 0;
