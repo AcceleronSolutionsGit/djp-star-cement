@@ -1,5 +1,5 @@
 import { dbAll, dbRun } from '../config/database.js';
-import { BRANCH_ZONE_MAP, normalizeZone } from '../services/zonalHead.service.js';
+import { BRANCH_ZONE_MAP, normalizeZone, VALID_ZONES } from '../services/zonalHead.service.js';
 
 export async function syncAllZonesFromSfa() {
   console.log('====================================================');
@@ -7,6 +7,21 @@ export async function syncAllZonesFromSfa() {
   console.log('====================================================\n');
 
   const t0 = Date.now();
+
+  // 0. Clean up non-canonical legacy zones from master_zone_zh_mapping & update area keywords
+  await dbRun(`DELETE FROM master_zone_zh_mapping WHERE zone_code IN ('SOUTH BENGAL', 'NT', 'SB', 'WB', 'LG')`);
+
+  await dbRun(`
+    UPDATE master_zone_zh_mapping 
+    SET area_keywords = CONCAT(COALESCE(area_keywords, ''), ', RAGHUNATHGANJ, MURSHIDABAD, JIAGUNJ, SAMSHERGANJ, SUTI, KOLKATA, HOWRAH, HOOGHLY, BURDWAN, MIDNAPORE, SOUTH 24 PARGANAS, NORTH 24 PARGANAS, DURGAPUR, ASANSOL, BANKURA, PURULIA, BIRBHUM, NADIA')
+    WHERE zone_code = 'NB2' AND area_keywords NOT LIKE '%MURSHIDABAD%'
+  `);
+
+  await dbRun(`
+    UPDATE master_zone_zh_mapping 
+    SET area_keywords = CONCAT(COALESCE(area_keywords, ''), ', WARSALIGANJ, WARISALIGANJ, WARSLIGANJ, WARSHALIGANJ, NAWADA, CHHOTKI NAWADA, RAJAULI, HULASGANJ, JEHANABAD')
+    WHERE zone_code = 'BIHAR' AND area_keywords NOT LIKE '%WARSALIGANJ%'
+  `);
 
   // 1. Load SFA Ground Truth
   console.log('[1/5] Loading SFA Ground Truth into memory...');
@@ -53,12 +68,24 @@ export async function syncAllZonesFromSfa() {
     }
   }
 
-  // Authoritative ZH mapping
-  const zhRows = await dbAll(`SELECT zone_code, zh_name, zh_code FROM master_zone_zh_mapping`);
+  // Authoritative ZH mapping & dynamic area keywords
+  const zhRows = await dbAll(`SELECT zone_code, zh_name, zh_code, area_keywords FROM master_zone_zh_mapping`);
   const zhMap = new Map();
+  const dynamicAreaZoneMap = new Map();
   for (const z of zhRows) {
-    if (z.zone_code && z.zh_name) {
-      zhMap.set(z.zone_code.trim().toUpperCase(), { zh_name: z.zh_name, zh_code: z.zh_code });
+    const normZ = normalizeZone(z.zone_code);
+    if (normZ && VALID_ZONES.has(normZ) && z.zh_name) {
+      if (!zhMap.has(normZ)) {
+        zhMap.set(normZ, { zh_name: z.zh_name, zh_code: z.zh_code });
+      }
+      if (z.area_keywords) {
+        const parts = z.area_keywords.split(/[,;\n]+/).map(p => p.trim().toUpperCase()).filter(Boolean);
+        for (const p of parts) {
+          if (!dynamicAreaZoneMap.has(p)) {
+            dynamicAreaZoneMap.set(p, normZ);
+          }
+        }
+      }
     }
   }
   // Canonicals
@@ -67,7 +94,6 @@ export async function syncAllZonesFromSfa() {
   if (!zhMap.has('NB2')) zhMap.set('NB2', { zh_name: 'GIRIDHARI MUKHERJEE', zh_code: '11002257' });
   if (!zhMap.has('NE1')) zhMap.set('NE1', { zh_name: 'TARAK NATH GHOSH', zh_code: '1100077' });
   if (!zhMap.has('NE2')) zhMap.set('NE2', { zh_name: 'BRIJESH SINGH', zh_code: '11001891' });
-  if (!zhMap.has('SOUTH BENGAL')) zhMap.set('SOUTH BENGAL', { zh_name: 'ATANU BANERJEE', zh_code: '1100144' });
 
   console.log(`✓ SFA Customers: ${sfaCustZoneMap.size}, Routes: ${sfaRouteZoneMap.size}, Employees: ${sfaEmpZoneMap.size} (${Date.now() - t0}ms)\n`);
 
@@ -76,29 +102,44 @@ export async function syncAllZonesFromSfa() {
     for (const c of [sap_code, sfa_code, customer_code]) {
       if (!c) continue;
       const clean = String(c).trim().toUpperCase();
-      if (sfaCustZoneMap.has(clean)) return sfaCustZoneMap.get(clean);
+      if (sfaCustZoneMap.has(clean)) {
+        const z = sfaCustZoneMap.get(clean);
+        if (VALID_ZONES.has(z)) return z;
+      }
     }
 
-    // 2. Geographic Match: SFA Routes & BRANCH_ZONE_MAP
+    // 2. Geographic Match: SFA Routes, BRANCH_ZONE_MAP, dynamicAreaZoneMap
     for (const g of [branch, dm_area, area, sbg_block, block]) {
       if (!g) continue;
       const clean = String(g).trim().toUpperCase();
-      if (sfaRouteZoneMap.has(clean)) return sfaRouteZoneMap.get(clean);
-      if (BRANCH_ZONE_MAP[clean]) return BRANCH_ZONE_MAP[clean];
+      if (sfaRouteZoneMap.has(clean) && VALID_ZONES.has(sfaRouteZoneMap.get(clean))) {
+        return sfaRouteZoneMap.get(clean);
+      }
+      if (BRANCH_ZONE_MAP[clean] && VALID_ZONES.has(BRANCH_ZONE_MAP[clean])) {
+        return BRANCH_ZONE_MAP[clean];
+      }
+      if (dynamicAreaZoneMap.has(clean)) {
+        return dynamicAreaZoneMap.get(clean);
+      }
       for (const [k, z] of Object.entries(BRANCH_ZONE_MAP)) {
-        if (clean === k || clean.includes(k) || k.includes(clean)) return z;
+        if (k.length >= 3 && (clean === k || clean.includes(k) || k.includes(clean))) {
+          if (VALID_ZONES.has(z)) return z;
+        }
       }
     }
 
     // 3. SFA Employee Data (SO Assignment)
     if (so_emp_code) {
       const clean = String(so_emp_code).trim().toUpperCase();
-      if (sfaEmpZoneMap.has(clean)) return sfaEmpZoneMap.get(clean);
+      if (sfaEmpZoneMap.has(clean)) {
+        const z = sfaEmpZoneMap.get(clean);
+        if (VALID_ZONES.has(z)) return z;
+      }
     }
 
     // 4. Explicit zone
     const norm = normalizeZone(zone || region);
-    if (norm) return norm;
+    if (norm && VALID_ZONES.has(norm)) return norm;
 
     // 5. Default
     return 'NE1';
@@ -190,6 +231,14 @@ export async function syncAllZonesFromSfa() {
   const tgtDist = await dbAll(`SELECT zone, zh_name, COUNT(*) as c FROM dealer_visit_targets GROUP BY zone, zh_name ORDER BY zone`);
   console.log('dealer_visit_targets Zone & ZH summary:');
   console.table(tgtDist);
+
+  const dlrDist = await dbAll(`SELECT zone, zh_name, COUNT(*) as c FROM master_dealers GROUP BY zone, zh_name ORDER BY zone`);
+  console.log('master_dealers Zone & ZH summary:');
+  console.table(dlrDist);
+
+  const mapDist = await dbAll(`SELECT zone, zh_name, COUNT(*) as c FROM master_dealer_so_mapping GROUP BY zone, zh_name ORDER BY zone`);
+  console.log('master_dealer_so_mapping Zone & ZH summary:');
+  console.table(mapDist);
 
   console.log(`\n====================================================`);
   console.log(`✓ ALL ZONES & ZONAL HEADS SUCCESSFULLY MATCHED IN ${((Date.now() - t0) / 1000).toFixed(2)}s`);

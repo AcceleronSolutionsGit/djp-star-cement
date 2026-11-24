@@ -102,9 +102,16 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', as
   for (const role of ROLES) {
     const sheet = wb.addWorksheet(role, { views: [{ showGridLines: true }] });
 
-    // Filter officers and dealers for this role
-    const roleOfficers = a.byEmployee.filter(e => (e.role || 'SO').toUpperCase() === role.toUpperCase());
-    const roleDealers = a.byDealer.filter(d => (d.role || 'SO').toUpperCase() === role.toUpperCase());
+    // Filter officers and dealers for this role dynamically
+    const isZh = role.toUpperCase() === 'ZH';
+    const roleOfficers = a.byEmployee.filter(e => {
+      const r = (e.role || 'SO').toUpperCase();
+      return isZh ? ['ZH', 'ZM', 'ZSH', 'ZONAL HEAD'].includes(r) : r === role.toUpperCase();
+    });
+    const roleDealers = a.byDealer.filter(d => {
+      const r = (d.role || 'SO').toUpperCase();
+      return isZh ? ['ZH', 'ZM', 'ZSH', 'ZONAL HEAD'].includes(r) : r === role.toUpperCase();
+    });
 
     // Row 4 header setup matching the client's Excel layout
     // Detailed on Left (Cols B-J: cols 2-10)
@@ -165,11 +172,11 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', as
         : (mtdPlanned > 0 ? adhered / (mtdPlanned < 1 ? (planned || 1) : mtdPlanned) : 0);
 
       const r = sheet.getRow(sRowIdx);
-      r.getCell(12).value = off.emp_name || off.emp_code;
+      r.getCell(12).value = off.emp_name || off.emp_code || '';
       r.getCell(13).value = planned;
       r.getCell(14).value = Math.round(mtdPlanned * 10) / 10;
       r.getCell(15).value = adhered;
-      r.getCell(16).value = Math.round(pctVal * 100) + '%';
+      r.getCell(16).value = Math.round((pctVal || 0) * 100) + '%';
       r.getCell(17).value = Math.round(pending * 10) / 10;
 
       applyDataStyle(r.getCell(12));
@@ -249,14 +256,14 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', as
             : (mtdPlanned > 0 ? adhered / (mtdPlanned < 1 ? (planned || 1) : mtdPlanned) : 0);
 
           const r = sheet.getRow(dRowIdx);
-          r.getCell(2).value = officerName;
-          r.getCell(3).value = catName;
+          r.getCell(2).value = officerName || '';
+          r.getCell(3).value = catName || 'Other';
           r.getCell(4).value = dl.area || '';
-          r.getCell(5).value = dl.dealer_name;
+          r.getCell(5).value = dl.dealer_name || dl.sap_code || '';
           r.getCell(6).value = planned;
           r.getCell(7).value = Math.round(mtdPlanned * 10) / 10;
           r.getCell(8).value = adhered;
-          r.getCell(9).value = Math.round(dlPct * 100) + '%';
+          r.getCell(9).value = Math.round((dlPct || 0) * 100) + '%';
           r.getCell(10).value = Math.round(pending * 10) / 10;
 
           catPlanned += planned;
@@ -291,12 +298,15 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', as
 
         // Category Subtotal Row
         const subRow = sheet.getRow(dRowIdx);
+        subRow.getCell(2).value = officerName || '';
         subRow.getCell(3).value = `${catName} Total`;
+        subRow.getCell(4).value = '';
+        subRow.getCell(5).value = '';
         subRow.getCell(6).value = catPlanned;
         subRow.getCell(7).value = Math.round(catMtd * 10) / 10;
         subRow.getCell(8).value = catAdhered;
         const subPct = catMtd > 0 ? catAdhered / (catMtd < 1 ? (catPlanned || 1) : catMtd) : 0;
-        subRow.getCell(9).value = Math.round(subPct * 100) + '%';
+        subRow.getCell(9).value = Math.round((subPct || 0) * 100) + '%';
         subRow.getCell(10).value = Math.round((catMtd - catAdhered) * 10) / 10;
 
         for (let col = 2; col <= 10; col++) {
@@ -310,6 +320,30 @@ export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'C1', as
           if (col >= 6) c.alignment = { horizontal: 'right', vertical: 'middle' };
         }
         dRowIdx++;
+      }
+    }
+
+    // Balance empty cells between summary and detailed sides to eliminate nulls
+    const maxRow = Math.max(sRowIdx, dRowIdx);
+    for (let rIdx = 5; rIdx < maxRow; rIdx++) {
+      const r = sheet.getRow(rIdx);
+      if (rIdx >= dRowIdx) {
+        for (let col = 2; col <= 10; col++) {
+          const c = r.getCell(col);
+          if (c.value === null || c.value === undefined) {
+            c.value = '';
+            applyDataStyle(c);
+          }
+        }
+      }
+      if (rIdx >= sRowIdx) {
+        for (let col = 12; col <= 17; col++) {
+          const c = r.getCell(col);
+          if (c.value === null || c.value === undefined) {
+            c.value = '';
+            applyDataStyle(c);
+          }
+        }
       }
     }
 

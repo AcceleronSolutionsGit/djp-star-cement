@@ -3604,7 +3604,7 @@ export async function getAdherenceReport(req, res) {
       productiveOnly: req.query.productiveOnly === '1' || req.query.productiveOnly === 'true'
     });
 
-    const pct = n => Math.round(n * 1000) / 10;   // one decimal, as a percentage
+    const pct = n => (Number.isFinite(n) ? Math.round(n * 1000) / 10 : 0);   // one decimal, as a percentage
 
     res.json({
       period_month: month,

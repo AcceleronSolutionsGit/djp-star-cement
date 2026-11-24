@@ -316,18 +316,18 @@ export async function analyseAdherence(opts = {}) {
   // ── 4. fold the plan down to one row per (cycle, role, employee, dealer) ──
   const dealerRows = new Map();
   for (const p of planned) {
-    const dealer = key(p.dealer_sap_code);
+    const dealer = key(p.dealer_sap_code) || (p.dealer_id ? `dlr_${p.dealer_id}` : null) || (p.dealer_name ? key(p.dealer_name) : null);
     if (!dealer) continue;
     const k = `${p.cycle_code}|${p.emp_role}|${key(p.emp_code)}|${dealer}`;
     if (!dealerRows.has(k)) {
-      const dim = dealerDims.get(dealer) || {};
+      const dim = dealerDims.get(dealer) || (p.dealer_sap_code ? dealerDims.get(key(p.dealer_sap_code)) : null) || {};
       dealerRows.set(k, {
         cycle_code: p.cycle_code,
         role: p.emp_role,
         emp_code: p.emp_code,
         emp_name: p.emp_name,
-        dealer_sap_code: norm(p.dealer_sap_code),
-        dealer_name: p.dealer_name,
+        dealer_sap_code: norm(p.dealer_sap_code) || (p.dealer_id ? `DLR_${p.dealer_id}` : ''),
+        dealer_name: p.dealer_name || 'Dealer',
         dealer_id: p.dealer_id,
         category: dim.category || 'Other',
         area: dim.area || '',
@@ -435,8 +435,11 @@ export async function analyseAdherence(opts = {}) {
     .sort((a, b) => a.adherence_pct - b.adherence_pct);
 
   const byRole = Object.fromEntries(
-    ROLES.map(role => [role, rollup(byDealer.filter(r => r.role === role))])
-         .filter(([, v]) => v.dealers > 0)
+    ROLES.map(role => {
+      const isZh = role === 'ZH';
+      const matching = byDealer.filter(r => isZh ? ['ZH', 'ZM', 'ZSH', 'ZONAL HEAD'].includes((r.role || '').toUpperCase()) : (r.role || '').toUpperCase() === role);
+      return [role, rollup(matching)];
+    })
   );
 
   const byCycle = Object.fromEntries(

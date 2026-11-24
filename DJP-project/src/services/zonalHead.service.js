@@ -35,11 +35,13 @@ export const ZONE_CANONICAL_ALIASES = {
   'NORTH BENGAL 2': 'NB2',
   'MALDA': 'NB2',
   'DAKSHIN DINAJPUR': 'NB2',
-
-  'SOUTH BENGAL': 'SOUTH BENGAL',
-  'SB': 'SOUTH BENGAL',
-  'WB': 'SOUTH BENGAL',
-  'KOLKATA': 'SOUTH BENGAL',
+  'UTTAR DINAJPUR': 'NB2',
+  'SOUTH BENGAL': 'NB2',
+  'SB': 'NB2',
+  'WB': 'NB2',
+  'WEST BENGAL': 'NB2',
+  'KOLKATA': 'NB2',
+  'MURSHIDABAD': 'NB2',
 
   'BIHAR': 'BIHAR',
   'BH': 'BIHAR',
@@ -47,13 +49,11 @@ export const ZONE_CANONICAL_ALIASES = {
   'BH-1': 'BIHAR',
   'BH2': 'BIHAR',
   'BH-2': 'BIHAR',
-  'PATNA': 'BIHAR',
-
-  'NT': 'NT',
-  'NON TRADE': 'NT',
-  'NON-TRADE': 'NT',
-  'INSTITUTIONAL': 'NT'
+  'PATNA': 'BIHAR'
 };
+
+export const VALID_ZONES = new Set(['NE1', 'NE2', 'NB1', 'NB2', 'BIHAR']);
+export const INVALID_ZONES = new Set(['NT', 'LG', 'NON TRADE', 'NON-TRADE', 'INSTITUTIONAL', 'PROJECTS', 'TRADE']);
 
 /**
  * Exhaustive Branch / Area to Zone mapping across all operational zones.
@@ -192,8 +192,32 @@ export const BRANCH_ZONE_MAP = {
   'GAZOLE': 'NB2',
   'HARISCHANDRAPUR': 'NB2',
   'SAMSI': 'NB2',
+  'RAGHUNATHGANJ': 'NB2',
+  'RAGHUNATHGUNJ': 'NB2',
+  'MURSHIDABAD': 'NB2',
+  'JIAGUNJ': 'NB2',
+  'MURSHIDABAD-JIAGUNJ': 'NB2',
+  'SAMSHERGANJ': 'NB2',
+  'SAMSERGANJ': 'NB2',
+  'SUTI': 'NB2',
+  'SUTI-I': 'NB2',
+  'SUTI-II': 'NB2',
+  'SUTI-1': 'NB2',
+  'KOLKATA': 'NB2',
+  'HOWRAH': 'NB2',
+  'HOOGHLY': 'NB2',
+  'BURDWAN': 'NB2',
+  'MIDNAPORE': 'NB2',
+  'SOUTH 24 PARGANAS': 'NB2',
+  'NORTH 24 PARGANAS': 'NB2',
+  'DURGAPUR': 'NB2',
+  'ASANSOL': 'NB2',
+  'BANKURA': 'NB2',
+  'PURULIA': 'NB2',
+  'BIRBHUM': 'NB2',
+  'NADIA': 'NB2',
 
-  // --- Zone BIHAR (Patna, Muzaffarpur, Bhagalpur, Purnia) -> RAJESH SRIVASTAVA ---
+  // --- Zone BIHAR (Patna, Muzaffarpur, Bhagalpur, Purnia) -> GIRIDHARI MUKHERJEE ---
   'PATNA': 'BIHAR',
   'MUZAFFARPUR': 'BIHAR',
   'BHAGALPUR': 'BIHAR',
@@ -247,6 +271,7 @@ export const BRANCH_ZONE_MAP = {
   'WARSALIGANJ': 'BIHAR',
   'WARISALIGANJ': 'BIHAR',
   'WARSLIGANJ': 'BIHAR',
+  'WARSHALIGANJ': 'BIHAR',
   'NAWADA': 'BIHAR',
   'CHHOTKI NAWADA': 'BIHAR',
   'RAJAULI': 'BIHAR',
@@ -266,32 +291,7 @@ export const BRANCH_ZONE_MAP = {
   'NAI BAZAR': 'BIHAR',
   'JEHANABAD TOWN': 'BIHAR',
   'PAKRIWARABA': 'BIHAR',
-  'PAKRIWARABA BAZAR': 'BIHAR',
-
-  // --- Zone SOUTH BENGAL -> ATANU BANERJEE ---
-  'KOLKATA': 'SOUTH BENGAL',
-  'HOWRAH': 'SOUTH BENGAL',
-  'HOOGHLY': 'SOUTH BENGAL',
-  'BURDWAN': 'SOUTH BENGAL',
-  'MIDNAPORE': 'SOUTH BENGAL',
-  'SOUTH 24 PARGANAS': 'SOUTH BENGAL',
-  'NORTH 24 PARGANAS': 'SOUTH BENGAL',
-  'DURGAPUR': 'SOUTH BENGAL',
-  'ASANSOL': 'SOUTH BENGAL',
-  'BANKURA': 'SOUTH BENGAL',
-  'PURULIA': 'SOUTH BENGAL',
-  'BIRBHUM': 'SOUTH BENGAL',
-  'NADIA': 'SOUTH BENGAL',
-  'MURSHIDABAD': 'SOUTH BENGAL',
-  'SOUTH BENGAL': 'SOUTH BENGAL',
-  'WEST BENGAL': 'SOUTH BENGAL',
-
-  // --- Non Trade -> ABHISHEK JOSHI ---
-  'NON TRADE': 'NT',
-  'NON-TRADE': 'NT',
-  'INSTITUTIONAL': 'NT',
-  'PROJECTS': 'NT',
-  'NT': 'NT'
+  'PAKRIWARABA BAZAR': 'BIHAR'
 };
 
 /**
@@ -305,8 +305,11 @@ export function normalizeZone(zoneStr) {
   const clean = String(zoneStr).trim().toUpperCase();
   if (!clean || clean === '-' || clean === 'NA' || clean === 'N/A' || clean === 'NULL') return null;
 
+  if (INVALID_ZONES.has(clean)) return null;
+
   if (ZONE_CANONICAL_ALIASES[clean]) {
-    return ZONE_CANONICAL_ALIASES[clean];
+    const alias = ZONE_CANONICAL_ALIASES[clean];
+    return VALID_ZONES.has(alias) ? alias : null;
   }
 
   // Regex partial matching
@@ -314,11 +317,10 @@ export function normalizeZone(zoneStr) {
   if (clean.includes('NE1') || clean.includes('NE-1')) return 'NE1';
   if (clean.includes('NB2') || clean.includes('NB-2')) return 'NB2';
   if (clean.includes('NB1') || clean.includes('NB-1') || clean.includes('NORTH BENGAL')) return 'NB1';
-  if (clean.includes('SOUTH BENGAL') || clean === 'SB') return 'SOUTH BENGAL';
-  if (clean.includes('BIHAR') || clean.startsWith('BH-') || clean.startsWith('BH1') || clean.startsWith('BH2')) return 'BIHAR';
-  if (clean.includes('NON TRADE') || clean === 'NT') return 'NT';
+  if (clean.includes('SOUTH BENGAL') || clean === 'SB' || clean === 'WB' || clean.includes('WEST BENGAL')) return 'NB2';
+  if (clean.includes('BIHAR') || clean.startsWith('BH-') || clean.startsWith('BH1') || clean.startsWith('BH2') || clean.startsWith('BH')) return 'BIHAR';
 
-  return clean;
+  return null;
 }
 
 /**
@@ -392,7 +394,7 @@ export async function findZoneByArea(area, state = '') {
       if (cleanState.includes('TRIPURA') || cleanState.includes('MIZORAM') || cleanState.includes('SILCHAR')) return 'NE2';
       if (cleanState.includes('ASSAM') || cleanState.includes('MEGHALAYA') || cleanState.includes('NAGALAND') || cleanState.includes('MANIPUR') || cleanState.includes('ARUNACHAL')) return 'NE1';
       if (cleanState.includes('NORTH BENGAL') || cleanState.includes('SIKKIM')) return 'NB1';
-      if (cleanState.includes('SOUTH BENGAL') || cleanState.includes('WEST BENGAL')) return 'SOUTH BENGAL';
+      if (cleanState.includes('SOUTH BENGAL') || cleanState.includes('WEST BENGAL')) return 'NB2';
       if (cleanState.includes('BIHAR')) return 'BIHAR';
     }
 
@@ -573,9 +575,7 @@ const DEFAULT_CANONICAL_ZH = {
   'NE2': { zone: 'NE2', zh_name: 'BRIJESH SINGH', zh_code: '11001891', emp_code: 'E1720', designation: 'General Manager', level: 'L5' },
   'NB1': { zone: 'NB1', zh_name: 'GIRIDHARI MUKHERJEE', zh_code: '11002257', emp_code: 'E2352', designation: 'General Manager', level: 'L5' },
   'NB2': { zone: 'NB2', zh_name: 'GIRIDHARI MUKHERJEE', zh_code: '11002257', emp_code: 'E2352', designation: 'General Manager', level: 'L5' },
-  'BIHAR': { zone: 'BIHAR', zh_name: 'GIRIDHARI MUKHERJEE', zh_code: '11002257', emp_code: 'E2352', designation: 'General Manager', level: 'L5' },
-  'SOUTH BENGAL': { zone: 'SOUTH BENGAL', zh_name: 'ATANU BANERJEE', zh_code: '1100144', emp_code: 'E0002', designation: 'GM', level: 'L5' },
-  'NT': { zone: 'NT', zh_name: 'ABHISHEK JOSHI', zh_code: '11001694', emp_code: 'E1277', designation: 'GM', level: 'NT' }
+  'BIHAR': { zone: 'BIHAR', zh_name: 'GIRIDHARI MUKHERJEE', zh_code: '11002257', emp_code: 'E2352', designation: 'General Manager', level: 'L5' }
 };
 
 export function resolveZonalHeadSync({
@@ -596,40 +596,47 @@ export function resolveZonalHeadSync({
   let resolvedZone = null;
   let resolvedBy = 'NONE';
 
-  // 1. SFA Customer Data lookup (most authoritative for dealer/customer)
-  const custCandidates = [sapCode, sfaCode, customerCode].filter(Boolean);
-  for (const cc of custCandidates) {
-    const clean = String(cc).trim().toUpperCase();
-    if (sfaCustomerZoneMap.has(clean)) {
-      resolvedZone = sfaCustomerZoneMap.get(clean);
-      resolvedBy = 'SFA_CUSTOMER_DATA';
+  // 1. Geographic / Physical Match: branch, dmArea, area, sbgBlock, block
+  // Definitive geographic branch/area is authoritative to prevent cross-zone pollution
+  const geoCandidates = [branch, dmArea, area, sbgBlock, block].filter(Boolean);
+  for (const c of geoCandidates) {
+    const clean = String(c).trim().toUpperCase();
+    if (BRANCH_ZONE_MAP[clean]) {
+      resolvedZone = BRANCH_ZONE_MAP[clean];
+      resolvedBy = 'INFERRED_FROM_BRANCH_AREA';
       break;
     }
-  }
-
-  // 2. Geographic candidates: branch, dmArea, area, sbgBlock, block against SFA Routes & BRANCH_ZONE_MAP
-  if (!resolvedZone) {
-    const geoCandidates = [branch, dmArea, area, sbgBlock, block].filter(Boolean);
-    for (const c of geoCandidates) {
-      const clean = String(c).trim().toUpperCase();
-      if (sfaRouteZoneMap.has(clean)) {
-        resolvedZone = sfaRouteZoneMap.get(clean);
+    if (sfaRouteZoneMap.has(clean)) {
+      const zNorm = normalizeZone(sfaRouteZoneMap.get(clean));
+      if (zNorm) {
+        resolvedZone = zNorm;
         resolvedBy = 'SFA_ROUTE_DATA';
         break;
       }
-      if (BRANCH_ZONE_MAP[clean]) {
-        resolvedZone = BRANCH_ZONE_MAP[clean];
-        resolvedBy = 'INFERRED_FROM_BRANCH_AREA';
+    }
+    for (const [k, z] of Object.entries(BRANCH_ZONE_MAP)) {
+      if (clean === k || clean.includes(k) || k.includes(clean)) {
+        resolvedZone = z;
+        resolvedBy = 'PARTIAL_MATCH_BRANCH_AREA';
         break;
       }
-      for (const [k, z] of Object.entries(BRANCH_ZONE_MAP)) {
-        if (clean === k || clean.includes(k) || k.includes(clean)) {
-          resolvedZone = z;
-          resolvedBy = 'PARTIAL_MATCH_BRANCH_AREA';
+    }
+    if (resolvedZone) break;
+  }
+
+  // 2. SFA Customer Data lookup (most authoritative for dealer/customer if geo not specific)
+  if (!resolvedZone) {
+    const custCandidates = [sapCode, sfaCode, customerCode].filter(Boolean);
+    for (const cc of custCandidates) {
+      const clean = String(cc).trim().toUpperCase();
+      if (sfaCustomerZoneMap.has(clean)) {
+        const zNorm = normalizeZone(sfaCustomerZoneMap.get(clean));
+        if (zNorm) {
+          resolvedZone = zNorm;
+          resolvedBy = 'SFA_CUSTOMER_DATA';
           break;
         }
       }
-      if (resolvedZone) break;
     }
   }
 
@@ -639,9 +646,12 @@ export function resolveZonalHeadSync({
     for (const ec of empCandidates) {
       const clean = String(ec).trim().toUpperCase();
       if (sfaEmployeeZoneMap.has(clean)) {
-        resolvedZone = sfaEmployeeZoneMap.get(clean);
-        resolvedBy = 'SFA_EMPLOYEE_DATA';
-        break;
+        const zNorm = normalizeZone(sfaEmployeeZoneMap.get(clean));
+        if (zNorm) {
+          resolvedZone = zNorm;
+          resolvedBy = 'SFA_EMPLOYEE_DATA';
+          break;
+        }
       }
     }
   }
@@ -655,7 +665,11 @@ export function resolveZonalHeadSync({
     }
   }
 
-  // 5. Fallback to NE1 (corporate HQ default zone) if still unresolved
+  // 5. Default Fallback ('NE1') if still unresolved or invalid
+  if (!resolvedZone || !VALID_ZONES.has(resolvedZone)) {
+    resolvedZone = 'NE1';
+    resolvedBy = 'DEFAULT_FALLBACK';
+  }
   if (!resolvedZone) {
     resolvedZone = 'NE1';
     resolvedBy = 'DEFAULT_FALLBACK';
