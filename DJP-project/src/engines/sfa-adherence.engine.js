@@ -292,25 +292,52 @@ export async function analyseAdherence(opts = {}) {
     addActual(key(l.employee_name), key(l.canonical_code), l);
   }
 
-  // Look up area and category (dealer_status) for dealers
+  // Look up area, zone and category (dealer_status) for dealers
   const dimRows = await dbAll(
-    `SELECT sap_code, sfa_code, area, dealer_status, category FROM dealer_visit_targets WHERE period_month = ?`,
+    `SELECT sap_code, sfa_code, area, zone, dealer_status, category FROM dealer_visit_targets WHERE period_month = ?`,
     [periodMonth]
   ).catch(() => []);
   const masterRows = await dbAll(
-    `SELECT sap_code, sfa_code, area FROM master_dealers`
+    `SELECT sap_code, sfa_code, area, zone FROM master_dealers`
   ).catch(() => []);
+  const empMasterRows = await dbAll(
+    `SELECT emp_code, dns_emp_code, emp_name, zone FROM employee_master`
+  ).catch(() => []);
+
+  const empZoneMap = new Map();
+  for (const e of empMasterRows) {
+    const z = (e.zone || '').trim();
+    if (e.emp_code) empZoneMap.set(key(e.emp_code), z);
+    if (e.dns_emp_code) empZoneMap.set(key(e.dns_emp_code), z);
+    if (e.emp_name) empZoneMap.set(key(e.emp_name), z);
+  }
+
   const dealerDims = new Map();
   for (const m of masterRows) {
-    const val = { area: m.area || '', category: 'New / Other' };
+    const val = { area: m.area || '', zone: m.zone || '', category: 'New / Other' };
     if (m.sap_code) dealerDims.set(key(m.sap_code), val);
     if (m.sfa_code) dealerDims.set(key(m.sfa_code), val);
   }
   for (const d of dimRows) {
     const cat = d.dealer_status || d.category || 'Other';
     const area = d.area || '';
-    if (d.sap_code) dealerDims.set(key(d.sap_code), { area: area || dealerDims.get(key(d.sap_code))?.area || '', category: cat });
-    if (d.sfa_code) dealerDims.set(key(d.sfa_code), { area: area || dealerDims.get(key(d.sfa_code))?.area || '', category: cat });
+    const zone = d.zone || '';
+    if (d.sap_code) {
+      const prev = dealerDims.get(key(d.sap_code)) || {};
+      dealerDims.set(key(d.sap_code), {
+        area: area || prev.area || '',
+        zone: zone || prev.zone || '',
+        category: cat
+      });
+    }
+    if (d.sfa_code) {
+      const prev = dealerDims.get(key(d.sfa_code)) || {};
+      dealerDims.set(key(d.sfa_code), {
+        area: area || prev.area || '',
+        zone: zone || prev.zone || '',
+        category: cat
+      });
+    }
   }
 
   // ── 4. fold the plan down to one row per (cycle, role, employee, dealer) ──
@@ -321,6 +348,8 @@ export async function analyseAdherence(opts = {}) {
     const k = `${p.cycle_code}|${p.emp_role}|${key(p.emp_code)}|${dealer}`;
     if (!dealerRows.has(k)) {
       const dim = dealerDims.get(dealer) || (p.dealer_sap_code ? dealerDims.get(key(p.dealer_sap_code)) : null) || {};
+      const empZone = empZoneMap.get(key(p.emp_code)) || empZoneMap.get(key(p.emp_name)) || '';
+      const zone = dim.zone || empZone || '';
       dealerRows.set(k, {
         cycle_code: p.cycle_code,
         role: p.emp_role,
@@ -331,6 +360,8 @@ export async function analyseAdherence(opts = {}) {
         dealer_id: p.dealer_id,
         category: dim.category || 'Other',
         area: dim.area || '',
+        zone: zone,
+        emp_zone: empZone || zone,
         planned: 0,
         planned_dates: []
       });
@@ -427,6 +458,7 @@ export async function analyseAdherence(opts = {}) {
       emp_code: rows[0].emp_code,
       emp_name: rows[0].emp_name,
       role: rows[0].role,
+      zone: rows[0].emp_zone || rows[0].zone || '',
       cycles: [...new Set(rows.map(r => r.cycle_code))].sort(),
       ...rollup(rows),
       missed_dealers: rows.filter(r => !r.visited)
@@ -440,6 +472,16 @@ export async function analyseAdherence(opts = {}) {
       const matching = byDealer.filter(r => isZh ? ['ZH', 'ZM', 'ZSH', 'ZONAL HEAD'].includes((r.role || '').toUpperCase()) : (r.role || '').toUpperCase() === role);
       return [role, rollup(matching)];
     })
+  );
+
+  const byZone = Object.fromEntries(
+    [...new Set(byDealer.map(r => r.zone || r.emp_zone).filter(Boolean))].sort().map(z => [
+      z,
+      {
+        ...rollup(byDealer.filter(r => (r.zone || r.emp_zone) === z)),
+        officers: [...new Set(byDealer.filter(r => (r.zone || r.emp_zone) === z).map(r => r.emp_code))].length
+      }
+    ])
   );
 
   const byCycle = Object.fromEntries(
@@ -478,6 +520,7 @@ export async function analyseAdherence(opts = {}) {
     totals,
     byCycle,
     byRole,
+    byZone,
     byEmployee,
     byDealer,
     diagnostics: {
