@@ -259,9 +259,12 @@ export function buildRow(t, index, soAsmMap = null) {
     : (zhInfo.zh_name || 'GIRIDHARI MUKHERJEE');
 
   const rsmRaw = s(t.rsm_name);
-  const rsmName = (zoneName === 'NE2' && (!rsmRaw || rsmRaw === 'VACANT' || rsmRaw === '-' || rsmRaw === 'NONE'))
-    ? 'SAURABH KUMAR'
-    : rsmRaw;
+  let rsmName = rsmRaw;
+  if (zoneName === 'NE2' && (!rsmRaw || rsmRaw === 'VACANT' || rsmRaw === '-' || rsmRaw === 'NONE')) {
+    rsmName = 'SAURABH KUMAR';
+  } else if (zoneName === 'NB2' && (rsmRaw === 'RITWICK CHATTERJEE' || !rsmRaw || rsmRaw === '-' || rsmRaw === 'VACANT' || s(t.dm_area || t.area).toUpperCase().includes('DINAJPUR'))) {
+    rsmName = 'PRAKRITI RANJAN SIKDAR';
+  }
 
   return {
     id:              t.id,

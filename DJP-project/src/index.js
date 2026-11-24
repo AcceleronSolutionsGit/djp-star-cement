@@ -379,6 +379,15 @@ async function runStartupMigrations() {
   }
 
   try {
+    // Migration 14: Fix Uttar Dinajpur / Raiganj RSM hierarchy (Prakriti Ranjan Sikdar)
+    const { runFixUtDinajpurRsmMigration } = await import('./scripts/migrate-fix-ut-dinajpur-rsm.js');
+    await runFixUtDinajpurRsmMigration();
+    console.log('[Migration] ✓ Verified/Healed Uttar Dinajpur RSM hierarchy (Prakriti Ranjan Sikdar)');
+  } catch (err) {
+    console.warn('[Migration] Warning during Uttar Dinajpur RSM migration:', err.message);
+  }
+
+  try {
     // Migration 14: Non-Trade DJP tables
     const { runNonTradeMigration } = await import('./scripts/migrate-nontrade-tables.js');
     await runNonTradeMigration();

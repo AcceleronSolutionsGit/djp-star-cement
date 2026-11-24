@@ -344,8 +344,22 @@ export async function getDealerVisitTargets(req, res) {
 
       const resolvedAsm = t.asm_name || soAsmMap.get(t.so_emp_code) || soAsmMap.get((t.so_name || '').toUpperCase()) || soAsmMap.get((t.area || '').toUpperCase()) || '';
 
+      const isUtDinajpur = String(t.area || '').toUpperCase().includes('DINAJPUR') || 
+                           String(t.dm_area || '').toUpperCase().includes('DINAJPUR') || 
+                           String(t.so_emp_code || '') === '1101100' || 
+                           String(t.so_name || '').toUpperCase().includes('TAPAN KUMAR GHOSH');
+      const resolvedZone = (isUtDinajpur && t.zone !== 'NB2') ? 'NB2' : (t.zone || '');
+      let resolvedRsm = t.rsm_name;
+      if (resolvedZone === 'NB2' && (resolvedRsm === 'RITWICK CHATTERJEE' || !resolvedRsm || resolvedRsm === '-' || isUtDinajpur)) {
+        resolvedRsm = 'PRAKRITI RANJAN SIKDAR';
+      } else if (resolvedZone === 'NE2' && (!resolvedRsm || resolvedRsm === 'VACANT' || resolvedRsm === '-' || resolvedRsm === 'NONE')) {
+        resolvedRsm = 'SAURABH KUMAR';
+      }
+
       return {
         ...t,
+        zone: resolvedZone,
+        rsm_name: resolvedRsm,
         asm_name: resolvedAsm,
         total_visits: totalVisits,
         so_visits_pct: soVisitsPct,
@@ -511,7 +525,9 @@ export async function exportPjpTradeExcel(req, res) {
           : (zhInfo.zh_name || '-'),
         'RSM': (t.zone === 'NE2' && (!t.rsm_name || t.rsm_name === 'VACANT' || t.rsm_name === '-' || t.rsm_name === 'NONE'))
           ? 'SAURABH KUMAR'
-          : (t.rsm_name || '-'),
+          : (resolvedZone === 'NB2' && (t.rsm_name === 'RITWICK CHATTERJEE' || !t.rsm_name || t.rsm_name === '-' || String(t.area || '').toUpperCase().includes('DINAJPUR')))
+            ? 'PRAKRITI RANJAN SIKDAR'
+            : (t.rsm_name || '-'),
         'ASM': t.asm_name || '-',
         'SO/SE NAME': t.so_name || '-',
         'DEALER NAME': t.dealer_name || '-',
@@ -1186,7 +1202,9 @@ export async function exportVisitsExcel(req, res) {
         : (zhInfo.zh_name || 'GIRIDHARI MUKHERJEE');
       const effectiveRsm = (effectiveZone === 'NE2' && (!t.rsm_name || t.rsm_name === 'VACANT' || t.rsm_name === '-' || t.rsm_name === 'NONE'))
         ? 'SAURABH KUMAR'
-        : (t.rsm_name || '');
+        : (effectiveZone === 'NB2' && (t.rsm_name === 'RITWICK CHATTERJEE' || !t.rsm_name || t.rsm_name === '-' || String(t.area || '').toUpperCase().includes('DINAJPUR')))
+          ? 'PRAKRITI RANJAN SIKDAR'
+          : (t.rsm_name || '');
 
       // Adjust date columns: keep up to 5 date columns in Excel, balanced across C1 & C2
       const rawDates = visitDatesFor(scheduled, t);

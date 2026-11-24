@@ -24,8 +24,12 @@ export async function runFixUtDinajpurRsmMigration() {
          rsm_code = '1101157', 
          zone = 'NB2', 
          area = 'UTTAR DINAJPUR', 
-         dm_area = 'UTTAR DINAJPUR' 
-     WHERE sap_code IN (${placeholders})`,
+         dm_area = 'UTTAR DINAJPUR',
+         zh_name = 'GIRIDHARI MUKHERJEE',
+         zh_code = '11002257'
+     WHERE sap_code IN (${placeholders})
+        OR ((area LIKE '%DINAJPUR%' OR dm_area LIKE '%DINAJPUR%' OR so_emp_code = '1101100' OR LOWER(so_name) LIKE '%tapan kumar ghosh%')
+            AND (rsm_name = 'RITWICK CHATTERJEE' OR zone != 'NB2' OR rsm_name IS NULL OR rsm_name = ''))`,
     UT_DINAJPUR_DEALER_CODES
   );
 
@@ -34,8 +38,12 @@ export async function runFixUtDinajpurRsmMigration() {
      SET rsm_name = 'PRAKRITI RANJAN SIKDAR', 
          rsm_code = '1101157', 
          zone = 'NB2', 
-         area = 'UTTAR DINAJPUR' 
-     WHERE sap_code IN (${placeholders})`,
+         area = 'UTTAR DINAJPUR',
+         zh_name = 'GIRIDHARI MUKHERJEE',
+         zh_code = '11002257'
+     WHERE sap_code IN (${placeholders})
+        OR ((area LIKE '%DINAJPUR%' OR so_emp_code = '1101100' OR LOWER(so_name) LIKE '%tapan kumar ghosh%')
+            AND (rsm_name = 'RITWICK CHATTERJEE' OR zone != 'NB2' OR rsm_name IS NULL OR rsm_name = ''))`,
     UT_DINAJPUR_DEALER_CODES
   );
 
@@ -45,8 +53,12 @@ export async function runFixUtDinajpurRsmMigration() {
          rsm_code = '1101157', 
          zone = 'NB2', 
          area = 'UTTAR DINAJPUR', 
-         dm_area = 'UTTAR DINAJPUR' 
-     WHERE sap_code IN (${placeholders})`,
+         dm_area = 'UTTAR DINAJPUR',
+         zh_name = 'GIRIDHARI MUKHERJEE',
+         zh_code = '11002257'
+     WHERE sap_code IN (${placeholders})
+        OR ((area LIKE '%DINAJPUR%' OR dm_area LIKE '%DINAJPUR%' OR so_emp_code = '1101100' OR LOWER(so_name) LIKE '%tapan kumar ghosh%')
+            AND (rsm_name = 'RITWICK CHATTERJEE' OR zone != 'NB2' OR rsm_name IS NULL OR rsm_name = ''))`,
     UT_DINAJPUR_DEALER_CODES
   );
 
