@@ -222,8 +222,9 @@ export async function analyseAdherence(opts = {}) {
   }
 
   const windows = await loadCycleWindows();
-  const isBothCycles = !opts.cycleCode || String(opts.cycleCode).toUpperCase() === 'ALL';
-  const cycles  = isBothCycles ? ['C1', 'C2'] : [String(opts.cycleCode).toUpperCase()];
+  const cleanCycle = String(opts.cycleCode || '').trim();
+  const isBothCycles = !cleanCycle || cleanCycle.toUpperCase() === 'ALL' || cleanCycle.includes('Object') || !['C1', 'C2'].includes(cleanCycle.toUpperCase()) || cleanCycle === 'Whole_Month' || cleanCycle === 'WHOLE_MONTH' || cleanCycle === 'BOTH' || cleanCycle === 'C1_C2' || cleanCycle === 'COMBINED';
+  const cycles  = isBothCycles ? ['C1', 'C2'] : [cleanCycle.toUpperCase()];
   let asOnDate = opts.asOnDate;
   if (asOnDate && !String(asOnDate).startsWith(periodMonth)) {
     asOnDate = null;

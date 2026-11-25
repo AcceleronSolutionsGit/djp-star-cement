@@ -41,9 +41,10 @@ function applyDataStyle(cell, isNumber = false, format = null) {
 }
 
 export async function buildAdherenceWorkbook({ periodMonth, cycleCode = 'ALL', asOnDate = null }) {
-  const isCombined = !cycleCode || cycleCode === 'ALL' || cycleCode === 'Whole_Month' || cycleCode === 'WHOLE_MONTH' || cycleCode === 'BOTH' || cycleCode === 'C1_C2' || cycleCode === 'COMBINED';
+  const cleanCycle = String(cycleCode || '').trim();
+  const isCombined = !cleanCycle || cleanCycle.toUpperCase() === 'ALL' || cleanCycle.includes('Object') || !['C1', 'C2'].includes(cleanCycle.toUpperCase()) || cleanCycle === 'Whole_Month' || cleanCycle === 'WHOLE_MONTH' || cleanCycle === 'BOTH' || cleanCycle === 'C1_C2' || cleanCycle === 'COMBINED';
   const month = periodMonth || '2026-10';
-  const cycle = isCombined ? null : cycleCode;
+  const cycle = isCombined ? null : cleanCycle.toUpperCase();
 
   const a = await analyseAdherence({
     periodMonth: month,

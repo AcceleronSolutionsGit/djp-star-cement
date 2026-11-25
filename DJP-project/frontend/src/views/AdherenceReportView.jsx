@@ -352,7 +352,7 @@ export default function AdherenceReportView({
   const handleExportExcel = async (exportCycle = null) => {
     try {
       setExporting(true);
-      const effCycle = exportCycle || cycle || 'ALL';
+      const effCycle = (typeof exportCycle === 'string' && exportCycle && !exportCycle.includes('Object')) ? exportCycle : (cycle || 'ALL');
       onShowToast?.(`Generating ${effCycle === 'ALL' ? 'Full Month (C1+C2)' : effCycle} zone-wise multi-tab Excel file...`, 'info');
       await api.exportAdherenceExcel({
         periodMonth: month,
@@ -578,7 +578,7 @@ export default function AdherenceReportView({
             <button
               type="button"
               className="btn btn-primary"
-              onClick={handleExportExcel}
+              onClick={() => handleExportExcel('ALL')}
               disabled={exporting}
               title="Export Complete Multi-Tab Excel Workbook"
               style={{

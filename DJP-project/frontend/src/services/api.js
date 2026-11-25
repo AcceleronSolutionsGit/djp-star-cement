@@ -424,7 +424,7 @@ export const api = {
   exportAdherenceExcel: async ({ periodMonth, cycleCode, asOnDate } = {}) => {
     const q = new URLSearchParams();
     if (periodMonth) q.append('periodMonth', periodMonth);
-    const effCycle = cycleCode || 'ALL';
+    const effCycle = (typeof cycleCode === 'string' && cycleCode && !cycleCode.includes('Object') && ['C1', 'C2', 'ALL'].includes(cycleCode.toUpperCase())) ? cycleCode.toUpperCase() : 'ALL';
     q.append('cycleCode', effCycle);
     if (asOnDate) q.append('asOnDate', asOnDate);
     const res = await fetchWithAuth(`${API_BASE}/djp/export-adherence-report?${q.toString()}`);

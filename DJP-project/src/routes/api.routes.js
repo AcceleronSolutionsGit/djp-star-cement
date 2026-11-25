@@ -313,8 +313,9 @@ router.get('/djp/export-adherence-report', async (req, res) => {
       effectivePeriod = '2026-10';
     }
 
-    const isCombined = !cycleCode || cycleCode === 'ALL' || cycleCode === 'Whole_Month' || cycleCode === 'WHOLE_MONTH' || cycleCode === 'BOTH' || cycleCode === 'C1_C2' || cycleCode === 'COMBINED';
-    const effectiveCycle = isCombined ? 'ALL' : cycleCode.toUpperCase();
+    const cleanCycle = String(cycleCode || '').trim();
+    const isCombined = !cleanCycle || cleanCycle.toUpperCase() === 'ALL' || cleanCycle.includes('Object') || !['C1', 'C2'].includes(cleanCycle.toUpperCase()) || cleanCycle === 'Whole_Month' || cleanCycle === 'WHOLE_MONTH' || cleanCycle === 'BOTH' || cleanCycle === 'C1_C2' || cleanCycle === 'COMBINED';
+    const effectiveCycle = isCombined ? 'ALL' : cleanCycle.toUpperCase();
     const wb = await buildAdherenceWorkbook({ periodMonth: effectivePeriod, cycleCode: effectiveCycle, asOnDate });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=Trade_DJP_Adherence_${effectivePeriod}_${effectiveCycle}.xlsx`);
