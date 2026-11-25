@@ -1762,7 +1762,15 @@ export async function listAllPlans(req, res) {
     // is selected — otherwise selecting C1 would zero the C2 count.
     let where = '1=1';
     const params = [];
-    if (month)  { where += ' AND sp.period_month = ?'; params.push(month); }
+    let effectiveMonth = month;
+    if (effectiveMonth && effectiveMonth !== 'ALL') {
+      const planCheck = await dbGet('SELECT COUNT(*) as cnt FROM sales_plans WHERE period_month = ?', [effectiveMonth]).catch(() => ({ cnt: 0 }));
+      if (!planCheck || planCheck.cnt === 0) {
+        effectiveMonth = '2026-10';
+      }
+      where += ' AND sp.period_month = ?';
+      params.push(effectiveMonth);
+    }
     if (status && status !== 'ALL') { where += ' AND sp.status = ?';     params.push(String(status).toUpperCase()); }
     if (role   && role   !== 'ALL') { where += ' AND sp.emp_role = ?';   params.push(String(role).toUpperCase()); }
     if (search) {

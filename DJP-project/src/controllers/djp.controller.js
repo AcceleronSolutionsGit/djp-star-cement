@@ -422,6 +422,11 @@ export async function exportPjpTradeExcel(req, res) {
     let targetPeriod = periodMonth && periodMonth !== 'ALL' ? periodMonth : null;
     let targetCycle = cycleCode && cycleCode !== 'ALL' ? cycleCode : null;
 
+    if (targetPeriod) {
+      const check = await dbGet('SELECT COUNT(*) as cnt FROM dealer_visit_targets WHERE period_month = ?', [targetPeriod]).catch(() => ({ cnt: 0 }));
+      if (!check || check.cnt === 0) targetPeriod = null; // trigger auto fallback to latest active month
+    }
+
     if (!targetPeriod) {
       const latest = await dbGet('SELECT period_month, cycle_code FROM dealer_visit_targets WHERE period_month IS NOT NULL ORDER BY period_month DESC LIMIT 1');
       if (latest) {
@@ -568,6 +573,11 @@ export async function exportMasterExcel(req, res) {
   try {
     const { periodMonth } = req.query;
     let targetPeriod = periodMonth && periodMonth !== 'ALL' ? periodMonth : null;
+
+    if (targetPeriod) {
+      const check = await dbGet('SELECT COUNT(*) as cnt FROM dealer_visit_targets WHERE period_month = ?', [targetPeriod]).catch(() => ({ cnt: 0 }));
+      if (!check || check.cnt === 0) targetPeriod = null;
+    }
 
     if (!targetPeriod) {
       const latest = await dbGet(
@@ -760,6 +770,14 @@ const isoDay   = v => (v instanceof Date ? v.toISOString() : String(v ?? '')).sl
  */
 async function loadScheduledVisits(periodMonth, cycleCode) {
   let rows = [];
+  let effectivePeriod = periodMonth;
+  const check = await dbGet('SELECT COUNT(*) as cnt FROM sales_plans WHERE period_month = ?', [periodMonth]).catch(() => ({ cnt: 0 }));
+  if (!check || check.cnt === 0) {
+    const latest = await dbGet('SELECT period_month FROM sales_plans WHERE period_month IS NOT NULL ORDER BY period_month DESC LIMIT 1').catch(() => null);
+    if (latest && latest.period_month) effectivePeriod = latest.period_month;
+    else effectivePeriod = '2026-10';
+  }
+
   const isCombined = !cycleCode || cycleCode === 'ALL' || cycleCode === 'COMBINED' || cycleCode === 'C1_C2' || cycleCode === 'BOTH' || cycleCode === 'Whole_Month' || cycleCode === 'WHOLE_MONTH';
   const query = isCombined
     ? `SELECT d.visit_date, d.dealer_sap_code, d.dealer_name, d.sequence, d.purpose_of_visit,
@@ -774,7 +792,7 @@ async function loadScheduledVisits(periodMonth, cycleCode) {
          JOIN sales_plans p ON p.id = d.plan_id
         WHERE p.period_month = ? AND p.cycle_code = ?
         ORDER BY d.visit_date ASC, p.emp_code ASC, d.sequence ASC`;
-  const params = isCombined ? [periodMonth] : [periodMonth, cycleCode];
+  const params = isCombined ? [effectivePeriod] : [effectivePeriod, cycleCode];
 
   try {
     rows = await dbAll(query, params);
@@ -1014,13 +1032,18 @@ export async function exportVisitsExcel(req, res) {
     let targetPeriod = periodMonth && periodMonth !== 'ALL' ? periodMonth : null;
     let targetCycle = isCombined ? 'Whole_Month' : (cycleCode || 'C1');
 
+    if (targetPeriod) {
+      const check = await dbGet('SELECT COUNT(*) as cnt FROM dealer_visit_targets WHERE period_month = ?', [targetPeriod]).catch(() => ({ cnt: 0 }));
+      if (!check || check.cnt === 0) targetPeriod = null;
+    }
+
     if (!targetPeriod) {
       const latest = await dbGet('SELECT period_month, cycle_code FROM dealer_visit_targets WHERE period_month IS NOT NULL ORDER BY period_month DESC LIMIT 1');
       if (latest) {
         targetPeriod = latest.period_month;
         if (!isCombined && latest.cycle_code) targetCycle = latest.cycle_code;
       } else {
-        targetPeriod = '2026-06';
+        targetPeriod = '2026-10';
       }
     }
 

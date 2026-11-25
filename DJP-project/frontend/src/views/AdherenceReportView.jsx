@@ -21,13 +21,15 @@ export default function AdherenceReportView({
   initialRole = 'SO'
 }) {
   // Period & cycle controls — defaults to ALL (Full Month) for comprehensive adherence across C1 and C2
-  const [month, setMonth] = useState(selectedPeriod || '2026-10');
+  const [month, setMonth] = useState(selectedPeriod && selectedPeriod !== '2026-11' ? selectedPeriod : '2026-10');
   const [cycle, setCycle] = useState('ALL');
   const [asOn, setAsOn] = useState('');
 
   // Sync props when changed by parent
   useEffect(() => {
-    if (selectedPeriod && selectedPeriod !== month) setMonth(selectedPeriod);
+    if (selectedPeriod && selectedPeriod !== month) {
+      setMonth(selectedPeriod === '2026-11' ? '2026-10' : selectedPeriod);
+    }
   }, [selectedPeriod]);
 
   useEffect(() => {

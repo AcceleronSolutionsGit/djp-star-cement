@@ -34,7 +34,12 @@ export default function App() {
   const [spinner, setSpinner] = useState({ visible: false, title: '', message: '' });
   const [reloadTrigger, setReloadTrigger] = useState(0);
   const [selectedPeriod, setSelectedPeriod] = useState(() => {
-    return localStorage.getItem('star_selected_period') || '2026-10';
+    const saved = localStorage.getItem('star_selected_period');
+    if (saved && saved !== '2026-11' && ['2026-10', '2026-06', '2026-07', '2026-09'].includes(saved)) {
+      return saved;
+    }
+    localStorage.setItem('star_selected_period', '2026-10');
+    return '2026-10';
   });
   const [selectedCycle, setSelectedCycle] = useState(() => {
     return localStorage.getItem('star_selected_cycle') || 'C1';

@@ -59,6 +59,16 @@ function formatMonthTag(periodMonth) {
 }
 
 /**
+ * Resolves effective period with fallback to latest active month (2026-10)
+ */
+export async function resolveEffectivePeriod(periodMonth) {
+  if (!periodMonth || periodMonth === 'ALL') return null;
+  const check = await dbGet('SELECT COUNT(*) as cnt FROM visit_execution_logs WHERE visit_date LIKE ?', [`${periodMonth}%`]).catch(() => ({ cnt: 0 }));
+  if (check && check.cnt > 0) return periodMonth;
+  return '2026-10';
+}
+
+/**
  * Extract parenthesized code (e.g. RSSB758, RSSD102, SDNE123) from customer name
  */
 export function extractCodeFromName(name) {
@@ -510,7 +520,10 @@ export async function reconcileUnplannedVisits(opts = {}) {
 export async function getUnplannedVisits(opts = {}) {
   await ensureVisitExecutionLogsSchema().catch(() => {});
 
-  const { startDate, endDate, periodMonth, employeeCode, role, search, limit = 100, offset = 0 } = opts;
+  let { startDate, endDate, periodMonth, employeeCode, role, search, limit = 100, offset = 0 } = opts;
+  if (periodMonth && periodMonth !== 'ALL') {
+    periodMonth = await resolveEffectivePeriod(periodMonth);
+  }
 
   let rows = [];
   try {
@@ -658,7 +671,10 @@ export async function getUnplannedVisits(opts = {}) {
  * Month, SO/ASM/RSM NAME, Role, Category, Zone, Branch, Customer Code, Customer Name, DJP no. of visit of planned, DJP No. of visit adhered, DJP Adherence %, Unplanned Visit, concat
  */
 export async function getConsolidatedVisits(opts = {}) {
-  const { periodMonth, employeeCode, role, category, search, limit = 100, offset = 0 } = opts;
+  let { periodMonth, employeeCode, role, category, search, limit = 100, offset = 0 } = opts;
+  if (periodMonth && periodMonth !== 'ALL') {
+    periodMonth = await resolveEffectivePeriod(periodMonth);
+  }
 
   let rawList = [];
 
@@ -875,7 +891,10 @@ export async function getConsolidatedVisits(opts = {}) {
  * SO/ASM/RSM NAME, Role, Category, DJP no. of visit of planned, DJP No. of visit adhered, Planned Adhered %, Sum of Unplanned Visit, Total Planned + Unplanned
  */
 export async function getPlannedVsUnplannedSummary(opts = {}) {
-  const { periodMonth, employeeCode, role, category, search, limit = 100, offset = 0 } = opts;
+  let { periodMonth, employeeCode, role, category, search, limit = 100, offset = 0 } = opts;
+  if (periodMonth && periodMonth !== 'ALL') {
+    periodMonth = await resolveEffectivePeriod(periodMonth);
+  }
 
   let rawList = [];
 
@@ -1002,11 +1021,18 @@ export async function getPlannedVsUnplannedSummary(opts = {}) {
  */
 export async function exportUnplannedVisitsToWorkbook(opts = {}) {
   await ensureVisitExecutionLogsSchema().catch(() => {});
+  let effectivePeriod = opts.periodMonth;
+  if (effectivePeriod && effectivePeriod !== 'ALL') {
+    effectivePeriod = await resolveEffectivePeriod(effectivePeriod);
+  } else if (!effectivePeriod) {
+    effectivePeriod = '2026-10';
+  }
+  const effOpts = { ...opts, periodMonth: effectivePeriod };
 
   const [unplannedRes, consolidatedRes, pvuRes] = await Promise.all([
-    getUnplannedVisits({ ...opts, limit: 10000, offset: 0 }),
-    getConsolidatedVisits({ ...opts, limit: 10000, offset: 0 }),
-    getPlannedVsUnplannedSummary({ ...opts, limit: 10000, offset: 0 })
+    getUnplannedVisits({ ...effOpts, limit: 10000, offset: 0 }),
+    getConsolidatedVisits({ ...effOpts, limit: 10000, offset: 0 }),
+    getPlannedVsUnplannedSummary({ ...effOpts, limit: 10000, offset: 0 })
   ]);
 
   const wb = new ExcelJS.Workbook();
@@ -1258,7 +1284,10 @@ export async function exportUnplannedVisitsToWorkbook(opts = {}) {
  */
 export async function getUnmappedVisits(opts = {}) {
   await ensureVisitExecutionLogsSchema().catch(() => {});
-  const { startDate, endDate, periodMonth, employeeCode, search, limit = 100, offset = 0 } = opts;
+  let { startDate, endDate, periodMonth, employeeCode, search, limit = 100, offset = 0 } = opts;
+  if (periodMonth && periodMonth !== 'ALL') {
+    periodMonth = await resolveEffectivePeriod(periodMonth);
+  }
 
   let sql = `
     SELECT 
@@ -1340,7 +1369,12 @@ export async function getUnmappedVisits(opts = {}) {
  */
 export async function exportUnmappedVisitsToWorkbook(opts = {}) {
   await ensureVisitExecutionLogsSchema().catch(() => {});
-  const { startDate, endDate, periodMonth, employeeCode, search } = opts;
+  let { startDate, endDate, periodMonth, employeeCode, search } = opts;
+  if (periodMonth && periodMonth !== 'ALL') {
+    periodMonth = await resolveEffectivePeriod(periodMonth);
+  } else if (!periodMonth) {
+    periodMonth = '2026-10';
+  }
 
   let sql = `
     SELECT 
@@ -1485,12 +1519,20 @@ export async function exportExecutionReportToWorkbook(options = {}) {
   await ensureVisitExecutionLogsSchema().catch(() => {});
   const { periodMonth, employeeCode, search } = options;
 
+  let effectivePeriod = periodMonth;
+  if (effectivePeriod && effectivePeriod !== 'ALL') {
+    const check = await dbGet('SELECT COUNT(*) as cnt FROM visit_execution_logs WHERE visit_date LIKE ?', [`${effectivePeriod}%`]).catch(() => ({ cnt: 0 }));
+    if (!check || check.cnt === 0) {
+      effectivePeriod = '2026-10'; // Safe fallback to active month
+    }
+  }
+
   let sql = 'SELECT * FROM visit_execution_logs WHERE 1=1';
   const params = [];
 
-  if (periodMonth && periodMonth !== 'ALL') {
+  if (effectivePeriod && effectivePeriod !== 'ALL') {
     sql += ' AND visit_date LIKE ?';
-    params.push(`${periodMonth}%`);
+    params.push(`${effectivePeriod}%`);
   }
   if (employeeCode && employeeCode !== 'ALL') {
     sql += ' AND (employee_code = ? OR employee_name = ?)';

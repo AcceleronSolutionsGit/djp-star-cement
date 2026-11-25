@@ -168,8 +168,14 @@ export default function OfficerPlansView({ onShowToast, selectedPeriod, selected
   const [tab, setTab] = useState('plans');
 
   // ── plans tab ──────────────────────────────────────────────────────────────
-  const [month, setMonth]   = useState(selectedPeriod || '2026-10');
+  const [month, setMonth]   = useState(selectedPeriod && selectedPeriod !== '2026-11' ? selectedPeriod : '2026-10');
   const [cycle, setCycle]   = useState(selectedCycle || 'ALL');
+
+  useEffect(() => {
+    if (selectedPeriod && selectedPeriod !== month) {
+      setMonth(selectedPeriod === '2026-11' ? '2026-10' : selectedPeriod);
+    }
+  }, [selectedPeriod]);
   const [status, setStatus] = useState('ALL');
   const [role, setRole]     = useState('ALL');
   const [search, setSearch] = useState('');

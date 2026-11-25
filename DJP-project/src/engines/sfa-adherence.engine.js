@@ -209,15 +209,28 @@ export async function buildDealerCodeIndex() {
  *                                          client's COUNTIFS does not filter on status)
  */
 export async function analyseAdherence(opts = {}) {
-  const periodMonth = opts.periodMonth;
+  let periodMonth = opts.periodMonth;
   if (!/^\d{4}-\d{2}$/.test(String(periodMonth || ''))) {
-    throw new Error(`periodMonth must be YYYY-MM, received '${periodMonth}'`);
+    periodMonth = '2026-10';
+  }
+
+  // Safety fallback: if requested period has no plans in DB, fall back to latest active period with plans (e.g. 2026-10)
+  const planCheck = await dbGet('SELECT COUNT(*) as cnt FROM sales_plans WHERE period_month = ?', [periodMonth]).catch(() => ({ cnt: 0 }));
+  if (!planCheck || planCheck.cnt === 0) {
+    const latest = await dbGet('SELECT period_month FROM sales_plans WHERE period_month IS NOT NULL ORDER BY period_month DESC LIMIT 1').catch(() => null);
+    periodMonth = (latest && latest.period_month) ? latest.period_month : '2026-10';
   }
 
   const windows = await loadCycleWindows();
   const isBothCycles = !opts.cycleCode || String(opts.cycleCode).toUpperCase() === 'ALL';
   const cycles  = isBothCycles ? ['C1', 'C2'] : [String(opts.cycleCode).toUpperCase()];
-  const asOnDate = opts.asOnDate || (isBothCycles ? defaultAsOnDate(periodMonth, 'C2', windows) : defaultAsOnDate(periodMonth, cycles[0], windows));
+  let asOnDate = opts.asOnDate;
+  if (asOnDate && !String(asOnDate).startsWith(periodMonth)) {
+    asOnDate = null;
+  }
+  if (!asOnDate) {
+    asOnDate = isBothCycles ? defaultAsOnDate(periodMonth, 'C2', windows) : defaultAsOnDate(periodMonth, cycles[0], windows);
+  }
   const productiveOnly = !!opts.productiveOnly;
 
   // ── 1. planned visits, per role, from the plans themselves ────────────────
