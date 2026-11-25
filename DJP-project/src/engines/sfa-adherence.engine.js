@@ -728,10 +728,22 @@ export async function analyseAdherence(opts = {}) {
     const adhered      = rows.reduce((s, r) => s + (r.adhered || 0), 0);
     const adheredCap   = rows.reduce((s, r) => s + (r.adhered_capped || 0), 0);
     const denominator  = mtdPlanned < 1 ? planned : mtdPlanned;
+
+    // Deduplicate across C1 + C2 cycles so dealer counts match unique officer-dealer targets
+    const dealerVisited = new Map();
+    for (const r of rows) {
+      const dKey = `${key(r.role)}|${key(r.emp_code)}|${key(r.dealer_sap_code || r.sfa_code || r.dealer_name)}`;
+      dealerVisited.set(dKey, Boolean(dealerVisited.get(dKey)) || Boolean(r.visited));
+    }
+    const dealers = dealerVisited.size;
+    let dealersVisited = 0;
+    for (const v of dealerVisited.values()) if (v) dealersVisited++;
+    const dealersMissed = dealers - dealersVisited;
+
     return {
-      dealers: rows.length,
-      dealers_visited: rows.filter(r => r.visited).length,
-      dealers_missed:  rows.filter(r => !r.visited).length,
+      dealers,
+      dealers_visited: dealersVisited,
+      dealers_missed:  dealersMissed,
       planned,
       planned_visits: planned,
       mtd_planned: mtdPlanned,
@@ -741,7 +753,7 @@ export async function analyseAdherence(opts = {}) {
       adherence_pct:        denominator > 0 ? adhered / denominator : 0,
       adherence_pct_capped: denominator > 0 ? adheredCap / denominator : 0,
       pending: mtdPlanned - adhered,
-      coverage_pct: rows.length > 0 ? rows.filter(r => r.visited).length / rows.length : 0
+      coverage_pct: dealers > 0 ? dealersVisited / dealers : 0
     };
   };
 

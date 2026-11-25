@@ -146,16 +146,16 @@ export default function AdherenceReportView({
   const currentOfficerDealers = useMemo(() => {
     if (!currentOfficer) return [];
     const list = roleDealers.filter(d => {
-      return (
-        d.emp_code === currentOfficer.emp_code ||
-        (d.emp_name && currentOfficer.emp_name && d.emp_name.toLowerCase() === currentOfficer.emp_name.toLowerCase())
-      );
+      if (currentOfficer.emp_code && d.emp_code) {
+        return String(d.emp_code).trim().toUpperCase() === String(currentOfficer.emp_code).trim().toUpperCase();
+      }
+      return Boolean(d.emp_name && currentOfficer.emp_name && d.emp_name.trim().toLowerCase() === currentOfficer.emp_name.trim().toLowerCase());
     });
 
     if (cycle === 'ALL') {
       const consolidatedMap = new Map();
       for (const dl of list) {
-        const dKey = `${dl.category || 'Other'}|${dl.sap_code || dl.dealer_sap_code || dl.dealer_name}`;
+        const dKey = String(dl.sap_code || dl.dealer_sap_code || dl.sfa_code || dl.dealer_name || '').trim().toUpperCase();
         if (!consolidatedMap.has(dKey)) {
           consolidatedMap.set(dKey, {
             ...dl,
