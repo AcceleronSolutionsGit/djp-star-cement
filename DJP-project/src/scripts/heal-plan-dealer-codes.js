@@ -6,7 +6,11 @@ import { dbAll, dbRun } from '../config/database.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Explicit dictionary for the 25 dealers in Plan 565
+const norm = v => String(v ?? '').trim();
+const key  = v => norm(v).toUpperCase();
+const normName = v => key(v).replace(/\([^)]*\)/g, '').replace(/[,.-]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+// Explicit dictionary for the legacy Plan 565 rows
 const DEALER_FIXES = {
   'PANKAJ CEMENT,': {
     dealer_name: 'PANKAJ CEMENT STORE',
@@ -185,6 +189,12 @@ const DEALER_FIXES = {
   }
 };
 
+function deterministicProspectCode(name, dealerId) {
+  if (dealerId) return `NS-DLR-${dealerId}`;
+  const slug = normName(name).replace(/[^A-Z0-9]+/g, '-').slice(0, 24);
+  return slug ? `NS-${slug}` : 'NS-PROSPECT';
+}
+
 export async function healPlanDealerCodes() {
   console.log('[HealCodes] Starting dealer code healing across sales_plan_details...');
 
@@ -214,24 +224,87 @@ export async function healPlanDealerCodes() {
     }
   }
 
-  // Also heal any other rows in sales_plan_details with legacy C/... or null
-  const otherC = await dbAll(`
-    SELECT id, dealer_name, dealer_sap_code, dealer_type
+  // Heal any other rows in sales_plan_details with legacy C/%, PR-%, DLR_%, or NULL/empty SAP codes
+  const otherWeird = await dbAll(`
+    SELECT id, dealer_id, dealer_name, dealer_sap_code, dealer_type
     FROM sales_plan_details
-    WHERE dealer_sap_code LIKE 'C/%' OR dealer_sap_code IS NULL OR dealer_sap_code = ''
+    WHERE dealer_sap_code LIKE 'C/%'
+       OR dealer_sap_code LIKE 'PR-%'
+       OR dealer_sap_code LIKE 'DLR_%'
+       OR dealer_sap_code IS NULL
+       OR dealer_sap_code = ''
   `);
-  console.log(`[HealCodes] Remaining weird rows in sales_plan_details: ${otherC.length}`);
-  for (const row of otherC) {
-    const rawCode = row.dealer_sap_code || '';
-    const cleanCode = rawCode.startsWith('C/') ? rawCode.replace('C/', 'PR-') : `PR-${row.id}`;
-    await dbRun(
-      `UPDATE sales_plan_details
-       SET dealer_sap_code = ?,
-           dealer_type = COALESCE(NULLIF(dealer_type, ''), 'PROSPECTIVE')
-       WHERE id = ?`,
-      [cleanCode, row.id]
-    );
-    totalUpdated++;
+
+  if (otherWeird.length > 0) {
+    console.log(`[HealCodes] Found ${otherWeird.length} unmapped/legacy rows in sales_plan_details. Resolving from master tables...`);
+    const masterRows = await dbAll(
+      `SELECT id, dealer_id, sap_code, sfa_code, rssd_code, dealer_name, dealer_type FROM master_dealers`
+    ).catch(() => []);
+    const targetRows = await dbAll(
+      `SELECT id, dealer_id, sap_code, sfa_code, dealer_name FROM dealer_visit_targets`
+    ).catch(() => []);
+
+    const lookup = new Map();
+    const register = (kStr, info) => {
+      const k = key(kStr);
+      if (k && !lookup.has(k)) lookup.set(k, info);
+    };
+
+    for (const m of masterRows) {
+      const sap = norm(m.sap_code) || norm(m.sfa_code);
+      if (!sap) continue;
+      const info = { sap, dealer_type: m.dealer_type || '' };
+      if (m.id) register(`ID_${m.id}`, info);
+      if (m.dealer_id) register(m.dealer_id, info);
+      if (m.sap_code) register(m.sap_code, info);
+      if (m.sfa_code) register(m.sfa_code, info);
+      if (m.rssd_code) register(m.rssd_code, info);
+      if (m.dealer_name) {
+        register(m.dealer_name, info);
+        register(normName(m.dealer_name), info);
+        const codeInName = String(m.dealer_name).match(/\((RSS[BD]?\w+|SD[A-Z0-9]+|[A-Z0-9_-]{4,})\)/i);
+        if (codeInName) register(codeInName[1], info);
+      }
+    }
+
+    for (const t of targetRows) {
+      const sap = norm(t.sap_code) || norm(t.sfa_code);
+      if (!sap) continue;
+      const info = { sap, dealer_type: '' };
+      if (t.id) register(`ID_${t.id}`, info);
+      if (t.dealer_id) register(t.dealer_id, info);
+      if (t.sap_code) register(t.sap_code, info);
+      if (t.sfa_code) register(t.sfa_code, info);
+      if (t.dealer_name) {
+        register(t.dealer_name, info);
+        register(normName(t.dealer_name), info);
+        const codeInName = String(t.dealer_name).match(/\((RSS[BD]?\w+|SD[A-Z0-9]+|[A-Z0-9_-]{4,})\)/i);
+        if (codeInName) register(codeInName[1], info);
+      }
+    }
+
+    for (const row of otherWeird) {
+      const codeInName = String(row.dealer_name || '').match(/\((RSS[BD]?\w+|SD[A-Z0-9]+|[A-Z0-9_-]{4,})\)/i);
+      const match = (row.dealer_id && lookup.get(key(`ID_${row.dealer_id}`)))
+                 || (row.dealer_id && lookup.get(key(row.dealer_id)))
+                 || (row.dealer_name && lookup.get(key(row.dealer_name)))
+                 || (codeInName && lookup.get(key(codeInName[1])))
+                 || (row.dealer_name && lookup.get(normName(row.dealer_name)));
+
+      const resolvedCode = match ? match.sap : deterministicProspectCode(row.dealer_name, row.dealer_id);
+      const resolvedType = (match && match.dealer_type) ? match.dealer_type : (row.dealer_type || 'PROSPECTIVE');
+
+      if (resolvedCode !== row.dealer_sap_code) {
+        await dbRun(
+          `UPDATE sales_plan_details
+           SET dealer_sap_code = ?,
+               dealer_type = COALESCE(NULLIF(dealer_type, ''), ?)
+           WHERE id = ?`,
+          [resolvedCode, resolvedType, row.id]
+        );
+        totalUpdated++;
+      }
+    }
   }
 
   // Update src/data/abhijitDamC1Visits.json
@@ -247,12 +320,14 @@ export async function healPlanDealerCodes() {
         v.dealer_type = fix.dealer_type;
         fileUpdated++;
       } else if (v.dealer_sap_code && v.dealer_sap_code.startsWith('C/')) {
-        v.dealer_sap_code = v.dealer_sap_code.replace('C/', 'PR-');
+        v.dealer_sap_code = v.dealer_sap_code.replace('C/', 'NS-');
         fileUpdated++;
       }
     }
-    fs.writeFileSync(visitsJsonPath, JSON.stringify(visits, null, 2), 'utf8');
-    console.log(`[HealCodes] ✓ Updated ${fileUpdated} visits in abhijitDamC1Visits.json`);
+    if (fileUpdated > 0) {
+      fs.writeFileSync(visitsJsonPath, JSON.stringify(visits, null, 2), 'utf8');
+      console.log(`[HealCodes] ✓ Updated ${fileUpdated} visits in abhijitDamC1Visits.json`);
+    }
   }
 
   console.log(`[HealCodes] ✓ Total database visits healed: ${totalUpdated}`);

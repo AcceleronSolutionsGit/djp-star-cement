@@ -432,6 +432,8 @@ export async function analyseAdherence(opts = {}) {
     if (m.dealer_name) {
       indexDim(m.dealer_name, val);
       indexDim(normName(m.dealer_name), val);
+      const codeInName = String(m.dealer_name).match(/\((RSS[BD]?\w+|SD[A-Z0-9]+|[A-Z0-9_-]{4,})\)/i);
+      if (codeInName) indexDim(codeInName[1], val);
       const b = baseName(m.dealer_name);
       if (b && b.length >= 3) indexDim(b, val);
     }
@@ -461,6 +463,8 @@ export async function analyseAdherence(opts = {}) {
     if (d.dealer_name) {
       indexDim(d.dealer_name, val);
       indexDim(normName(d.dealer_name), val);
+      const codeInName = String(d.dealer_name).match(/\((RSS[BD]?\w+|SD[A-Z0-9]+|[A-Z0-9_-]{4,})\)/i);
+      if (codeInName) indexDim(codeInName[1], val);
       const b = baseName(d.dealer_name);
       if (b && b.length >= 3) indexDim(b, val);
     }
@@ -475,22 +479,22 @@ export async function analyseAdherence(opts = {}) {
   const dealerRows = new Map();
   for (const p of planned) {
     const rawSap = norm(p.dealer_sap_code);
-    const isDummySap = !rawSap || rawSap.startsWith('C/') || rawSap.startsWith('DLR_');
+    const isDummySap = !rawSap || rawSap.startsWith('C/') || rawSap.startsWith('DLR_') || rawSap.startsWith('PR-') || rawSap.startsWith('NS-DLR-');
     const codeInName = String(p.dealer_name || '').match(/\((RSS[BD]?\w+|SD[A-Z0-9]+|[A-Z0-9_-]{4,})\)/i);
 
     // Multi-tier dim lookup
     const dim = (!isDummySap && dealerDims.get(key(rawSap)))
              || (p.dealer_name && dealerDims.get(key(p.dealer_name)))
+             || (codeInName && dealerDims.get(key(codeInName[1])))
              || (p.dealer_name && dealerDims.get(normName(p.dealer_name)))
              || (p.dealer_name && baseName(p.dealer_name).length >= 3 && dealerDims.get(baseName(p.dealer_name)))
-             || (codeInName && dealerDims.get(key(codeInName[1])))
              || (p.dealer_id && dealerDims.get(String(p.dealer_id)))
              || (p.dealer_id && dealerDims.get(`dlr_${p.dealer_id}`))
              || (rawSap && dealerDims.get(key(rawSap)))
              || {};
 
-    // Canonical dealer identifier for grouping
-    let canonicalDealer = (!isDummySap ? rawSap : '') || dim.sap_code || dim.sfa_code || (codeInName ? codeInName[1] : '') || p.dealer_name || (p.dealer_id ? `dlr_${p.dealer_id}` : 'dealer');
+    // Canonical dealer identifier for grouping — always deterministic per dealer, never per visit row
+    let canonicalDealer = (!isDummySap ? rawSap : '') || dim.sap_code || dim.sfa_code || (codeInName ? codeInName[1] : '') || normName(p.dealer_name) || p.dealer_name || (p.dealer_id ? `dlr_${p.dealer_id}` : 'dealer');
     canonicalDealer = key(canonicalDealer);
 
     const k = `${p.cycle_code}|${p.emp_role}|${key(p.emp_code)}|${canonicalDealer}`;
@@ -502,8 +506,8 @@ export async function analyseAdherence(opts = {}) {
       let sapCode = (!isDummySap) ? rawSap : (dim.sap_code || '');
       if (!sapCode && dim.sfa_code) sapCode = dim.sfa_code;
       if (!sapCode && codeInName) sapCode = codeInName[1];
-      if (!sapCode && rawSap && rawSap.startsWith('C/')) sapCode = rawSap.replace('C/', 'PR-');
-      if (!sapCode && p.dealer_id) sapCode = `PR-${p.dealer_id}`;
+      if (!sapCode && p.dealer_name) sapCode = `NS-${normName(p.dealer_name).replace(/[^A-Z0-9]+/g, '-').slice(0, 20)}`;
+      if (!sapCode && p.dealer_id) sapCode = `NS-DLR-${p.dealer_id}`;
       if (!sapCode) sapCode = canonicalDealer;
 
       let sfaCode = dim.sfa_code || (codeInName ? codeInName[1] : '');
