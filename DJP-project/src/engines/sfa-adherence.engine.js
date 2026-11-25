@@ -44,6 +44,12 @@ import { dbAll, dbGet } from '../config/database.js';
 
 const norm = v => String(v ?? '').trim();
 const key  = v => norm(v).toUpperCase();
+const normName = v => key(v).replace(/\([^)]*\)/g, '').replace(/[,.-]+/g, ' ').replace(/\s+/g, ' ').trim();
+const baseName = v => {
+  let s = normName(v);
+  s = s.replace(/\b(STORE|STORES|ENTERPRISE|ENTERPRISES|TRADERS|TRADER|HARDWARE|CEMENT|IRON|STEEL|AGENCY|AGENCIES|CORP|CORPORATION|CO|COMPANY|PVT|LTD|ASSOCIATES)\b/g, '').replace(/\s+/g, ' ').trim();
+  return s;
+};
 
 const ROLES = ['SO', 'ASM', 'RSM', 'ZH'];
 
@@ -145,6 +151,10 @@ export async function buildDealerCodeIndex() {
       const k = key(c);
       if (k && !index.has(k)) index.set(k, { canonical, name: d.dealer_name });
     }
+    if (d.dealer_name) {
+      if (!index.has(key(d.dealer_name))) index.set(key(d.dealer_name), { canonical, name: d.dealer_name });
+      if (!index.has(normName(d.dealer_name))) index.set(normName(d.dealer_name), { canonical, name: d.dealer_name });
+    }
   }
 
   // 2. Master fallback
@@ -158,6 +168,12 @@ export async function buildDealerCodeIndex() {
     for (const c of [d.sap_code, d.sfa_code, d.rssd_code]) {
       const k = key(c);
       if (k && !index.has(k)) index.set(k, { canonical, name: d.dealer_name });
+    }
+    if (d.dealer_name) {
+      if (!index.has(key(d.dealer_name))) index.set(key(d.dealer_name), { canonical, name: d.dealer_name });
+      if (!index.has(normName(d.dealer_name))) index.set(normName(d.dealer_name), { canonical, name: d.dealer_name });
+      const b = baseName(d.dealer_name);
+      if (b && b.length >= 3 && !index.has(b)) index.set(b, { canonical, name: d.dealer_name });
     }
     const codeInName = String(d.dealer_name || '').match(/\((RSS[BD]?\w+|SDNE\w+|\d{6,}|[A-Z0-9_-]{4,})\)/i);
     if (codeInName && !index.has(key(codeInName[1]))) {
@@ -177,6 +193,24 @@ export async function buildDealerCodeIndex() {
     }
     if (m.linked_dealer_code && !index.has(key(m.linked_dealer_code))) {
       index.set(key(m.linked_dealer_code), { canonical, name: m.dealer_name });
+    }
+    if (m.dealer_name) {
+      if (!index.has(key(m.dealer_name))) index.set(key(m.dealer_name), { canonical, name: m.dealer_name });
+      if (!index.has(normName(m.dealer_name))) index.set(normName(m.dealer_name), { canonical, name: m.dealer_name });
+    }
+  }
+
+  // 4. Sales plan details fallback
+  const planRows = await dbAll(
+    `SELECT DISTINCT dealer_sap_code, dealer_name FROM sales_plan_details WHERE dealer_sap_code IS NOT NULL AND dealer_sap_code != ''`
+  ).catch(() => []);
+  for (const p of planRows) {
+    const canonical = norm(p.dealer_sap_code);
+    if (!canonical) continue;
+    if (!index.has(key(canonical))) index.set(key(canonical), { canonical, name: p.dealer_name });
+    if (p.dealer_name) {
+      if (!index.has(key(p.dealer_name))) index.set(key(p.dealer_name), { canonical, name: p.dealer_name });
+      if (!index.has(normName(p.dealer_name))) index.set(normName(p.dealer_name), { canonical, name: p.dealer_name });
     }
   }
 
@@ -241,7 +275,8 @@ export async function analyseAdherence(opts = {}) {
        sp.emp_code, sp.emp_name,
        COALESCE(NULLIF(TRIM(sp.emp_role), ''), 'SO') AS emp_role,
        sp.cycle_code, sp.status,
-       spd.visit_date, spd.dealer_sap_code, spd.dealer_name, spd.dealer_id
+       spd.visit_date, spd.dealer_sap_code, spd.dealer_name, spd.dealer_id,
+       spd.dealer_type, spd.purpose_of_visit
      FROM sales_plan_details spd
      JOIN sales_plans sp ON sp.id = spd.plan_id
      WHERE sp.period_month = ?
@@ -273,12 +308,23 @@ export async function analyseAdherence(opts = {}) {
     if (!hit && l.customer_name) {
       const match = String(l.customer_name).match(/\((RSS[BD]?\w+|SDNE\w+|\d{6,}|[A-Z0-9_-]{4,})\)/i);
       if (match) hit = dealerIndex.get(key(match[1]));
+      if (!hit) hit = dealerIndex.get(key(l.customer_name));
+      if (!hit) hit = dealerIndex.get(normName(l.customer_name));
+      const b = baseName(l.customer_name);
+      if (!hit && b && b.length >= 3) hit = dealerIndex.get(b);
     }
     if (!hit) {
       unresolvedLogs.push({
         employee_code: l.employee_code, employee_name: l.employee_name,
         customer_code: l.customer_code, customer_name: l.customer_name,
         visit_date: String(l.visit_date).slice(0, 10)
+      });
+      // Retain unmapped log so employee visits can still be matched by code or name
+      resolvedLogs.push({
+        ...l,
+        visit_date: String(l.visit_date).slice(0, 10),
+        canonical_code: norm(l.customer_code),
+        resolved_from: 'SFA_UNMAPPED'
       });
       continue;
     }
@@ -293,26 +339,45 @@ export async function analyseAdherence(opts = {}) {
   // Index actual visits by employee identity + dealer. The client matches the employee
   // on NAME; our plans carry a code. Accept either, so a log that only has one still lands.
   const actual = new Map();   // "empKey|dealer" -> { rows: [], dates: Set }
-  const addActual = (empKey, dealer, row) => {
-    if (!empKey || !dealer) return;
-    const k = `${empKey}|${dealer}`;
+  const addActual = (empKey, dealerKey, row) => {
+    if (!empKey || !dealerKey) return;
+    const k = `${empKey}|${dealerKey}`;
     if (!actual.has(k)) actual.set(k, { rows: [], dates: new Set() });
     const e = actual.get(k);
     e.rows.push(row);
     e.dates.add(row.visit_date);
   };
   for (const l of resolvedLogs) {
-    addActual(key(l.employee_code), key(l.canonical_code), l);
-    addActual(key(l.employee_name), key(l.canonical_code), l);
+    if (l.canonical_code) {
+      addActual(key(l.employee_code), key(l.canonical_code), l);
+      addActual(key(l.employee_name), key(l.canonical_code), l);
+    }
+    if (l.customer_code) {
+      addActual(key(l.employee_code), key(l.customer_code), l);
+      addActual(key(l.employee_name), key(l.customer_code), l);
+    }
+    if (l.customer_name) {
+      addActual(key(l.employee_code), key(l.customer_name), l);
+      addActual(key(l.employee_name), key(l.customer_name), l);
+      addActual(key(l.employee_code), normName(l.customer_name), l);
+      addActual(key(l.employee_name), normName(l.customer_name), l);
+      const b = baseName(l.customer_name);
+      if (b && b.length >= 3) {
+        addActual(key(l.employee_code), b, l);
+        addActual(key(l.employee_name), b, l);
+      }
+    }
   }
 
   // Look up area, zone and category (dealer_status) for dealers
-  const dimRows = await dbAll(
-    `SELECT sap_code, sfa_code, area, zone, dealer_status, category FROM dealer_visit_targets WHERE period_month = ?`,
-    [periodMonth]
-  ).catch(() => []);
   const masterRows = await dbAll(
-    `SELECT sap_code, sfa_code, area, zone FROM master_dealers`
+    `SELECT id, dealer_id, sap_code, sfa_code, rssd_code, dealer_name, dealer_type, counter_strategy, area, zone FROM master_dealers`
+  ).catch(() => []);
+  const dimRows = await dbAll(
+    `SELECT id, dealer_id, dealer_name, sap_code, sfa_code, area, zone, dealer_status, category, period_month 
+     FROM dealer_visit_targets 
+     ORDER BY (period_month = ?) DESC, id DESC`,
+    [periodMonth]
   ).catch(() => []);
   const empMasterRows = await dbAll(
     `SELECT emp_code, dns_emp_code, emp_name, zone FROM employee_master`
@@ -327,63 +392,131 @@ export async function analyseAdherence(opts = {}) {
   }
 
   const dealerDims = new Map();
+  const indexDim = (kStr, val) => {
+    if (!kStr) return;
+    const k = key(kStr);
+    if (!k) return;
+    const existing = dealerDims.get(k);
+    if (!existing) {
+      dealerDims.set(k, { ...val });
+    } else {
+      const isSpecificCat = val.category && val.category !== 'Other' && val.category !== 'New / Other' && val.category !== 'Growing';
+      dealerDims.set(k, {
+        sap_code: val.sap_code || existing.sap_code || '',
+        sfa_code: val.sfa_code || existing.sfa_code || '',
+        area: val.area || existing.area || '',
+        zone: val.zone || existing.zone || '',
+        category: isSpecificCat ? val.category : (existing.category || val.category || 'Growing'),
+        dealer_name: val.dealer_name || existing.dealer_name || '',
+        dealer_type: val.dealer_type || existing.dealer_type || ''
+      });
+    }
+  };
+
   for (const m of masterRows) {
     const sap = norm(m.sap_code);
     const sfa = norm(m.sfa_code);
+    const isProspect = (m.dealer_type === 'PROSPECTIVE' || m.counter_strategy === 'PROSPECT' || sap.startsWith('NS') || sfa.startsWith('NS'));
     const val = {
       sap_code: sap,
       sfa_code: sfa,
       area: m.area || '',
       zone: m.zone || '',
-      category: 'New / Other'
+      category: isProspect ? 'Prospective' : 'Growing',
+      dealer_name: m.dealer_name || '',
+      dealer_type: m.dealer_type || ''
     };
-    if (m.sap_code) dealerDims.set(key(m.sap_code), val);
-    if (m.sfa_code) dealerDims.set(key(m.sfa_code), val);
+    if (sap) indexDim(sap, val);
+    if (sfa) indexDim(sfa, val);
+    if (m.rssd_code) indexDim(m.rssd_code, val);
+    if (m.dealer_name) {
+      indexDim(m.dealer_name, val);
+      indexDim(normName(m.dealer_name), val);
+      const b = baseName(m.dealer_name);
+      if (b && b.length >= 3) indexDim(b, val);
+    }
+    if (m.id) {
+      indexDim(String(m.id), val);
+      indexDim(`dlr_${m.id}`, val);
+    }
+    if (m.dealer_id) indexDim(m.dealer_id, val);
   }
+
   for (const d of dimRows) {
-    const cat = d.dealer_status || d.category || 'Other';
-    const area = d.area || '';
-    const zone = d.zone || '';
+    let cat = d.dealer_status || d.category || 'Growing';
+    if (cat === 'Other' || cat === 'New / Other') cat = 'Growing';
     const sap = norm(d.sap_code);
     const sfa = norm(d.sfa_code);
-    if (sap) {
-      const prev = dealerDims.get(key(sap)) || {};
-      dealerDims.set(key(sap), {
-        sap_code: sap || prev.sap_code || '',
-        sfa_code: sfa || prev.sfa_code || '',
-        area: area || prev.area || '',
-        zone: zone || prev.zone || '',
-        category: cat
-      });
+    const val = {
+      sap_code: sap,
+      sfa_code: sfa,
+      area: d.area || '',
+      zone: d.zone || '',
+      category: cat,
+      dealer_name: d.dealer_name || '',
+      dealer_type: ''
+    };
+    if (sap) indexDim(sap, val);
+    if (sfa) indexDim(sfa, val);
+    if (d.dealer_name) {
+      indexDim(d.dealer_name, val);
+      indexDim(normName(d.dealer_name), val);
+      const b = baseName(d.dealer_name);
+      if (b && b.length >= 3) indexDim(b, val);
     }
-    if (sfa) {
-      const prev = dealerDims.get(key(sfa)) || {};
-      dealerDims.set(key(sfa), {
-        sap_code: sap || prev.sap_code || '',
-        sfa_code: sfa || prev.sfa_code || '',
-        area: area || prev.area || '',
-        zone: zone || prev.zone || '',
-        category: cat
-      });
+    if (d.id) {
+      indexDim(String(d.id), val);
+      indexDim(`dlr_${d.id}`, val);
     }
+    if (d.dealer_id) indexDim(d.dealer_id, val);
   }
 
   // ── 4. fold the plan down to one row per (cycle, role, employee, dealer) ──
   const dealerRows = new Map();
   for (const p of planned) {
-    const dealer = key(p.dealer_sap_code) || (p.dealer_id ? `dlr_${p.dealer_id}` : null) || (p.dealer_name ? key(p.dealer_name) : null);
-    if (!dealer) continue;
-    const k = `${p.cycle_code}|${p.emp_role}|${key(p.emp_code)}|${dealer}`;
+    const rawSap = norm(p.dealer_sap_code);
+    const isDummySap = !rawSap || rawSap.startsWith('C/') || rawSap.startsWith('DLR_');
+    const codeInName = String(p.dealer_name || '').match(/\((RSS[BD]?\w+|SD[A-Z0-9]+|[A-Z0-9_-]{4,})\)/i);
+
+    // Multi-tier dim lookup
+    const dim = (!isDummySap && dealerDims.get(key(rawSap)))
+             || (p.dealer_name && dealerDims.get(key(p.dealer_name)))
+             || (p.dealer_name && dealerDims.get(normName(p.dealer_name)))
+             || (p.dealer_name && baseName(p.dealer_name).length >= 3 && dealerDims.get(baseName(p.dealer_name)))
+             || (codeInName && dealerDims.get(key(codeInName[1])))
+             || (p.dealer_id && dealerDims.get(String(p.dealer_id)))
+             || (p.dealer_id && dealerDims.get(`dlr_${p.dealer_id}`))
+             || (rawSap && dealerDims.get(key(rawSap)))
+             || {};
+
+    // Canonical dealer identifier for grouping
+    let canonicalDealer = (!isDummySap ? rawSap : '') || dim.sap_code || dim.sfa_code || (codeInName ? codeInName[1] : '') || p.dealer_name || (p.dealer_id ? `dlr_${p.dealer_id}` : 'dealer');
+    canonicalDealer = key(canonicalDealer);
+
+    const k = `${p.cycle_code}|${p.emp_role}|${key(p.emp_code)}|${canonicalDealer}`;
     if (!dealerRows.has(k)) {
-      const dim = dealerDims.get(dealer) || (p.dealer_sap_code ? dealerDims.get(key(p.dealer_sap_code)) : null) || {};
       const empZone = empZoneMap.get(key(p.emp_code)) || empZoneMap.get(key(p.emp_name)) || '';
       const zone = dim.zone || empZone || '';
-      const sapCode = norm(p.dealer_sap_code) || dim.sap_code || (p.dealer_id ? `DLR_${p.dealer_id}` : '');
-      let sfaCode = dim.sfa_code || '';
-      if (!sfaCode && p.dealer_name) {
-        const match = String(p.dealer_name).match(/\((RSS[BD]?\w+|SD[A-Z0-9]+|[A-Z0-9_-]{4,})\)/i);
-        if (match) sfaCode = match[1];
+
+      // Resolve clean SAP code
+      let sapCode = (!isDummySap) ? rawSap : (dim.sap_code || '');
+      if (!sapCode && dim.sfa_code) sapCode = dim.sfa_code;
+      if (!sapCode && codeInName) sapCode = codeInName[1];
+      if (!sapCode && rawSap && rawSap.startsWith('C/')) sapCode = rawSap.replace('C/', 'PR-');
+      if (!sapCode && p.dealer_id) sapCode = `PR-${p.dealer_id}`;
+      if (!sapCode) sapCode = canonicalDealer;
+
+      let sfaCode = dim.sfa_code || (codeInName ? codeInName[1] : '');
+
+      // Resolve category — NEVER return 'Other'
+      let category = dim.category;
+      if (!category || category === 'Other' || category === 'New / Other') {
+        const isProspect = p.dealer_type === 'PROSPECTIVE' || p.dealer_type === 'NON STAR' ||
+                           String(p.purpose_of_visit).toUpperCase().includes('PROSPECT') ||
+                           String(sapCode).startsWith('NS') || String(sapCode).startsWith('PR-');
+        category = isProspect ? 'Prospective' : 'Growing';
       }
+
       dealerRows.set(k, {
         cycle_code: p.cycle_code,
         role: p.emp_role,
@@ -392,9 +525,9 @@ export async function analyseAdherence(opts = {}) {
         dealer_sap_code: sapCode,
         sap_code: sapCode,
         sfa_code: sfaCode,
-        dealer_name: p.dealer_name || 'Dealer',
+        dealer_name: dim.dealer_name || p.dealer_name || 'Dealer',
         dealer_id: p.dealer_id,
-        category: dim.category || 'Other',
+        category: category,
         area: dim.area || '',
         zone: zone,
         emp_zone: empZone || zone,
@@ -420,13 +553,35 @@ export async function analyseAdherence(opts = {}) {
     const mtdPlanned = row.planned * fraction;
     const cWin       = cycleWindows[row.cycle_code] || cycleWindows.C1;
 
-    const hit = actual.get(`${key(row.emp_code)}|${key(row.dealer_sap_code)}`)
-             || actual.get(`${key(row.emp_name)}|${key(row.dealer_sap_code)}`);
+    // Look up hits by SAP code, SFA code, dealer name, or normalized dealer name
+    const hitCandidates = [
+      actual.get(`${key(row.emp_code)}|${key(row.dealer_sap_code)}`),
+      actual.get(`${key(row.emp_name)}|${key(row.dealer_sap_code)}`),
+      row.sfa_code ? actual.get(`${key(row.emp_code)}|${key(row.sfa_code)}`) : null,
+      row.sfa_code ? actual.get(`${key(row.emp_name)}|${key(row.sfa_code)}`) : null,
+      row.dealer_name ? actual.get(`${key(row.emp_code)}|${key(row.dealer_name)}`) : null,
+      row.dealer_name ? actual.get(`${key(row.emp_name)}|${key(row.dealer_name)}`) : null,
+      row.dealer_name ? actual.get(`${key(row.emp_code)}|${normName(row.dealer_name)}`) : null,
+      row.dealer_name ? actual.get(`${key(row.emp_name)}|${normName(row.dealer_name)}`) : null,
+      row.dealer_name && baseName(row.dealer_name).length >= 3 ? actual.get(`${key(row.emp_code)}|${baseName(row.dealer_name)}`) : null,
+      row.dealer_name && baseName(row.dealer_name).length >= 3 ? actual.get(`${key(row.emp_name)}|${baseName(row.dealer_name)}`) : null
+    ].filter(Boolean);
+
+    // Merge rows and deduplicate by visit_date + customer_code
+    const seenVisitKeys = new Set();
+    const mergedRows = [];
+    for (const h of hitCandidates) {
+      for (const r of h.rows) {
+        const vKey = `${r.visit_date}|${key(r.customer_code)}|${key(r.customer_name)}`;
+        if (!seenVisitKeys.has(vKey)) {
+          seenVisitKeys.add(vKey);
+          mergedRows.push(r);
+        }
+      }
+    }
 
     // Match only visits that fall within this cycle's active window (up to asOnDate)
-    const matchingRows = hit
-      ? hit.rows.filter(r => (!cWin.from || r.visit_date >= cWin.from) && (!cWin.to || r.visit_date <= cWin.to))
-      : [];
+    const matchingRows = mergedRows.filter(r => (!cWin.from || r.visit_date >= cWin.from) && (!cWin.to || r.visit_date <= cWin.to));
     const matchingDates = new Set(matchingRows.map(r => r.visit_date));
 
     const adheredRaw    = matchingRows.length;

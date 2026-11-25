@@ -374,8 +374,10 @@ async function runStartupMigrations() {
     // Migration 13: Automatically restore Abhijit Dam (ASM) C1 plan if overridden
     const { restoreAbhijitDamC1Plan } = await import('./services/restoreAbhijitDamPlan.service.js');
     await restoreAbhijitDamC1Plan();
+    const { healPlanDealerCodes } = await import('./scripts/heal-plan-dealer-codes.js');
+    await healPlanDealerCodes();
   } catch (err) {
-    console.warn('[Migration] Warning during Abhijit Dam C1 plan restoration:', err.message);
+    console.warn('[Migration] Warning during Abhijit Dam C1 plan restoration / code healing:', err.message);
   }
 
   try {
