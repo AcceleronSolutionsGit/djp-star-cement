@@ -44,9 +44,9 @@ import { dbAll, dbGet } from '../config/database.js';
 
 const norm = v => String(v ?? '').trim();
 const key  = v => norm(v).toUpperCase();
-const normName = v => key(v).replace(/\([^)]*\)/g, '').replace(/[,.-]+/g, ' ').replace(/\s+/g, ' ').trim();
+const normName = v => key(v).replace(/\s+\(/g, '(').replace(/[,.-]+/g, ' ').replace(/\s+/g, ' ').trim();
 const baseName = v => {
-  let s = normName(v);
+  let s = key(v).replace(/\([^)]*\)/g, '').replace(/[,.-]+/g, ' ').replace(/\s+/g, ' ').trim();
   s = s.replace(/\b(STORE|STORES|ENTERPRISE|ENTERPRISES|TRADERS|TRADER|HARDWARE|CEMENT|IRON|STEEL|AGENCY|AGENCIES|CORP|CORPORATION|CO|COMPANY|PVT|LTD|ASSOCIATES)\b/g, '').replace(/\s+/g, ' ').trim();
   return s;
 };
@@ -172,8 +172,6 @@ export async function buildDealerCodeIndex() {
     if (d.dealer_name) {
       if (!index.has(key(d.dealer_name))) index.set(key(d.dealer_name), { canonical, name: d.dealer_name });
       if (!index.has(normName(d.dealer_name))) index.set(normName(d.dealer_name), { canonical, name: d.dealer_name });
-      const b = baseName(d.dealer_name);
-      if (b && b.length >= 3 && !index.has(b)) index.set(b, { canonical, name: d.dealer_name });
     }
     const codeInName = String(d.dealer_name || '').match(/\((RSS[BD]?\w+|SDNE\w+|\d{6,}|[A-Z0-9_-]{4,})\)/i);
     if (codeInName && !index.has(key(codeInName[1]))) {
@@ -310,8 +308,6 @@ export async function analyseAdherence(opts = {}) {
       if (match) hit = dealerIndex.get(key(match[1]));
       if (!hit) hit = dealerIndex.get(key(l.customer_name));
       if (!hit) hit = dealerIndex.get(normName(l.customer_name));
-      const b = baseName(l.customer_name);
-      if (!hit && b && b.length >= 3) hit = dealerIndex.get(b);
     }
     if (!hit) {
       unresolvedLogs.push({
@@ -361,11 +357,6 @@ export async function analyseAdherence(opts = {}) {
       addActual(key(l.employee_name), key(l.customer_name), l);
       addActual(key(l.employee_code), normName(l.customer_name), l);
       addActual(key(l.employee_name), normName(l.customer_name), l);
-      const b = baseName(l.customer_name);
-      if (b && b.length >= 3) {
-        addActual(key(l.employee_code), b, l);
-        addActual(key(l.employee_name), b, l);
-      }
     }
   }
 
@@ -374,9 +365,11 @@ export async function analyseAdherence(opts = {}) {
     `SELECT id, dealer_id, sap_code, sfa_code, rssd_code, dealer_name, dealer_type, counter_strategy, area, zone FROM master_dealers`
   ).catch(() => []);
   const dimRows = await dbAll(
-    `SELECT id, dealer_id, dealer_name, sap_code, sfa_code, area, zone, dealer_status, category, period_month 
+    `SELECT id, dealer_id, dealer_name, sap_code, sfa_code, area, zone, dealer_status, category, period_month,
+            cycle_code, cust_type, so_name, so_emp_code, so_visits, asm_name, asm_code, asm_visits,
+            rsm_name, rsm_code, rsm_visits, zh_name, zh_code, zh_visits
      FROM dealer_visit_targets 
-     ORDER BY (period_month = ?) DESC, id DESC`,
+     ORDER BY (period_month = ?) ASC, period_month ASC, id ASC`,
     [periodMonth]
   ).catch(() => []);
   const empMasterRows = await dbAll(
@@ -400,15 +393,29 @@ export async function analyseAdherence(opts = {}) {
     if (!existing) {
       dealerDims.set(k, { ...val });
     } else {
-      const isSpecificCat = val.category && val.category !== 'Other' && val.category !== 'New / Other' && val.category !== 'Growing';
+      const valCat = val.category;
+      const exCat = existing.category;
+      const valIsSpecific = valCat && valCat !== 'Other' && valCat !== 'New / Other' && valCat !== 'Growing';
+      const exIsSpecific = exCat && exCat !== 'Other' && exCat !== 'New / Other' && exCat !== 'Growing';
+
+      let chosenCat = exCat || valCat || 'Growing';
+      if (val.isCurrentPeriod && valCat && valCat !== 'Other' && valCat !== 'New / Other') {
+        chosenCat = valCat;
+      } else if (!existing.isCurrentPeriod && valIsSpecific) {
+        chosenCat = valCat;
+      } else if (!exIsSpecific && valIsSpecific) {
+        chosenCat = valCat;
+      }
+
       dealerDims.set(k, {
-        sap_code: val.sap_code || existing.sap_code || '',
-        sfa_code: val.sfa_code || existing.sfa_code || '',
-        area: val.area || existing.area || '',
-        zone: val.zone || existing.zone || '',
-        category: isSpecificCat ? val.category : (existing.category || val.category || 'Growing'),
-        dealer_name: val.dealer_name || existing.dealer_name || '',
-        dealer_type: val.dealer_type || existing.dealer_type || ''
+        sap_code: (val.isCurrentPeriod ? val.sap_code : '') || existing.sap_code || val.sap_code || '',
+        sfa_code: (val.isCurrentPeriod ? val.sfa_code : '') || existing.sfa_code || val.sfa_code || '',
+        area: (val.isCurrentPeriod ? val.area : '') || existing.area || val.area || '',
+        zone: (val.isCurrentPeriod ? val.zone : '') || existing.zone || val.zone || '',
+        category: chosenCat,
+        dealer_name: (val.isCurrentPeriod && val.dealer_name) ? val.dealer_name : (existing.dealer_name || val.dealer_name || ''),
+        dealer_type: val.dealer_type || existing.dealer_type || '',
+        isCurrentPeriod: Boolean(existing.isCurrentPeriod || val.isCurrentPeriod)
       });
     }
   };
@@ -424,7 +431,8 @@ export async function analyseAdherence(opts = {}) {
       zone: m.zone || '',
       category: isProspect ? 'Prospective' : 'Growing',
       dealer_name: m.dealer_name || '',
-      dealer_type: m.dealer_type || ''
+      dealer_type: m.dealer_type || '',
+      isCurrentPeriod: false
     };
     if (sap) indexDim(sap, val);
     if (sfa) indexDim(sfa, val);
@@ -434,8 +442,6 @@ export async function analyseAdherence(opts = {}) {
       indexDim(normName(m.dealer_name), val);
       const codeInName = String(m.dealer_name).match(/\((RSS[BD]?\w+|SD[A-Z0-9]+|[A-Z0-9_-]{4,})\)/i);
       if (codeInName) indexDim(codeInName[1], val);
-      const b = baseName(m.dealer_name);
-      if (b && b.length >= 3) indexDim(b, val);
     }
     if (m.id) {
       indexDim(String(m.id), val);
@@ -456,7 +462,8 @@ export async function analyseAdherence(opts = {}) {
       zone: d.zone || '',
       category: cat,
       dealer_name: d.dealer_name || '',
-      dealer_type: ''
+      dealer_type: d.cust_type || '',
+      isCurrentPeriod: d.period_month === periodMonth
     };
     if (sap) indexDim(sap, val);
     if (sfa) indexDim(sfa, val);
@@ -465,8 +472,6 @@ export async function analyseAdherence(opts = {}) {
       indexDim(normName(d.dealer_name), val);
       const codeInName = String(d.dealer_name).match(/\((RSS[BD]?\w+|SD[A-Z0-9]+|[A-Z0-9_-]{4,})\)/i);
       if (codeInName) indexDim(codeInName[1], val);
-      const b = baseName(d.dealer_name);
-      if (b && b.length >= 3) indexDim(b, val);
     }
     if (d.id) {
       indexDim(String(d.id), val);
@@ -487,7 +492,6 @@ export async function analyseAdherence(opts = {}) {
              || (p.dealer_name && dealerDims.get(key(p.dealer_name)))
              || (codeInName && dealerDims.get(key(codeInName[1])))
              || (p.dealer_name && dealerDims.get(normName(p.dealer_name)))
-             || (p.dealer_name && baseName(p.dealer_name).length >= 3 && dealerDims.get(baseName(p.dealer_name)))
              || (p.dealer_id && dealerDims.get(String(p.dealer_id)))
              || (p.dealer_id && dealerDims.get(`dlr_${p.dealer_id}`))
              || (rawSap && dealerDims.get(key(rawSap)))
@@ -544,6 +548,111 @@ export async function analyseAdherence(opts = {}) {
     row.planned_dates.push(String(p.visit_date).slice(0, 10));
   }
 
+  // ── 4b. include assigned target dealers omitted by daily capacity caps ──
+  // Plans generated with a strict daily capacity cap (e.g. 8/day) omit overflow
+  // customers from sales_plan_details even though they are active targets in
+  // dealer_visit_targets. Include those missing target dealers for active officers
+  // so every officer's full customer roster appears in adherence.
+  const officerRegistry = new Map();
+  const empCodeLookup = new Map();
+  for (const p of planned) {
+    const r = key(p.emp_role);
+    const eKey = `${r}|${key(p.emp_name)}`;
+    if (!officerRegistry.has(eKey)) {
+      officerRegistry.set(eKey, {
+        emp_code: p.emp_code,
+        emp_name: p.emp_name,
+        role: p.emp_role,
+        cycles: new Set()
+      });
+    }
+    officerRegistry.get(eKey).cycles.add(p.cycle_code);
+    if (p.emp_code) empCodeLookup.set(`${r}|${key(p.emp_code)}`, eKey);
+  }
+
+  const existingOfficerDealers = new Set();
+  for (const row of dealerRows.values()) {
+    const r = key(row.role);
+    const emp = key(row.emp_code);
+    if (row.dealer_sap_code) existingOfficerDealers.add(`${row.cycle_code}|${r}|${emp}|${key(row.dealer_sap_code)}`);
+    if (row.sfa_code) existingOfficerDealers.add(`${row.cycle_code}|${r}|${emp}|${key(row.sfa_code)}`);
+    if (row.dealer_name) existingOfficerDealers.add(`${row.cycle_code}|${r}|${emp}|${normName(row.dealer_name)}`);
+  }
+
+  for (const d of dimRows) {
+    if (d.period_month !== periodMonth) continue;
+    const cyc = key(d.cycle_code || 'C1');
+    if (!cycles.includes(cyc)) continue;
+
+    const sap = norm(d.sap_code);
+    const sfa = norm(d.sfa_code);
+    const rawName = norm(d.dealer_name);
+    const canonicalCode = sap || sfa || normName(rawName);
+    if (!canonicalCode) continue;
+
+    const custType = key(d.cust_type);
+    const isDirectOrNonStar = !custType || custType === 'DEALER' || custType === 'NON STAR' || custType === 'NON-STAR' || custType === 'NON_STAR' || custType === 'PROSPECTIVE' || sap.startsWith('100');
+    const isDirectDealer = custType === 'DEALER' || sap.startsWith('100');
+
+    const roleChecks = [
+      { role: 'SO',  empCode: d.so_emp_code, empName: d.so_name,  visits: Number(d.so_visits  || 0), allowed: Number(d.so_visits  || 0) > 0 },
+      { role: 'ASM', empCode: d.asm_code,    empName: d.asm_name, visits: Number(d.asm_visits || 0), allowed: isDirectOrNonStar && Number(d.asm_visits || 0) > 0 },
+      { role: 'RSM', empCode: d.rsm_code,    empName: d.rsm_name, visits: Number(d.rsm_visits || 0), allowed: isDirectDealer && Number(d.rsm_visits || 0) >= 1 }
+    ];
+
+    for (const rc of roleChecks) {
+      if (!rc.allowed || (!rc.empCode && !rc.empName)) continue;
+      const eKey = (rc.empCode && empCodeLookup.get(`${rc.role}|${key(rc.empCode)}`)) || (rc.empName && `${rc.role}|${key(rc.empName)}`);
+      const off = eKey ? officerRegistry.get(eKey) : null;
+      if (!off || !off.cycles.has(cyc)) continue;
+
+      const empCode = off.emp_code;
+      const empK = key(empCode);
+      const alreadyPresent = existingOfficerDealers.has(`${cyc}|${rc.role}|${empK}|${key(canonicalCode)}`)
+                          || (sfa && existingOfficerDealers.has(`${cyc}|${rc.role}|${empK}|${key(sfa)}`))
+                          || (rawName && existingOfficerDealers.has(`${cyc}|${rc.role}|${empK}|${normName(rawName)}`));
+      if (alreadyPresent) continue;
+
+      const dim = dealerDims.get(key(canonicalCode)) || (rawName ? dealerDims.get(normName(rawName)) : null) || {};
+      const sapCode = dim.sap_code || sap || sfa || `NS-${normName(rawName).replace(/[^A-Z0-9]+/g, '-').slice(0, 20)}`;
+      const sfaCode = dim.sfa_code || sfa || '';
+      const rowKey = `${cyc}|${off.role}|${empK}|${key(sapCode)}`;
+      if (dealerRows.has(rowKey)) continue;
+
+      let cat = d.dealer_status || d.category || dim.category || 'Growing';
+      if (cat === 'Other' || cat === 'New / Other') {
+        cat = (custType === 'NON STAR' || custType === 'PROSPECTIVE' || sapCode.startsWith('NS')) ? 'Prospective' : 'Growing';
+      }
+
+      const empZone = empZoneMap.get(empK) || empZoneMap.get(key(off.emp_name)) || '';
+      const zone = d.zone || dim.zone || empZone || '';
+      const freq = rc.visits;
+      const cycPlanned = freq >= 2 ? (Math.floor(freq / 2) + (freq % 2 > 0 && cyc === 'C1' ? 1 : 0)) : 1;
+
+      dealerRows.set(rowKey, {
+        cycle_code: cyc,
+        role: off.role,
+        emp_code: empCode,
+        emp_name: off.emp_name,
+        dealer_sap_code: sapCode,
+        sap_code: sapCode,
+        sfa_code: sfaCode,
+        dealer_name: dim.dealer_name || rawName || sapCode,
+        dealer_id: d.dealer_id,
+        category: cat,
+        area: d.area || dim.area || '',
+        zone: zone,
+        emp_zone: empZone || zone,
+        planned: cycPlanned,
+        planned_dates: []
+      });
+
+      existingOfficerDealers.add(`${cyc}|${rc.role}|${empK}|${key(sapCode)}`);
+      if (sfaCode) existingOfficerDealers.add(`${cyc}|${rc.role}|${empK}|${key(sfaCode)}`);
+      if (rawName) existingOfficerDealers.add(`${cyc}|${rc.role}|${empK}|${normName(rawName)}`);
+    }
+  }
+
   // ── 5. score each row ─────────────────────────────────────────────────────
   const fractions = {};
   for (const c of cycles) fractions[c] = cycleElapsedFraction(c, asOnDate, periodMonth, windows);
@@ -566,9 +675,7 @@ export async function analyseAdherence(opts = {}) {
       row.dealer_name ? actual.get(`${key(row.emp_code)}|${key(row.dealer_name)}`) : null,
       row.dealer_name ? actual.get(`${key(row.emp_name)}|${key(row.dealer_name)}`) : null,
       row.dealer_name ? actual.get(`${key(row.emp_code)}|${normName(row.dealer_name)}`) : null,
-      row.dealer_name ? actual.get(`${key(row.emp_name)}|${normName(row.dealer_name)}`) : null,
-      row.dealer_name && baseName(row.dealer_name).length >= 3 ? actual.get(`${key(row.emp_code)}|${baseName(row.dealer_name)}`) : null,
-      row.dealer_name && baseName(row.dealer_name).length >= 3 ? actual.get(`${key(row.emp_name)}|${baseName(row.dealer_name)}`) : null
+      row.dealer_name ? actual.get(`${key(row.emp_name)}|${normName(row.dealer_name)}`) : null
     ].filter(Boolean);
 
     // Merge rows and deduplicate by visit_date + customer_code
